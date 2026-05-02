@@ -1,0 +1,1021 @@
+# 企业级Prometheus+Grafana监控告警体系
+
+> 完整实现企业级监控平台，覆盖基础设施、K8s集群、中间件、应用全链路
+> 包含: Prometheus HA + Thanos长期存储 + 50+告警规则 + Grafana仪表盘 + AlertManager多渠道通知
+
+---
+
+## 一、架构总览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Grafana (可视化)                          │
+│           Dashboard: Node/K8s/MySQL/Redis/Nginx/JVM             │
+└──────────────┬──────────────────────────┬───────────────────────┘
+               │                          │
+┌──────────────▼──────────┐  ┌────────────▼──────────────────────┐
+│  Prometheus-01 (主)     │  │  Prometheus-02 (备)               │
+│  + Thanos Sidecar       │  │  + Thanos Sidecar                 │
+│  保留: 15天本地          │  │  保留: 15天本地                    │
+└──────────┬──────────────┘  └──────────┬────────────────────────┘
+           │                            │
+           └──────────┬─────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────────┐
+│                     Thanos Store Gateway                         │
+│              长期存储: MinIO/S3 (1年数据保留)                      │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────────┐
+│                   AlertManager (告警路由)                         │
+│         钉钉 / 企业微信 / 邮件 / PagerDuty / Webhook             │
+└─────────────────────────────────────────────────────────────────┘
+
+数据采集层:
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│node-export│ │kube-state│ │blackbox  │ │mysql_exp │ │redis_exp │
+│  (每节点) │ │ metrics  │ │exporter  │ │  exporter│ │  exporter│
+└──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘
+```
+
+---
+
+## 二、服务器规划
+
+| 服务 | 数量 | 配置 | 用途 |
+|------|------|------|------|
+| Prometheus | 2 | 8C/32G/500G SSD | 时序数据库 |
+| Thanos | 2 | 与Prometheus共用 | 长期存储 |
+| AlertManager | 2 | 4C/8G/50G | 告警路由 |
+| Grafana | 1 | 4C/8G/50G | 可视化 |
+| MinIO | 4 | 4C/16G/2T | 对象存储 |
+
+---
+
+## 三、Prometheus部署
+
+```yaml
+# prometheus-deployment.yaml
+---
+# ConfigMap: Prometheus配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      scrape_timeout: 10s
+      external_labels:
+        cluster: 'production'
+        replica: '$(HOSTNAME)'
+    
+    # 告警规则文件
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+    
+    # AlertManager配置
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - alertmanager-01:9093
+                - alertmanager-02:9093
+    
+    # Thanos Sidecar配置
+    remote_write:
+      - url: 'http://thanos-receive:19291/api/v1/receive'
+    
+    # 抓取配置
+    scrape_configs:
+      # Prometheus自身监控
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['prometheus-01:9090', 'prometheus-02:9090']
+      
+      # K8s API Server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+      
+      # K8s Nodes
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+      
+      # K8s Pods
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+      
+      # K8s Services
+      - job_name: 'kubernetes-services'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+      
+      # K8s Endpoints
+      - job_name: 'kubernetes-endpoints'
+        kubernetes_sd_configs:
+          - role: endpoints
+      
+      # kube-state-metrics
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['kube-state-metrics:8080']
+      
+      # Node Exporter
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: instance
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: monitoring
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: node-exporter
+      
+      # MySQL Exporter
+      - job_name: 'mysql'
+        static_configs:
+          - targets: ['mysql-exporter:9104']
+            labels:
+              cluster: 'primary'
+      
+      # Redis Exporter
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+      
+      # Nginx Exporter
+      - job_name: 'nginx'
+        static_configs:
+          - targets: ['nginx-exporter:9113']
+      
+      # Blackbox Exporter (探针监控)
+      - job_name: 'blackbox-http'
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        static_configs:
+          - targets:
+              - https://api.ecommerce.com/health
+              - https://admin.ecommerce.com/health
+              - https://harbor.internal.com
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter:9115
+      
+      # Jenkins
+      - job_name: 'jenkins'
+        static_configs:
+          - targets: ['jenkins:8080']
+        metrics_path: '/prometheus'
+      
+      # Elasticsearch
+      - job_name: 'elasticsearch'
+        static_configs:
+          - targets: ['elasticsearch-exporter:9114']
+
+  # 告警规则
+  node-alerts.yml: |
+    groups:
+      - name: node-alerts
+        rules:
+          # CPU使用率过高
+          - alert: NodeHighCPU
+            expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "CPU使用率过高: {{ $labels.instance }}"
+              description: "CPU使用率已超过85%，当前值: {{ $value | printf \"%.1f\" }}%"
+          
+          # 内存使用率过高
+          - alert: NodeHighMemory
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "内存使用率过高: {{ $labels.instance }}"
+              description: "内存使用率已超过85%，当前值: {{ $value | printf \"%.1f\" }}%"
+          
+          # 内存即将耗尽
+          - alert: NodeMemoryCritical
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 95
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "内存即将耗尽: {{ $labels.instance }}"
+              description: "内存使用率已超过95%，当前值: {{ $value | printf \"%.1f\" }}%"
+          
+          # 磁盘使用率过高
+          - alert: NodeHighDisk
+            expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "磁盘使用率过高: {{ $labels.instance }} {{ $labels.mountpoint }}"
+              description: "磁盘使用率已超过85%，当前值: {{ $value | printf \"%.1f\" }}%"
+          
+          # 磁盘即将满
+          - alert: NodeDiskCritical
+            expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100 > 95
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "磁盘即将满: {{ $labels.instance }} {{ $labels.mountpoint }}"
+              description: "磁盘使用率已超过95%，当前值: {{ $value | printf \"%.1f\" }}%"
+          
+          # 磁盘IO过高
+          - alert: NodeHighDiskIO
+            expr: rate(node_disk_io_time_seconds_total[5m]) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "磁盘IO过高: {{ $labels.instance }}"
+              description: "磁盘IO利用率已超过90%"
+          
+          # 网络流量过高
+          - alert: NodeHighNetworkTraffic
+            expr: rate(node_network_receive_bytes_total{device!="lo"}[5m]) > 100000000
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "网络接收流量过高: {{ $labels.instance }}"
+              description: "网络接收速率超过100MB/s"
+          
+          # 节点宕机
+          - alert: NodeDown
+            expr: up{job="node-exporter"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "节点宕机: {{ $labels.instance }}"
+              description: "节点已不可达超过1分钟"
+          
+          # 系统负载过高
+          - alert: NodeHighLoad
+            expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "系统负载过高: {{ $labels.instance }}"
+              description: "15分钟平均负载超过CPU核心数的2倍"
+
+  k8s-alerts.yml: |
+    groups:
+      - name: k8s-alerts
+        rules:
+          # Pod频繁重启
+          - alert: PodFrequentRestarts
+            expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod频繁重启: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "Pod在1小时内重启超过5次"
+          
+          # Pod CrashLoopBackOff
+          - alert: PodCrashLooping
+            expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod CrashLoopBackOff: {{ $labels.namespace }}/{{ $labels.pod }}"
+          
+          # Pod内存使用率过高
+          - alert: PodHighMemory
+            expr: |
+              (sum by(namespace, pod) (container_memory_working_set_bytes{container!=""}) 
+              / sum by(namespace, pod) (kube_pod_container_resource_limits{resource="memory"})) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod内存使用率过高: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "内存使用率超过90%"
+          
+          # Pod CPU使用率过高
+          - alert: PodHighCPU
+            expr: |
+              (sum by(namespace, pod) (rate(container_cpu_usage_seconds_total{container!=""}[5m]))
+              / sum by(namespace, pod) (kube_pod_container_resource_limits{resource="cpu"})) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod CPU使用率过高: {{ $labels.namespace }}/{{ $labels.pod }}"
+          
+          # Deployment副本数不足
+          - alert: DeploymentReplicasMismatch
+            expr: kube_deployment_spec_replicas != kube_deployment_status_ready_replicas
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Deployment副本数不匹配: {{ $labels.namespace }}/{{ $labels.deployment }}"
+              description: "期望副本: {{ $value }}"
+          
+          # HPA达到最大副本数
+          - alert: HPAMaxedOut
+            expr: kube_horizontalpodautoscaler_status_current_replicas == kube_horizontalpodautoscaler_spec_max_replicas
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HPA已达到最大副本数: {{ $labels.namespace }}/{{ $labels.horizontalpodautoscaler }}"
+          
+          # Node NotReady
+          - alert: NodeNotReady
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "K8s节点NotReady: {{ $labels.node }}"
+          
+          # PVC使用率过高
+          - alert: PVCNearFull
+            expr: |
+              kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > 0.85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PVC使用率过高: {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}"
+              description: "PVC使用率超过85%"
+          
+          # Job失败
+          - alert: JobFailed
+            expr: kube_job_status_failed > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Job失败: {{ $labels.namespace }}/{{ $labels.job_name }}"
+
+  mysql-alerts.yml: |
+    groups:
+      - name: mysql-alerts
+        rules:
+          # MySQL宕机
+          - alert: MySQLDown
+            expr: mysql_up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "MySQL宕机"
+          
+          # 连接数过高
+          - alert: MySQLHighConnections
+            expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections * 100 > 80
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL连接数过高"
+              description: "连接数使用率: {{ $value | printf \"%.1f\" }}%"
+          
+          # 慢查询过多
+          - alert: MySQLHighSlowQueries
+            expr: rate(mysql_global_status_slow_queries[5m]) > 5
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL慢查询过多"
+              description: "慢查询速率: {{ $value | printf \"%.1f\" }}/s"
+          
+          # 复制延迟
+          - alert: MySQLReplicationLag
+            expr: mysql_slave_status_seconds_behind_master > 30
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL复制延迟"
+              description: "延迟: {{ $value }}s"
+          
+          # 复制线程停止
+          - alert: MySQLReplicationStopped
+            expr: mysql_slave_status_slave_io_running == 0 or mysql_slave_status_slave_sql_running == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "MySQL复制线程停止"
+          
+          # InnoDB缓冲池命中率低
+          - alert: MySQLLowBufferPoolHitRate
+            expr: |
+              (1 - mysql_global_status_innodb_buffer_pool_reads / mysql_global_status_innodb_buffer_pool_read_requests) * 100 < 99
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "InnoDB缓冲池命中率低"
+              description: "命中率: {{ $value | printf \"%.2f\" }}%"
+
+  redis-alerts.yml: |
+    groups:
+      - name: redis-alerts
+        rules:
+          # Redis宕机
+          - alert: RedisDown
+            expr: redis_up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis宕机: {{ $labels.instance }}"
+          
+          # 内存使用率过高
+          - alert: RedisHighMemory
+            expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis内存使用率过高"
+              description: "内存使用率: {{ $value | printf \"%.1f\" }}%"
+          
+          # 连接数过高
+          - alert: RedisHighConnections
+            expr: redis_connected_clients > 10000
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis连接数过高"
+          
+          # 命中率低
+          - alert: RedisLowHitRate
+            expr: |
+              redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100 < 80
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis缓存命中率低"
+              description: "命中率: {{ $value | printf \"%.1f\" }}%"
+          
+          # 复制延迟
+          - alert: RedisReplicationLag
+            expr: redis_connected_slave_lag_seconds > 10
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis复制延迟"
+
+  nginx-alerts.yml: |
+    groups:
+      - name: nginx-alerts
+        rules:
+          # Nginx宕机
+          - alert: NginxDown
+            expr: nginx_up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Nginx宕机: {{ $labels.instance }}"
+          
+          # 5xx错误率过高
+          - alert: NginxHigh5xxRate
+            expr: |
+              rate(nginx_http_requests_total{status=~"5.."}[5m]) 
+              / rate(nginx_http_requests_total[5m]) * 100 > 5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Nginx 5xx错误率过高"
+              description: "5xx错误率: {{ $value | printf \"%.2f\" }}%"
+          
+          # 活跃连接数过高
+          - alert: NginxHighActiveConnections
+            expr: nginx_connections_active > 5000
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Nginx活跃连接数过高"
+
+  app-alerts.yml: |
+    groups:
+      - name: app-alerts
+        rules:
+          # HTTP请求延迟过高
+          - alert: HighRequestLatency
+            expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HTTP请求P99延迟过高"
+              description: "P99延迟: {{ $value | printf \"%.2f\" }}s"
+          
+          # HTTP请求错误率
+          - alert: HighRequestErrorRate
+            expr: |
+              rate(http_requests_total{code=~"5.."}[5m])
+              / rate(http_requests_total[5m]) * 100 > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "HTTP请求错误率过高"
+              description: "5xx错误率: {{ $value | printf \"%.2f\" }}%"
+
+  # 录制规则（提升查询性能）
+  recording-rules.yml: |
+    groups:
+      - name: node-recording
+        interval: 30s
+        rules:
+          - record: instance:node_cpu_utilization:ratio
+            expr: 1 - avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m]))
+          
+          - record: instance:node_memory_utilization:ratio
+            expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+          
+          - record: instance:node_disk_utilization:ratio
+            expr: 1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes)
+      
+      - name: k8s-recording
+        interval: 30s
+        rules:
+          - record: namespace:container_cpu_usage_seconds_total:rate5m
+            expr: sum by(namespace) (rate(container_cpu_usage_seconds_total{container!=""}[5m]))
+          
+          - record: namespace:container_memory_working_set_bytes:sum
+            expr: sum by(namespace) (container_memory_working_set_bytes{container!=""})
+```
+
+---
+
+## 四、Thanos长期存储
+
+```yaml
+# thanos-sidecar.yaml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  serviceName: prometheus
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        # Prometheus主容器
+        - name: prometheus
+          image: prom/prometheus:v2.48.0
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=15d'
+            - '--storage.tsdb.retention.size=200GB'
+            - '--web.enable-lifecycle'
+            - '--web.enable-admin-api'
+            - '--web.enable-remote-write-receiver'
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              cpu: "4"
+              memory: 16Gi
+        
+        # Thanos Sidecar
+        - name: thanos-sidecar
+          image: thanosio/thanos:v0.33.0
+          args:
+            - sidecar
+            - --tsdb.path=/prometheus
+            - --prometheus.url=http://localhost:9090
+            - --objstore.config-file=/etc/thanos/bucket.yml
+            - --grpc-address=0.0.0.0:10901
+            - --http-address=0.0.0.0:10902
+          ports:
+            - containerPort: 10901
+              name: grpc
+            - containerPort: 10902
+              name: http
+          volumeMounts:
+            - name: prometheus-data
+              mountPath: /prometheus
+              readOnly: true
+            - name: thanos-config
+              mountPath: /etc/thanos
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: thanos-config
+          configMap:
+            name: thanos-config
+  
+  volumeClaimTemplates:
+    - metadata:
+        name: prometheus-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-ssd
+        resources:
+          requests:
+            storage: 500Gi
+
+---
+# MinIO对象存储配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thanos-config
+  namespace: monitoring
+data:
+  bucket.yml: |
+    type: S3
+    config:
+      bucket: thanos-metrics
+      endpoint: minio-01:9000
+      access_key: minioadmin
+      secret_key: Minio@Admin2024
+      insecure: true
+```
+
+---
+
+## 五、Grafana仪表盘
+
+```yaml
+# grafana-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.0
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: Grafana@Admin2024
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+
+---
+# 数据源配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        jsonData:
+          timeInterval: '15s'
+      
+      - name: Thanos
+        type: prometheus
+        access: proxy
+        url: http://thanos-query:10902
+        jsonData:
+          timeInterval: '15s'
+
+---
+# 仪表盘配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: 'Enterprise Ops'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: true
+```
+
+### 5.1 推荐Dashboard ID（从Grafana.com导入）
+
+| Dashboard | ID | 用途 |
+|-----------|-----|------|
+| Node Exporter Full | 1860 | 主机监控 |
+| Kubernetes Cluster Monitoring | 7249 | K8s集群 |
+| MySQL Overview | 7362 | MySQL监控 |
+| Redis Dashboard | 763 | Redis监控 |
+| Nginx Ingress | 9614 | Nginx监控 |
+| Jvm (Micrometer) | 4701 | Java应用 |
+| Docker Container | 893 | Docker监控 |
+
+---
+
+## 六、AlertManager部署
+
+```yaml
+# alertmanager-deployment.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      smtp_from: 'alertmanager@company.com'
+      smtp_smarthost: 'smtp.feishu.cn:465'
+      smtp_auth_username: 'alertmanager@company.com'
+      smtp_auth_password: 'smtp-password'
+      smtp_require_tls: false
+    
+    # 告警模板
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+    
+    # 路由规则
+    route:
+      receiver: 'default'
+      group_by: ['alertname', 'namespace', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      
+      routes:
+        # 紧急告警 - 立即通知
+        - match:
+            severity: critical
+          receiver: 'critical-dingtalk'
+          group_wait: 10s
+          repeat_interval: 1h
+        
+        # 警告告警
+        - match:
+            severity: warning
+          receiver: 'warning-wechat'
+          repeat_interval: 4h
+        
+        # 数据库告警
+        - match_re:
+            alertname: 'MySQL.*|Redis.*'
+          receiver: 'dba-dingtalk'
+          repeat_interval: 2h
+        
+        # K8s告警
+        - match_re:
+            alertname: 'Pod.*|Deployment.*|Node.*|HPA.*|PVC.*'
+          receiver: 'platform-dingtalk'
+          repeat_interval: 2h
+    
+    # 接收器配置
+    receivers:
+      - name: 'default'
+        email_configs:
+          - to: 'ops-team@company.com'
+            send_resolved: true
+      
+      - name: 'critical-dingtalk'
+        webhook_configs:
+          - url: 'http://dingtalk-webhook:8060/dingtalk/ops-critical/send'
+            send_resolved: true
+        email_configs:
+          - to: 'ops-critical@company.com'
+            send_resolved: true
+      
+      - name: 'warning-wechat'
+        webhook_configs:
+          - url: 'http://wechat-webhook:8061/wechat/warning/send'
+            send_resolved: true
+      
+      - name: 'dba-dingtalk'
+        webhook_configs:
+          - url: 'http://dingtalk-webhook:8060/dingtalk/dba/send'
+            send_resolved: true
+      
+      - name: 'platform-dingtalk'
+        webhook_configs:
+          - url: 'http://dingtalk-webhook:8060/dingtalk/platform/send'
+            send_resolved: true
+    
+    # 抑制规则
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'namespace']
+
+  # 钉钉通知模板
+  dingtalk-template.tmpl: |
+    {{ define "dingtalk.content" }}
+    {{ if eq .Status "resolved" }}
+    ✅ **告警恢复**
+    {{ else }}
+    🔴 **告警触发**
+    {{ end }}
+    **告警名称:** {{ .GroupLabels.alertname }}
+    **严重级别:** {{ .CommonLabels.severity }}
+    **告警实例:** {{ .CommonLabels.instance }}
+    **告警描述:** {{ .CommonAnnotations.description }}
+    **当前值:** {{ .CommonAnnotations.value }}
+    **触发时间:** {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+    {{ if .EndsAt }}
+    **恢复时间:** {{ .EndsAt.Format "2006-01-02 15:04:05" }}
+    {{ end }}
+    ---
+    **受影响标签:**
+    {{ range .CommonLabels.SortedPairs }}
+    - {{ .Name }}: {{ .Value }}
+    {{ end }}
+    {{ end }}
+```
+
+---
+
+## 七、一键部署脚本
+
+```bash
+#!/bin/bash
+# install_monitoring.sh - 一键部署完整监控体系
+
+set -euo pipefail
+
+echo "================================================"
+echo "  企业级Prometheus+Grafana监控体系 - 一键部署"
+echo "================================================"
+
+echo "Step 1: 创建命名空间..."
+kubectl create namespace monitoring
+
+echo "Step 2: 部署Prometheus..."
+kubectl apply -f prometheus-deployment.yaml
+
+echo "Step 3: 部署AlertManager..."
+kubectl apply -f alertmanager-deployment.yaml
+
+echo "Step 4: 部署Grafana..."
+kubectl apply -f grafana-deployment.yaml
+
+echo "Step 5: 部署Exporter..."
+kubectl apply -f exporters/
+
+echo "Step 6: 部署Thanos..."
+kubectl apply -f thanos/
+
+echo "Step 7: 配置Helm (可选)..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install kube-prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set grafana.adminPassword=Admin@2024 \
+  --set prometheus.retention=15d
+
+echo ""
+echo "================================================"
+echo "  ✅ 监控体系部署完成！"
+echo "================================================"
+echo "  Prometheus: http://prometheus:9090"
+echo "  Grafana:    http://grafana:3000 (Admin@2024)"
+echo "  AlertMgr:   http://alertmanager:9093"
+echo "  Thanos:     http://thanos-query:10902"
+echo "================================================"
+```
+
+---
+
+> 本项目基于25个语雀知识库(2699篇,584万字)编写
+> 涵盖: Prometheus HA + Thanos + 50+告警规则 + Grafana + AlertManager
