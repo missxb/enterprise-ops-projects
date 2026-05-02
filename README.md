@@ -1,206 +1,112 @@
-# 🏢 企业级运维项目集合
+# 企业级运维项目实战合集
 
-> 从零到一的完整企业级运维实战项目，覆盖DevOps全链路
-
----
-
-## 📚 项目列表
-
-| # | 项目名称 | 技术栈 | 难度 | 说明 |
-|---|---------|--------|------|------|
-| 01 | Docker Compose全栈Web应用 | Nginx + FastAPI + MySQL + Redis | ⭐⭐ | 生产级Web应用部署方案 |
-| 02 | Kubernetes生产集群搭建 | kubeadm + Calico + MetalLB | ⭐⭐⭐⭐ | 多节点K8s集群完整搭建 |
-| 03 | Prometheus+Grafana监控告警 | Prometheus + Grafana + AlertManager | ⭐⭐⭐ | 全链路监控告警系统 |
-| 04 | Jenkins CI/CD完整流水线 | Jenkins + Docker + K8s + ArgoCD | ⭐⭐⭐⭐ | 企业级CI/CD全流程 |
-| 05 | Ansible自动化运维平台 | Ansible + Playbooks + Roles | ⭐⭐⭐ | 批量服务器自动化管理 |
-| 06 | Terraform云基础设施IaC | AWS + EKS + RDS + VPC | ⭐⭐⭐⭐ | 基础设施即代码 |
-| 07 | ELK Stack日志分析系统 | Elasticsearch + Logstash + Kibana | ⭐⭐⭐ | 企业级日志收集分析 |
+> 基于25个语雀知识库(2,699篇文档, 584万字)深度学习后的实战产出
+> 涵盖容器化、CI/CD、监控、日志、数据库、缓存、网关、自动化、安全全栈
 
 ---
 
-## 🗺️ 学习路线
+## 📁 项目清单
+
+| # | 项目 | 技术栈 | 规模 |
+|---|------|--------|------|
+| 01 | 企业级容器云平台 | Docker + K8s + Harbor + Helm + Calico + MetalLB | 43KB |
+| 02 | 企业级CI/CD全链路 | Jenkins + GitLab CI + SonarQube + ArgoCD + Trivy | 36KB |
+| 03 | 企业级监控告警体系 | Prometheus + Grafana + Thanos + AlertManager + 50+告警规则 | 34KB |
+| 04 | 企业级ELK日志平台 | Elasticsearch + Filebeat + Kibana + ILM生命周期 | 16KB |
+| 05 | 企业级MySQL高可用 | MGR集群 + ProxySQL读写分离 + xtrabackup备份 + PITR | 12KB |
+| 06 | 企业级Redis集群 | Cluster 6节点 + Sentinel哨兵 + 分布式锁 | 10KB |
+| 07 | 企业级Nginx高可用 | Nginx + Keepalived VIP + SSL + 限流 + WAF | 8KB |
+| 08 | 企业级自动化运维 | Ansible配置管理 + Terraform IaC(阿里云) | 12KB |
+| 09 | 企业级微服务网关 | Kong Gateway + Istio服务网格 + Jaeger链路追踪 | 10KB |
+| 10 | 企业级安全加固 | 主机加固 + K8s安全 + 等保合规 + 堡垒机 | 10KB |
+
+**总计: 10个项目, 191KB, 覆盖企业运维全栈**
+
+---
+
+## 🏗️ 架构全景
 
 ```
-阶段1: 基础部署 (2周)
-├── 01-Docker Compose全栈部署
-└── 掌握: Docker, Docker Compose, 容器化基础
-
-阶段2: 容器编排 (3周)
-├── 02-Kubernetes集群搭建
-└── 掌握: K8s核心概念, Pod, Service, Ingress, HPA
-
-阶段3: 监控告警 (2周)
-├── 03-Prometheus+Grafana监控
-└── 掌握: 监控指标, 告警规则, PromQL
-
-阶段4: CI/CD (3周)
-├── 04-Jenkins CI/CD流水线
-└── 掌握: 自动化构建, 镜像管理, 滚动更新
-
-阶段5: 自动化运维 (2周)
-├── 05-Ansible自动化平台
-└── 掌握: 配置管理, Playbook, Role
-
-阶段6: 云基础设施 (3周)
-├── 06-Terraform AWS架构
-└── 掌握: IaC, AWS服务, 状态管理
-
-阶段7: 日志分析 (2周)
-├── 07-ELK Stack日志系统
-└── 掌握: 日志采集, 索引管理, 可视化
-```
-
----
-
-## 🛠️ 环境要求
-
-### 本地环境
-- **操作系统**: Ubuntu 22.04 / CentOS 7+ / macOS 12+
-- **Docker**: 24.0+
-- **Docker Compose**: 2.20+
-- **kubectl**: 1.28+
-- **Ansible**: 2.15+
-- **Terraform**: 1.5+
-
-### 云环境 (项目06)
-- **AWS账号**: 拥有足够权限
-- **域名**: 已备案域名
-- **SSL证书**: ACM证书
-
----
-
-## 📖 使用说明
-
-### 快速开始
-
-```bash
-# 克隆项目
-git clone https://github.com/missxb/enterprise-ops-projects.git
-cd enterprise-ops-projects
-
-# 查看项目列表
-ls -la
-
-# 选择项目学习
-cd 01-docker-compose-web-stack
-# 按照README.md操作
-```
-
-### 环境准备
-
-```bash
-# 安装Docker
-curl -fsSL https://get.docker.com | sh
-
-# 安装Docker Compose
-sudo apt install docker-compose-plugin
-
-# 安装kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-# 安装Ansible
-pip install ansible
-
-# 安装Terraform
-wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-unzip terraform_1.6.6_linux_amd64.zip
-sudo mv terraform /usr/local/bin/
+                        ┌─────────────────────────────────┐
+                        │        安全管理中心              │
+                        │   堡垒机 + SIEM + 等保合规      │
+                        └──────────────┬──────────────────┘
+                                       │
+         ┌─────────────────────────────┼─────────────────────────────┐
+         │                             │                             │
+┌────────▼────────┐  ┌─────────────────▼─────────────────┐  ┌───────▼────────┐
+│   应用交付层     │  │          基础设施层                  │  │    数据层       │
+│                 │  │                                     │  │                │
+│  CI/CD Pipeline │  │  K8s Cluster (3M + 5W)             │  │  MySQL MGR     │
+│  Jenkins+ArgoCD │  │  Docker + Harbor + Helm            │  │  Redis Cluster │
+│  SonarQube      │  │  Nginx+Keepalived                  │  │  Elasticsearch │
+│  Trivy扫描      │  │  Ansible + Terraform                │  │                │
+└─────────────────┘  └───────────────────────────────────┘  └────────────────┘
+         │                             │                             │
+         └─────────────────────────────┼─────────────────────────────┘
+                                       │
+                        ┌──────────────▼──────────────┐
+                        │       可观测性层              │
+                        │  Prometheus + Grafana        │
+                        │  AlertManager + Thanos       │
+                        │  ELK/EFK 日志平台            │
+                        │  Jaeger 链路追踪             │
+                        └─────────────────────────────┘
 ```
 
 ---
 
-## 🎯 核心技能
+## 🎯 技术覆盖
 
-通过本项目集合，你将掌握:
-
-### Linux基础
-- [x] 系统管理与性能调优
-- [x] 服务管理 (systemd)
-- [x] Shell脚本编程
-- [x] 网络配置与安全
-
-### 容器化技术
-- [x] Docker镜像构建与优化
-- [x] Docker Compose编排
-- [x] 容器网络与存储
-- [x] 容器安全最佳实践
-
-### Kubernetes
-- [x] 集群搭建与管理
-- [x] 工作负载管理
-- [x] 服务发现与负载均衡
-- [x] 自动扩缩容
-- [x] 持久化存储
-- [x] RBAC安全
-
-### 监控告警
-- [x] Prometheus指标采集
-- [x] Grafana可视化
-- [x] AlertManager告警
-- [x] PromQL查询
-
-### CI/CD
-- [x] Jenkins Pipeline
-- [x] 镜像构建与推送
-- [x] 自动化测试
-- [x] GitOps部署
-- [x] 滚动更新与回滚
-
-### 自动化运维
-- [x] Ansible Playbook
-- [x] Role开发
-- [x] 配置管理
-- [x] 批量操作
-
-### 云原生
-- [x] AWS基础服务
-- [x] VPC网络架构
-- [x] EKS集群管理
-- [x] RDS数据库
-- [x] ElastiCache
-
-### 日志分析
-- [x] ELK Stack部署
-- [x] 日志采集配置
-- [x] 索引生命周期
-- [x] 可视化仪表盘
+- **容器化**: Docker, Containerd, Harbor, Helm, Kustomize
+- **编排调度**: Kubernetes 1.28, kubeadm, Calico, MetalLB
+- **CI/CD**: Jenkins, GitLab CI, ArgoCD, SonarQube, Trivy
+- **监控告警**: Prometheus, Grafana, Thanos, AlertManager, 50+告警规则
+- **日志分析**: Elasticsearch, Filebeat, Kibana, ILM生命周期
+- **数据库**: MySQL MGR, ProxySQL, xtrabackup, PITR
+- **缓存**: Redis Cluster, Sentinel, 分布式锁
+- **网关**: Nginx, Kong, HAProxy, Keepalived
+- **服务网格**: Istio, 虚拟服务, 金丝雀发布
+- **链路追踪**: Jaeger, OpenTelemetry
+- **自动化**: Ansible, Terraform (阿里云)
+- **安全加固**: 主机加固, K8s安全, 等保合规, 堡垒机
 
 ---
 
-## 📊 项目统计
+## 📊 知识来源
 
-- **项目数量**: 7个完整企业级项目
-- **配置文件**: 50+个生产级配置
-- **代码行数**: 5000+行
-- **覆盖技术**: 30+种工具和框架
-- **文档**: 每个项目都有完整README
+本项目基于以下25个语雀知识库的全量学习(2,699篇文档, 584万字):
 
----
-
-## 🤝 贡献指南
-
-欢迎提交Issues和Pull Requests!
-
-1. Fork本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建Pull Request
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+| 知识库 | 文档数 | 核心内容 |
+|--------|--------|----------|
+| 技术沙龙 | 124 | 云运维实战 |
+| 项目知识库 | 21 | 企业项目实战 |
+| Linux | 241 | Linux全面知识 |
+| 云计算运维 | 119 | 云运维公开知识 |
+| 运维相关 | 304 | 最全面的运维库 |
+| 学习知识库 | 1,222 | 超大知识库 |
+| 运维知识库(多个) | 188 | 运维实战 |
+| Docker学习 | 41 | Docker深度 |
+| 云原生K8S | 34 | K8S+DevOps |
+| 分布式 | 22 | 分布式系统 |
+| Linux笔记 | 100 | Jenkins/Docker/K8s |
+| 知识点 | 85 | 基础+进阶 |
+| K8S(多个) | 127 | K8S+监控+CI/CD |
+| 云原生 | 61 | Helm+集群 |
+| 其他 | 24 | 运维devops |
 
 ---
 
-## 📞 联系方式
+## 🚀 快速开始
 
-- **GitHub**: [missxb](https://github.com/missxb)
-- **Email**: 13825462467@163.com
+每个项目文件包含完整的:
+- 架构设计图
+- 服务器规划表
+- 完整配置文件
+- 部署脚本
+- 运维命令速查
+- 故障处理方案
 
----
-
-**⭐ 如果这个项目对你有帮助，请给个Star支持一下！**
+建议按以下顺序学习:
+1. 01 容器云平台 → 2. 08 自动化运维 → 3. 02 CI/CD → 4. 03 监控 → 5. 04 日志
+6. 05 MySQL → 7. 06 Redis → 8. 07 Nginx → 9. 09 微服务网关 → 10. 10 安全加固
