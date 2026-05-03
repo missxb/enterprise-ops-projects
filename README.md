@@ -45,7 +45,7 @@
 | Calico | 3.26 | K8s 1.28 | BGP模式需内核4.19+ |
 | MetalLB | 0.13 | K8s 1.24+ | L2模式需ARP |
 | Harbor | 2.10 | Docker 20.10+ | HA需外部PG |
-| Prometheus | 2.50 | K8s 1.25+ | Thanos需0.35+ |
+| Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
 | Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
 | MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |
 | Redis | 7.0 | - | Cluster需6节点 |

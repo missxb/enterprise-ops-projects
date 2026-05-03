@@ -100,7 +100,7 @@ metadata:
   name: thanos-query
   namespace: monitoring
 spec:
-  replicas: 2
+  replicas: 2  # 多副本需配置外部数据库
   selector:
     matchLabels:
       app: thanos-query
@@ -838,7 +838,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceName: prometheus
-  replicas: 2
+  replicas: 2  # 多副本需配置外部数据库
   selector:
     matchLabels:
       app: prometheus
@@ -952,7 +952,7 @@ metadata:
   name: grafana
   namespace: monitoring
 spec:
-  replicas: 2
+  replicas: 2  # 多副本需配置外部数据库
   selector:
     matchLabels:
       app: grafana
@@ -1062,10 +1062,10 @@ data:
     global:
       resolve_timeout: 5m
       smtp_from: 'alertmanager@company.com'
-      smtp_smarthost: 'smtp.feishu.cn:465'
+      smtp_smarthost: 'smtp.feishu.cn:465'  # 465=SMTPS隐式TLS
       smtp_auth_username: 'alertmanager@company.com'
       smtp_auth_password: 'smtp-password'
-      smtp_require_tls: true  # [已修复] 生产环境必须启用TLS
+      smtp_require_tls: false  # 465端口不需要STARTTLS  # [已修复] 生产环境必须启用TLS
     
     # 告警模板
     templates:
