@@ -226,7 +226,7 @@ cluster-enabled yes
 cluster-config-file nodes_6379.conf
 cluster-node-timeval 15000
 cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
-cluster-allow-reads-when-down no
+cluster-allow-reads-when-down no  # 默认关闭，故障时可临时开启
 cluster-allow-pubsub-shard-down no
 cluster-node-timeout 15000
 
@@ -686,7 +686,7 @@ for node in 10.10.40.{11..16}; do
     sleep 2
     
     # 等待备份完成
-    while [ "$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)" = "0" ]; do
+    while [ $(date +%s) -lt $(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE) ]; do
       sleep 1
     done
     

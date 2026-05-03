@@ -932,7 +932,7 @@ SHOW VARIABLES LIKE 'validate_password%';
 -- validate_password.special_char_count = 1
 
 -- 4. 设置密码永不过期(全局)
-SET GLOBAL default_password_lifetime = 0;
+SET GLOBAL default_password_lifetime = 90;  # 等保要求密码90天过期
 
 -- 5. 创建密码轮换脚本
 -- 每月检查密码过期时间，提前30天提醒

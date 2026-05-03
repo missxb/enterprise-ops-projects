@@ -328,7 +328,7 @@
    328|          image: elastic/filebeat:8.11.3
    329|          args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
    330|          securityContext:
-   331|            runAsUser: 0
+   331|            runAsUser: 0  # Filebeat需要root访问日志目录，生产环境考虑非root方案
    332|          resources:
    333|            requests:
    334|              cpu: 100m

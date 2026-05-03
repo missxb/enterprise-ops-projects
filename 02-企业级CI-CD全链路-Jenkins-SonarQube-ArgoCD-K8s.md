@@ -552,7 +552,7 @@ postgresql-setup --initdb
 systemctl enable postgresql
 systemctl start postgresql
 
-sudo -u postgres psql -c "CREATE USER sonarqube WITH PASSWORD 'SonarQube@2024';"
+sudo -u postgres psql -c "CREATE USER sonarqube WITH PASSWORD '${SONARQUBE_DB_PASSWORD}';"
 sudo -u postgres psql -c "CREATE DATABASE sonarqube OWNER sonarqube;"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE sonarqube TO sonarqube;"
 
@@ -569,7 +569,7 @@ ln -sf sonarqube-${SONAR_VERSION} sonarqube
 # JVM优化
 cat > /opt/sonarqube/conf/sonar.properties << EOF
 sonar.jdbc.username=sonarqube
-sonar.jdbc.password=SonarQube@2024
+sonar.jdbc.password=${SONARQUBE_DB_PASSWORD}
 sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube?currentSchema=public
 sonar.web.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
 sonar.ce.javaAdditionalOpts=-server -Xms1g -Xmx4g -XX:+UseG1GC

@@ -637,7 +637,7 @@ https:
   private_key: /opt/harbor/certs/harbor.key
 harbor_admin_password: ${HARBOR_ADMIN_PASSWORD}
 database:
-  password: root123
+  password: ${HARBOR_DB_PASSWORD}
   max_idle_conns: 100
   max_open_conns: 900
   conn_max_lifetime: 5m

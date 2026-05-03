@@ -934,8 +934,8 @@ data:
     config:
       bucket: thanos-metrics
       endpoint: minio-01:9000
-      access_key: minioadmin
-      secret_key: Minio@Admin2024
+      access_key: ${MINIO_ACCESS_KEY}
+      secret_key: ${MINIO_SECRET_KEY}
       insecure: true
 ```
 
@@ -965,7 +965,7 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: Grafana@Admin2024
+              value: ${GRAFANA_ADMIN_PASSWORD}
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
           ports:
