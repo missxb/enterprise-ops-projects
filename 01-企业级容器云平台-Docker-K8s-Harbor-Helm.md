@@ -302,7 +302,7 @@ vrrp_instance K8S_VIP {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass K8s2024a
+        auth_pass a3b7c9d1
     }
     virtual_ipaddress {
         ${VIP}/24 dev eth0
@@ -365,7 +365,7 @@ etcd:
   local:
     extraArgs:
       listen-metrics-urls: http://0.0.0.0:2381
-      quota-backend-bytes: "8589934592"  # 8GB，etcd默认2GB，生产建议最大8GB
+      quota-backend-bytes: "4294967296"  # 4GB，生产建议2-4GB，etcd默认2GB，生产建议最大8GB
       auto-compaction-retention: "8"
 apiServer:
   extraArgs:
@@ -1859,7 +1859,7 @@ httpCheckFrequency: "20s"
 etcd:
   extraArgs:
     # 性能
-    quota-backend-bytes: "8589934592"  # 8GB，etcd默认2GB，生产建议最大8GB
+    quota-backend-bytes: "4294967296"  # 4GB，生产建议2-4GB，etcd默认2GB，生产建议最大8GB
     auto-compaction-mode: "periodic"
     auto-compaction-retention: "8h"
     # 预编译
