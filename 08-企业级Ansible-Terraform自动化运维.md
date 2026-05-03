@@ -184,6 +184,9 @@ k8s-worker-03 ansible_host=10.10.10.23
         regexp: "{{ item.regexp }}"
         line: "{{ item.line }}"
       loop:
+        # [注意] 配置SSH安全前，需先分发密钥:
+        # for ip in $(cat ips.txt); do ssh-copy-id root@${ip}; done
+        # 确保密钥认证可用后再禁用密码登录
         - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
         - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
         - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
@@ -485,7 +488,7 @@ plan:
 	cd terraform && terraform plan
 
 apply:
-	cd terraform && terraform apply -auto-approve
+	cd terraform && terraform apply -auto-approve  # [注意] 生产环境应先执行terraform plan并人工审批
 
 destroy:
 	cd terraform && terraform destroy -auto-approve
@@ -1580,7 +1583,7 @@ terraform apply -target=alicloud_instance.worker
 terraform plan -refresh=false
 
 # 使用-auto-approve跳过确认
-terraform apply -auto-approve -input=false
+terraform apply -auto-approve  # [注意] 生产环境应先执行terraform plan并人工审批 -input=false
 ```
 
 ```bash
@@ -1783,7 +1786,7 @@ PROMETHEUS_URL="http://prometheus.internal:9090"
 
 # 记录apply耗时
 START_TIME=$(date +%s)
-terraform apply -auto-approve -input=false
+terraform apply -auto-approve  # [注意] 生产环境应先执行terraform plan并人工审批 -input=false
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
