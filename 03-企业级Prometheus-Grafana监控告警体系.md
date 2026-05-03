@@ -86,7 +86,8 @@ data:
                 - alertmanager-02:9093
     
     # Thanos Sidecar配置
-    remote_write:
+    # [已修复] Thanos Sidecar模式下不需要remote_write，两者互斥
+# remote_write:
       - url: 'http://thanos-receive:19291/api/v1/receive'
     
     # 抓取配置
@@ -862,7 +863,7 @@ data:
       smtp_smarthost: 'smtp.feishu.cn:465'
       smtp_auth_username: 'alertmanager@company.com'
       smtp_auth_password: 'smtp-password'
-      smtp_require_tls: false
+      smtp_require_tls: true  # [已修复] 生产环境必须启用TLS
     
     # 告警模板
     templates:

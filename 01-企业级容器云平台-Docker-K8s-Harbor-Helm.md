@@ -473,7 +473,7 @@ spec:
     - name: default-ipv4-ippool
       blockSize: 26
       cidr: 10.244.0.0/16
-      encapsulation: VXLANCrossSubnet
+      encapsulation: None  # BGP模式不使用封装
       natOutgoing: true
       nodeSelector: all()
     nodeAddressAutodetectionV4:
@@ -599,9 +599,14 @@ openssl x509 -req -sha512 -days 3650 \
 # 配置Docker信任证书
 mkdir -p /etc/docker/certs.d/${HARBOR_DOMAIN}
 cp harbor.crt /etc/docker/certs.d/${HARBOR_DOMAIN}/ca.crt
-cp harbor.key /etc/docker/certs.d/${HARBOR_DOMAIN}/
+# Harbor私钥不应放在certs.d目录，应放在权限严格的目录
+mkdir -p /opt/harbor/certs
+cp harbor.key /opt/harbor/certs/
+chmod 600 /opt/harbor/certs/harbor.key
 cp ca.crt /etc/docker/certs.d/${HARBOR_DOMAIN}/
-cp ca.key /etc/docker/certs.d/${HARBOR_DOMAIN}/
+# ca.key也不应放在certs.d
+cp ca.key /opt/harbor/certs/
+chmod 600 /opt/harbor/certs/ca.key
 
 # 将CA证书加入系统信任
 cp ca.crt /etc/pki/ca-trust/source/anchors/harbor-ca.crt
@@ -1399,7 +1404,7 @@ echo "Kibana: http://10.10.10.211"
 
 ---
 
-## 十四、运维运维运维运维运维运维运维运维
+## 十四、日常巡检与自动化运维
 
 ### 14.1 日常运维命令速查
 
@@ -2088,7 +2093,7 @@ KEEP_DAYS=7
 ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/snapshot-${DATE}.db   --endpoints=https://127.0.0.1:2379   --cacert=/etc/kubernetes/pki/etcd/ca.crt   --cert=/etc/kubernetes/pki/etcd/server.crt   --key=/etc/kubernetes/pki/etcd/server.key
 
 # 验证备份
-ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-table
+ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-out=table
 
 # 清理过期备份
 find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +${KEEP_DAYS} -delete

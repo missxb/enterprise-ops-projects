@@ -1,4 +1,4 @@
-     1|# 企业级MySQL高可用集群 - MGR + ProxySQL + 自动备份
+1|# 企业级MySQL高可用集群 - MGR + ProxySQL + 自动备份
      2|
      3|> 完整实现MySQL高可用方案，覆盖MGR集群、读写分离、自动备份、PITR恢复、慢查询优化
      4|
@@ -78,10 +78,8 @@
     78|expire_logs_days=7
     79|
     80|# 半同步复制
-    81|plugin_load_add='semisync_source.so'
-    82|plugin_load_add='semisync_replica.so'
-    83|rpl_semi_sync_source_enabled=1
-    84|rpl_semi_sync_source_timeout=3000
+# 注意: MGR内部使用Paxos协议同步，不需要半同步复制
+# 半同步复制与MGR会冲突，已移除
     85|
     86|# 连接配置
     87|max_connections=2000
@@ -713,7 +711,7 @@ mysql-ha-cluster/
 ```bash
 # 查看复制状态
 mysql -uroot -pMySQL@Root2024 -e "
-  SHOW SLAVE STATUS\G
+  SHOW REPLICA STATUS\G
 " | grep -E "Seconds_Behind_Master|Slave_SQL_Running|Exec_Master_Log_Pos"
 
 # Seconds_Behind_Master: 300
@@ -729,11 +727,11 @@ SHOW PROCESSLIST;
 
 -- 2. 临时跳过该事务(危险操作，需确认数据一致性)
 STOP SLAVE;
-SET GLOBAL sql_slave_skip_counter = 1;
+SET GLOBAL sql_replica_skip_counter = 1;
 START SLAVE;
 
 -- 3. 验证复制状态
-SHOW SLAVE STATUS\G
+SHOW REPLICA STATUS\G
 
 -- 4. 在主库优化大事务
 -- 将大DELETE拆分为小批次
@@ -759,7 +757,7 @@ DELETE FROM logs WHERE created_at < '2023-01-01' LIMIT 10000;
 ```bash
 # 查看从库线程状态
 mysql -uroot -pMySQL@Root2024 -e "
-  SHOW SLAVE STATUS\G
+  SHOW REPLICA STATUS\G
 " | grep -E "Slave_IO_Running|Slave_SQL_Running|Last_Error"
 
 # Slave_IO_Running: Yes
@@ -1440,7 +1438,7 @@ mysql -uroot -pMySQL@Root2024 -e "
 "
 
 # 4. 复制延迟
-mysql -uroot -pMySQL@Root2024 -e "SHOW SLAVE STATUS\G" | grep Seconds_Behind_Master
+mysql -uroot -pMySQL@Root2024 -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
 
 # 5. 慢查询数量
 mysql -uroot -pMySQL@Root2024 -e "SHOW STATUS LIKE 'Slow_queries';"

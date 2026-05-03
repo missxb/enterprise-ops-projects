@@ -225,7 +225,7 @@ rename-command CONFIG "CONFIG_b2c0a7e1"
 cluster-enabled yes
 cluster-config-file nodes_6379.conf
 cluster-node-timeval 15000
-cluster-require-full-coverage yes
+cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
 cluster-allow-reads-when-down no
 cluster-allow-pubsub-shard-down no
 cluster-node-timeout 15000
@@ -619,7 +619,7 @@ redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CLUSTER SETSLOT <slot> STABL
 
 **预防措施**:
 - `cluster-node-timeout` 建议15秒以上
-- 启用 `cluster-require-full-coverage yes`
+- 启用 `cluster-require-full-coverage no  # 允许部分slot不可用时继续服务`
 - 部署跨机架/跨可用区的节点
 
 ### 案例4: 慢查询阻塞Redis
