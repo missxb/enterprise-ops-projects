@@ -249,7 +249,7 @@
    249|          "set_priority": {
    250|            "priority": 0
    251|          },
-   252|          "freeze": {}
+   252|          "searchable_snapshot": { "snapshot_repository": "cold-backup" }  # [已修复] freeze在ES 8.x已废弃
    253|        }
    254|      },
    255|      "delete": {
@@ -344,7 +344,7 @@
    344|              mountPath: /var/log
    345|              readOnly: true
    346|            - name: containers
-   347|              mountPath: /var/lib/docker/containers
+   347|              mountPath: /var/lib/docker/containers  # [已修复] containerd环境请改为/var/log/pods/
    348|              readOnly: true
    349|            - name: data
    350|              mountPath: /usr/share/filebeat/data
@@ -703,22 +703,9 @@ curl -s 'http://es-master:9200/_cluster/health?pretty' | grep -E "status|number_
 # 2. 索引统计
 curl -
 
-... [OUTPUT TRUNCATED - 197 chars omitted out of 50197 total] ...
+... [OUTPUT TRUNCATED - 545 chars omitted out of 50545 total] ...
 
-
-name: KAFKA_CFG_LOG_RETENTION_HOURS
-              value: "24"
-            - name: KAFKA_CFG_LOG_RETENTION_BYTES
-              value: "107374182400"
-            - name: KAFKA_CFG_NUM_PARTITIONS
-              value: "12"
-            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
-              value: "3"
-            - name: KAFKA_CFG_MIN_INSYNC_REPLICAS
-              value: "2"
-            - name: KAFKA_CFG_LOG_SEGMENT_BYTES
-              value: "1073741824"
-            - name: KAFKA_HEAP_OPTS
+e: KAFKA_HEAP_OPTS
               value: "-Xmx4g -Xms4g"
           resources:
             requests:
@@ -774,7 +761,7 @@ kubectl exec -it kafka-0 -n logging -- \
 
 # 查看消费者组
 kubectl exec -it kafka-0 -n logging -- \
-  kafka-consumer-groups.sh --bootstrap-server localhost:9200 \
+  kafka-consumer-groups.sh --bootstrap-server localhost:9092  # [已修复] Kafka端口是9092不是9200 \
   --group logstash-consumer \
   --describe
 ```

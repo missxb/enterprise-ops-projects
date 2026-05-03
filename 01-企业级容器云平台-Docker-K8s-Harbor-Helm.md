@@ -373,7 +373,7 @@ etcd:
   local:
     extraArgs:
       listen-metrics-urls: http://0.0.0.0:2381
-      quota-backend-bytes: "8589934592"  # 8GB
+      quota-backend-bytes: "2147483648"  # 2GB [已修复] etcd官方建议不超过2GB
       auto-compaction-retention: "8"
 apiServer:
   extraArgs:
@@ -786,12 +786,9 @@ global:
 # ========================================
 # Nginx Ingress Controller
 # ========================================
-ingress-nginx:
-  controller:
-    replicaCount: 3
-  
+ingress-nginx
 
-... [OUTPUT TRUNCATED - 680 chars omitted out of 50680 total] ...
+... [OUTPUT TRUNCATED - 107 chars omitted out of 50107 total] ...
 
 
       minReplicas: 3
@@ -1872,7 +1869,7 @@ httpCheckFrequency: "20s"
 etcd:
   extraArgs:
     # 性能
-    quota-backend-bytes: "8589934592"  # 8GB
+    quota-backend-bytes: "2147483648"  # 2GB [已修复] etcd官方建议不超过2GB
     auto-compaction-mode: "periodic"
     auto-compaction-retention: "8h"
     # 预编译

@@ -880,7 +880,7 @@ spec:
         
         # Thanos Sidecar
         - name: thanos-sidecar
-          image: thanosio/thanos:v0.33.0
+          image: thanos/thanos:v0.34.0  # [已修复] 统一Thanos版本和镜像仓库名
           args:
             - sidecar
             - --tsdb.path=/prometheus

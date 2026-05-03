@@ -56,7 +56,7 @@
 set -euo pipefail
 
 echo "安装GitLab CE..."
-curl https://packages.gitlab.com/install/repositories/runner/gitlab-ce/script.rpm.sh | bash
+curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.rpm.sh  # [已修复] 使用GitLab CE仓库而非Runner仓库 | bash
 
 EXTERNAL_URL="https://gitlab.internal.com"
 GITLAB_ROOT_PASSWORD="GitLab@Admin2024"
