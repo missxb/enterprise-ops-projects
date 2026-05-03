@@ -77,9 +77,8 @@
     77|max_binlog_size=512M
     78|expire_logs_days=7
     79|
-    80|# 半同步复制
-# 注意: MGR内部使用Paxos协议同步，不需要半同步复制
-# 半同步复制与MGR会冲突，已移除
+    80|# [已修复] MGR内部使用Paxos协议同步，不需要半同步复制
+# 半同步复制(semisync)与MGR会冲突，已移除
     85|
     86|# 连接配置
     87|max_connections=2000

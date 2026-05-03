@@ -676,7 +676,8 @@ trace:
 HARBORYML
 
 echo "安装Harbor..."
-./install.sh --with-trivy --with-chartmuseum --with-tooltip
+# [已修复] Harbor 2.9+已废弃chartmuseum，移除--with-chartmuseum参数
+./install.sh --with-trivy --with-tooltip
 
 echo "配置开机自启..."
 cat > /etc/systemd/system/harbor.service << EOF
@@ -790,38 +791,9 @@ ingress-nginx:
     replicaCount: 3
   
 
-... [OUTPUT TRUNCATED - 630 chars omitted out of 50630 total] ...
+... [OUTPUT TRUNCATED - 680 chars omitted out of 50680 total] ...
 
 
-:
-  # 用户服务
-  user-service:
-    replicaCount: 3
-    image:
-      repository: harbor.internal.com/production/user-service
-      tag: v2.1.0
-    ports:
-      containerPort: 8080
-    env:
-      - name: DB_HOST
-        value: "ecommerce-mysql-primary"
-      - name: DB_PORT
-        value: "3306"
-      - name: DB_NAME
-        value: "user_db"
-      - name: REDIS_HOST
-        value: "ecommerce-redis-master"
-      - name: REDIS_PORT
-        value: "6379"
-    resources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-    autoscaling:
-      enabled: true
       minReplicas: 3
       maxReplicas: 15
       targetCPUUtilizationPercentage: 65
