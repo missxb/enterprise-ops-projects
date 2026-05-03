@@ -1930,4 +1930,4 @@ curl -s 'http://es-master:9200/_cluster/health?pretty'
 **原因**: Filebeat index名称与ILM rollover_alias不匹配
 **解决**: 确保Filebeat输出使用alias而非直接写入索引名
 
-> 本项目基于25个语雀知识库(2699篇,584万字)深度学习编写
+> 本项目基于官方文档、技术博客和社区实践深度学习编写
