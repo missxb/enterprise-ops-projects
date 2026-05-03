@@ -270,7 +270,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
 # xtrabackup备份会自动记录LSN到xtrabackup_info文件
    271|
    272|echo "备份binlog..."
-   273|mysqlbinlog --read-from-remote-server   --host=10.10.30.11 --user=${MYSQL_USER} --password=${MYSQL_PASS}   --start-datetime="$(date -d '1 hour ago' '+%Y-%m-%d %H:%M:%S')"   --stop-datetime="$(date '+%Y-%m-%d %H:%M:%S')"   mysql-bin.000001 > ${BACKUP_DIR}/binlog/binlog-${DATE}.sql
+   273|mysqlbinlog --read-from-remote-server   --host=10.10.30.11 --user=${MYSQL_USER} --password=${MYSQL_PASS}   --start-datetime="$(date -d '1 hour ago' '+%Y-%m-%d %H:%M:%S')"   --stop-datetime="$(date '+%Y-%m-%d %H:%M:%S')"   $(mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW BINARY LOGS" -N | tail -1 | awk "{print \$1}") > ${BACKUP_DIR}/binlog/binlog-${DATE}.sql
    274|
    275|echo "清理过期备份..."
    276|find ${BACKUP_DIR}/full -maxdepth 1 -type d -mtime +${KEEP_DAYS} -exec rm -rf {} +
@@ -860,7 +860,7 @@ pt-online-schema-change \
 ```bash
 # 查看binlog大小
 ls -lh /data/mysql/mysql-bin.*
-# mysql-bin.000001  200G
+# $(mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW BINARY LOGS" -N | tail -1 | awk "{print \$1}")  200G
 # mysql-bin.000002  50G
 # 发现: 一个批量更新操作产生了大量binlog
 
