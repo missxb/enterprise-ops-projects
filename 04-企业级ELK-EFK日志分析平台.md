@@ -1,4 +1,4 @@
-     1|# 企业级ELK/EFK日志分析平台
+1|# 企业级ELK/EFK日志分析平台
      2|
      3|> 完整实现企业级日志收集、存储、检索、可视化全链路
      4|> 覆盖: Elasticsearch集群 + Filebeat + Kibana + ILM生命周期 + 安全加固
@@ -502,6 +502,10 @@
 
 ---
 
+> ⚠️ **安全声明**: 本文档中的密码(如MySQL@Root2024、Harbor12345等)均为示例占位符。
+> 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
+> 切勿将真实密码硬编码在配置文件或脚本中。
+
 ## 九、Elasticsearch性能调优
 
 ### 9.1 JVM调优
@@ -700,91 +704,11 @@ curl -s 'http://es-master:9200/_cluster/health?pretty' | grep -E "status|number_
 curl -s 'http://es-master:9200/_cat/indices?v&s=store.size:desc&h=index,health,pri,rep,docs.count,store.size' | head -20
 
 # 3. 磁盘使用
-curl -s 'http://es-master:9200/_cat/allocation?v' | head -10
+cu
 
-# 4. 慢查询日志
-curl -s 'http://es-master:9200/_nodes/stats/indices.search' | jq '.nodes[].indices.search.query_total'
+... [OUTPUT TRUNCATED - 2264 chars omitted out of 52264 total] ...
 
-# 5. Filebeat状态
-kubectl -n logging get pods -l app=filebeat -o wide
-```
-
----
-
-> 本项目基于25个语雀知识库(2699篇,584万字)深度学习编写
-
-
----
-
-## 十三、Kafka缓冲层部署
-
-### 13.1 架构选型
-
-在高吞吐场景下（日志量 > 50GB/天），直接让Filebeat写入Logstash会导致数据丢失风险。引入Kafka作为缓冲层可以实现：
-
-| 对比项 | 直连Logstash | Kafka缓冲 |
-|--------|-------------|-----------|
-| 数据可靠性 | 低（Logstash挂即丢） | 高（持久化到磁盘） |
-| 峰值处理 | 无缓冲，可能OOM | 有缓冲，削峰填谷 |
-| 消费能力 | 单消费者 | 多消费者并行 |
-| 运维复杂度 | 低 | 中 |
-| 适用场景 | < 10GB/天 | > 10GB/天 |
-
-```
-Filebeat ──▶ Kafka ──▶ Logstash ──▶ Elasticsearch
-                   │
-                   └──▶ 直接消费 (Flink/Spark)
-```
-
-### 13.2 Kafka集群部署
-
-```yaml
-# kafka-statefulset.yaml
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: kafka
-  namespace: logging
-spec:
-  serviceName: kafka
-  replicas: 3
-  selector:
-    matchLabels:
-      app: kafka
-  template:
-    metadata:
-      labels:
-        app: kafka
-    spec:
-      containers:
-        - name: kafka
-          image: bitnami/kafka:3.6.1
-          ports:
-            - containerPort: 9092
-              name: external
-            - containerPort: 9093
-              name: internal
-          env:
-            - name: KAFKA_CFG_NODE_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: KAFKA_CFG_PROCESS_ROLES
-              value: "broker,controller"
-            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-              value: "0@kafka-0.kafka.logging.svc:9093,1@kafka-1.kafka.logging.svc:9093,2@kafka-2.kafka.logging.svc:9093"
-            - name: KAFKA_CFG_LISTENERS
-              value: "EXTERNAL://:9092,INTERNAL://:9093,CONTROLLER://:9094"
-            - name: KAFKA_CFG_ADVERTISED_LISTENERS
-              value: "EXTERNAL://kafka-0.kafka.logging:9092,INTERNAL://kafka-0.kafka.logging:9093"
-            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
-            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
-              value: "INTERNAL"
-            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-              value: "CONTROLLER"
-            - name: KAFKA_CFG_LOG_RETENTION_HOURS
+name: KAFKA_CFG_LOG_RETENTION_HOURS
               value: "24"
             - name: KAFKA_CFG_LOG_RETENTION_BYTES
               value: "107374182400"

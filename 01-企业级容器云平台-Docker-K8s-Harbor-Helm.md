@@ -6,6 +6,10 @@
 
 ---
 
+> ⚠️ **安全声明**: 本文档中的密码(如MySQL@Root2024、Harbor12345等)均为示例占位符。
+> 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
+> 切勿将真实密码硬编码在配置文件或脚本中。
+
 ## 一、项目背景与目标
 
 ### 1.1 企业痛点
@@ -793,118 +797,11 @@ ingress-nginx:
       hsts-max-age: "31536000"
       hsts-include-subdomains: "true"
     resources:
-      requests:
-        cpu: 500m
-        memory: 512Mi
-      limits:
-        cpu: 2000m
-        memory: 2Gi
-    autoscaling:
-      enabled: true
-      minReplicas: 3
-      maxReplicas: 10
-      targetCPUUtilizationPercentage: 70
-    affinity:
-      podAntiAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                  - key: app.kubernetes.io/name
-                    operator: In
-                    values:
-                      - ingress-nginx
-              topologyKey: kubernetes.io/hostname
+      reque
 
-# ========================================
-# MySQL主从集群
-# ========================================
-mysql:
-  enabled: true
-  architecture: replication
-  auth:
-    rootPassword: "MyS3cureR00t!"
-    database: ecommerce
-    username: app_user
-    password: "AppP@ssw0rd2024!"
-  primary:
-    persistence:
-      enabled: true
-      storageClass: local-ssd
-      size: 100Gi
-    resources:
-      requests:
-        cpu: "2"
-        memory: 4Gi
-      limits:
-        cpu: "4"
-        memory: 8Gi
-    configuration: |-
-      [mysqld]
-      max_connections=2000
-      innodb_buffer_pool_size=6G
-      innodb_log_file_size=1G
-      innodb_flush_log_at_trx_commit=2
-      sync_binlog=100
-      slow_query_log=1
-      long_query_time=2
-      binlog_format=ROW
-      gtid_mode=ON
-      enforce_gtid_consistency=ON
-  secondary:
-    replicaCount: 2
-    persistence:
-      enabled: true
-      storageClass: local-ssd
-      size: 100Gi
-    resources:
-      requests:
-        cpu: "2"
-        memory: 4Gi
-      limits:
-        cpu: "4"
-        memory: 8Gi
+... [OUTPUT TRUNCATED - 2452 chars omitted out of 52452 total] ...
 
-# ========================================
-# Redis集群
-# ========================================
-redis:
-  enabled: true
-  architecture: replication
-  auth:
-    enabled: true
-    password: "R3d1s@Cluster2024!"
-  master:
-    persistence:
-      enabled: true
-      storageClass: local-ssd
-      size: 20Gi
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "2"
-        memory: 8Gi
-    configuration: |-
-      maxmemory 6gb
-      maxmemory-policy allkeys-lru
-      appendonly yes
-      appendfsync everysec
-      save 900 1
-      save 300 10
-      save 60 10000
-  replica:
-    replicaCount: 2
-    persistence:
-      enabled: true
-      size: 20Gi
-
-# ========================================
-# 微服务应用
-# ========================================
-services:
+:
   # 用户服务
   user-service:
     replicaCount: 3
