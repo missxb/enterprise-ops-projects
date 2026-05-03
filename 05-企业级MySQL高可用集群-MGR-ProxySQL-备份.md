@@ -99,7 +99,7 @@
    102|
    103|# MGR核心配置
    104|plugin_load_add='group_replication.so'
-   105|loose-group_replication_group_name="50e8400-e29b-41d4-a716-446554000000"  # 请替换为uuidgen生成的UUID
+   105|loose-group_replication_group_name="550e8400-e29b-41d4-a716-446554000000"  # 请替换为uuidgen生成的UUID
    106|loose-group_replication_start_on_boot=OFF     # 首次启动OFF
    107|loose-group_replication_local_address="10.10.30.11:33061"  # 每台不同
    108|loose-group_replication_group_seeds="10.10.30.11:33061,10.10.30.12:33061,10.10.30.13:33061"
