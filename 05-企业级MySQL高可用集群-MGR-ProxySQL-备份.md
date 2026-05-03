@@ -1086,7 +1086,6 @@ SELECT * FROM sys.schema_redundant_indexes;
                     ├─────────────────┬───────────────────────┤
                     │    机房A (主)    │    机房B (备)          │
                     │  10.10.30.0/24  │  10.10.40.0/24        │
-                    │ MySQL-03 (Secondary)│ MySQL-04 (Secondary)│
                     │ MySQL-01 (Primary) │ MySQL-02 (Secondary) │
                     │ MySQL-03 (Secondary)│ MySQL-04 (Sync Standby)│
                     ├─────────────────┼───────────────────────┤
