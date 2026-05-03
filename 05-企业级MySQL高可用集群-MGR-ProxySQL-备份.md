@@ -685,6 +685,8 @@ tail -20 /data/mysql/error.log
 ```
 mysql-ha-cluster/
 ├── scripts/
+├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
+├── tests/                  # 部署验证测试
 │   ├── init_mysql_nodes.sh
 │   ├── init_mgr_cluster.sh
 │   ├── install_proxysql.sh
@@ -1710,7 +1712,6 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 **原因**: 从库单线程回放binlog
 **解决**: 启用多线程复制(replica_parallel_workers=4)
 
-> 本项目基于官方文档、技术博客和社区实践编写
 ## ProxySQL高可用方案
 
 ### 问题: ProxySQL单点故障

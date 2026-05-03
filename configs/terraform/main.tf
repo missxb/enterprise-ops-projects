@@ -1,11 +1,11 @@
 resource "alicloud_vpc" "main" {
   vpc_name   = "${var.project}-vpc"
-  cidr_block = "172.16.0.0/12"
+  cidr_block = "10.10.0.0/12"
 }
 
 resource "alicloud_vswitch" "main" {
   vpc_id     = alicloud_vpc.main.id
-  cidr_block = "172.16.0.0/24"
+  cidr_block = "10.10.0.0/24"
   zone_id    = var.zone_id
 }
 
@@ -61,7 +61,7 @@ resource "alicloud_db_instance" "mysql" {
   instance_charge_type = "Postpaid"
   instance_name        = "${var.project}-mysql"
   vswitch_id           = alicloud_vswitch.main.id
-  security_ips         = ["172.16.0.0/12"]
+  security_ips         = ["10.10.0.0/12"]
   tags = {
     Project = var.project
   }

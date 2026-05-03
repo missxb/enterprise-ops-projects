@@ -22,7 +22,7 @@ cd harbor
 cp harbor.yml.tmpl harbor.yml
 sed -i "s|hostname: reg.mydomain.com|hostname: ${HARBOR_HOST}|" harbor.yml
 sed -i "s|harbor_admin_password: Harbor12345|harbor_admin_password: ${HARBOR_ADMIN_PASSWORD}|" harbor.yml
-sed -i "s|  password: root123|  password: \${HARBOR_DB_PASSWORD}|" harbor.yml
+sed -i "s|  password: root123|  password: ${HARBOR_DB_PASSWORD}|" harbor.yml
 
 echo "⚠️ 请先配置外部数据库和Redis，然后执行: ./install.sh --with-trivy"
 echo "⚠️ 本脚本仅用于学习验证，生产环境需配置HA"

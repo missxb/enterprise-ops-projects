@@ -1013,6 +1013,8 @@ groups:
 ```
 redis-cluster/
 ├── scripts/
+├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
+├── tests/                  # 部署验证测试
 │   ├── init_redis_nodes.sh          # 节点初始化
 │   ├── create_redis_cluster.sh      # 创建集群
 │   ├── redis_backup.sh              # 备份脚本

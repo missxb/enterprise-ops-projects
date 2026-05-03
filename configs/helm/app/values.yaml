@@ -20,4 +20,7 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 10
-  targetCPUUtilizationPercentage: 80
+  targetCPU: 80
+pdb:
+  enabled: true
+  maxUnavailable: 1

@@ -1316,6 +1316,8 @@ webhook:
 ```
 enterprise-cicd-pipeline/
 ├── scripts/
+├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
+├── tests/                  # 部署验证测试
 │   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_gitlab.sh
 │   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
@@ -1863,7 +1865,6 @@ kubectl get pods -n jenkins
 **原因**: 基础镜像过旧
 **解决**: 定期更新基础镜像版本，使用distroless镜像
 
-> 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: Jenkins + SonarQube + ArgoCD + Harbor + GitLab + K8s
 > 适用于: 企业级CI/CD全链路建设
 ## Jenkins高可用方案

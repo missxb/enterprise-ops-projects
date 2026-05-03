@@ -1439,6 +1439,8 @@ echo "================================================"
 ```
 enterprise-container-platform/
 ├── scripts/
+├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
+├── tests/                  # 部署验证测试
 │   ├── 01_init_nodes.sh              # 节点初始化
 │   ├── 02_install_haproxy_keepalived.sh  # 负载均衡
 │   ├── 03_init_k8s_cluster.sh        # K8s集群初始化
@@ -2165,6 +2167,5 @@ mv /var/lib/etcd-restore /var/lib/etcd
 systemctl start etcd
 ```
 
-> 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设

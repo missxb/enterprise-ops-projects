@@ -1,6 +1,8 @@
 #!/bin/bash
 # K8s集群初始化脚本 - 所有节点执行
 # 适用于K8s 1.28 + containerd
+# 版本配置(修改此处锁定版本)
+K8S_VERSION="${K8S_VERSION:-1.28}"
 set -euo pipefail
 
 NODE_IP=$(hostname -I | awk '{print $1}')

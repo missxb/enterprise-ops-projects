@@ -1,6 +1,9 @@
 #!/bin/bash
 # Nginx配置测试脚本
 set -euo pipefail
+umask 077
+
+BACKENDS="${BACKENDS:-10.10.40.21 10.10.40.22 10.10.40.23}"
 
 echo "=== Nginx配置检查 ==="
 
@@ -22,7 +25,7 @@ done
 
 # 检查后端健康
 echo "检查后端健康..."
-for backend in 10.10.40.{21..25}; do
+for backend in ${BACKENDS}; do
   curl -s -o /dev/null -w "%{http_code}" http://${backend}:8080/health || echo "  ❌ ${backend} 不可达"
 done
 
