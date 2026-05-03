@@ -127,7 +127,7 @@
    129|echo "Step 1: 配置复制用户..."
    130|${MYSQL_CMD} << 'SQL'
    131|SET GLOBAL super_read_only=OFF;
-   132|CREATE USER IF NOT EXISTS 'repl_user'@'%' IDENTIFIED BY 'Repl@Pass2024';
+   132|CREATE USER IF NOT EXISTS 'repl_user'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
    133|GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
    134|FLUSH PRIVILEGES;
    135|SQL
@@ -147,7 +147,7 @@
    149|-- 在MySQL-02/03上执行:
    150|CHANGE REPLICATION SOURCE TO
    151|  SOURCE_USER='repl_user',
-   152|  SOURCE_PASSWORD='Repl@Pass2024',
+   152|  SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}',
    153|  SOURCE_AUTO_POSITION=1
    154|  FOR CHANNEL 'group_replication_recovery';
    155|START GROUP_REPLICATION;
@@ -1614,7 +1614,7 @@ systemctl start mysqld
 mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   CHANGE REPLICATION SOURCE TO
     SOURCE_USER='repl_user',
-    SOURCE_PASSWORD='Repl@Pass2024',
+    SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}',
     SOURCE_AUTO_POSITION=1
   FOR CHANNEL 'group_replication_recovery';
   START GROUP_REPLICATION;

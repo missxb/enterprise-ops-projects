@@ -12,7 +12,7 @@
 
 | # | 项目 | 技术栈 | 规模 |
 |---|------|--------|------|
-| 01 | [容器云平台](01-企业级容器云平台-Docker-K8s-Harbor-Helm.md) | Docker + K8s 1.28 + Harbor 2.9 + Helm | 56KB |
+| 01 | [容器云平台](01-企业级容器云平台-Docker-K8s-Harbor-Helm.md) | Docker + K8s 1.28 + Harbor 2.10 + Helm | 56KB |
 | 02 | [CI/CD全链路](02-企业级CI-CD全链路-Jenkins-SonarQube-ArgoCD-K8s.md) | Jenkins + SonarQube + ArgoCD | 48KB |
 | 03 | [Prometheus监控](03-企业级Prometheus-Grafana监控告警体系.md) | Prometheus 2.50 + Thanos 0.34 + Grafana | 53KB |
 | 04 | [ELK日志平台](04-企业级ELK-EFK日志分析平台.md) | ES 8.x + Filebeat + Kafka + Kibana | 56KB |
@@ -51,7 +51,7 @@
 | Calico | 3.26 | K8s 1.28 | BGP模式需内核4.19+ |
 | MetalLB | 0.13 | K8s 1.24+ | L2模式需ARP |
 | Istio | 1.20 | K8s 1.28 | Sidecar兼容性 |
-| Harbor | 2.9 | K8s 1.28 | Helm安装 |
+| Harbor | 2.10 | K8s 1.28 | Helm安装 |
 | Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
 | Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
 | MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |

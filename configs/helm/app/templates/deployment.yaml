@@ -2,22 +2,26 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
+      {{- include "app.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}
+        {{- include "app.selectorLabels" . | nindent 8 }}
     spec:
       containers:
       - name: {{ .Release.Name }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - containerPort: {{ .Values.service.port }}
         resources:
+          {{- toYaml .Values.resources | nindent 10 }}
         readinessProbe:
           httpGet:
             path: /healthz
@@ -35,4 +39,3 @@ spec:
           runAsUser: 1000
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
-          {{- toYaml .Values.resources | nindent 10 }}
