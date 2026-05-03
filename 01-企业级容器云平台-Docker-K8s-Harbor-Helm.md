@@ -366,7 +366,7 @@ etcd:
   local:
     extraArgs:
       listen-metrics-urls: http://0.0.0.0:2381
-      quota-backend-bytes: "4294967296"  # 4GB，生产建议2-4GB，etcd默认2GB，生产建议最大8GB
+      quota-backend-bytes: "4294967296"  # 4GB，etcd默认2GB，最大8GB
       auto-compaction-retention: "8"
 apiServer:
   extraArgs:
@@ -1862,7 +1862,7 @@ httpCheckFrequency: "20s"
 etcd:
   extraArgs:
     # 性能
-    quota-backend-bytes: "4294967296"  # 4GB，生产建议2-4GB，etcd默认2GB，生产建议最大8GB
+    quota-backend-bytes: "4294967296"  # 4GB，etcd默认2GB，最大8GB
     auto-compaction-mode: "periodic"
     auto-compaction-retention: "8h"
     # 预编译

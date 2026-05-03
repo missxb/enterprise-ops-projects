@@ -292,10 +292,6 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
 
 > **去重配置**: Thanos Query需要配置 `--query.replica-label` 来去除多Prometheus实例的重复数据。
 
-# [已修复] Thanos Sidecar模式下不需要remote_write，两者互斥
-# remote_write:
-      - url: 'http://thanos-receive:19291/api/v1/receive'
-    
     # 抓取配置
     scrape_configs:
       # Prometheus自身监控

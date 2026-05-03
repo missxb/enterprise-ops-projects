@@ -233,7 +233,7 @@ cluster-node-timeout 15000
 # ===== 危险命令禁用 =====
 rename-command KEYS "KEYS_b2c0a7e1"
 rename-command SHUTDOWN "SHUTDOWN_b2c0a7e1"
-rename-command SLAVEOF "SLAVEOF_b2c0a7e1"
+rename-command REPLICAOF "REPLICAOF_b2c0a7e1"  # Redis 5.0+使用REPLICAOF
 ```
 
 ### 3.3 Systemd服务文件
