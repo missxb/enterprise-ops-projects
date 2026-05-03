@@ -116,7 +116,7 @@ http {
 
     # Upstream后端池
     upstream app_backend {
-        ip_hash;  # 加权轮询+会话保持(与weight配合)                    # 最少连接算法
+        ip_hash;  # 加权轮询+会话保持(与weight配合)
         keepalive 32;
 
         server 10.10.50.11:8080 weight=5 max_fails=3 fail_timeout=30s;
