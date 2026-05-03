@@ -176,6 +176,11 @@ checkout:
   script:
     - echo "代码检出完成"
   only:  # [注意] only已废弃，建议改用rules
+  # rules替代写法:
+  # rules:
+  #   - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+  #   - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+  #   - if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
     - main
     - develop
     - /^release\/.*$/
@@ -579,7 +584,7 @@ sonar.authenticator.downcased=true
 EOF
 
 # 内核参数（SonarQube需要）
-sysctl -w vm.max_map_count=524288
+sysctl -w vm.max_map_count=524288 && sysctl -p /etc/sysctl.d/99-sonarqube.conf
 echo "vm.max_map_count=524288" >> /etc/sysctl.d/99-sonarqube.conf
 
 # 创建systemd服务
@@ -1350,6 +1355,8 @@ enterprise-cicd-pipeline/
 ---
 
 > 本项目基于官方文档、技术博客和社区实践编写
+> [架构说明] 本项目同时展示GitLab CI和Jenkins两种CI方案，实际生产中通常二选一。
+> GitLab CI适合GitLab生态，Jenkins适合多工具集成场景。根据团队技术栈选择即可。
 > 涵盖: Jenkins/GitLab CI, SonarQube, Harbor, ArgoCD, K8s部署, 金丝雀发布
 
 ---
@@ -1880,7 +1887,7 @@ metadata:
   name: jenkins
   namespace: jenkins
 spec:
-  replicas: 2
+  replicas: 1  # 单副本+PVC快速恢复，Jenkins不支持多实例共享数据
   strategy:
     type: RollingUpdate
     rollingUpdate:
