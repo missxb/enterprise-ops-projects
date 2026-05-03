@@ -1464,7 +1464,7 @@ enterprise-container-platform/
 ### 18.2 性能优化
 - **containerd**: SystemdCgroup + 镜像加速
 - **内核**: tcp_keepalive + somaxconn + inotify优化
-- **etcd**: 8GB配额 + 自动压缩
+- **etcd: 4GB配额 + 自动压缩
 - **Pod调度**: 节点亲和性 + 反亲和性 + 拓扑分布约束
 
 ### 18.3 安全加固
@@ -1481,7 +1481,7 @@ enterprise-container-platform/
 
 ---
 
-> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设
 
@@ -2154,6 +2154,6 @@ mv /var/lib/etcd-restore /var/lib/etcd
 systemctl start etcd
 ```
 
-> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设

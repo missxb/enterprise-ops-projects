@@ -1811,6 +1811,6 @@ curl -s http://prometheus:9090/api/v1/status/runtimeinfo | jq '.version'
 **原因**: DaemonSet未在所有节点运行
 **解决**: 检查node-exporter Pod的toleration配置
 
-> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: Prometheus + Grafana + AlertManager + Thanos + Node Exporter
 > 适用于: 企业级监控告警体系建设

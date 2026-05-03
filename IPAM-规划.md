@@ -8,14 +8,14 @@
 |------|------|------|
 | 10.10.11-13 | K8s Master节点 | 3台Master |
 | 10.10.21-25 | K8s Worker节点 | 5台Worker |
-| 10.10.31-33 | 数据库服务器 | MySQL MGR + ProxySQL |
-| 10.10.41-46 | 缓存服务器 | Redis Cluster 6节点 |
-| 10.10.51-52 | 入口服务器 | Nginx + Keepalived |
-| 10.10.61-62 | CI/CD服务器 | GitLab/Jenkins/SonarQube |
-| 10.10.71-73 | 监控服务器 | Prometheus/Grafana |
-| 10.10.81-83 | 日志服务器 | ELK/EFK |
-| 10.10.91-92 | 安全服务器 | 堡垒机/审计 |
-| 10.10.95-96 | 备份服务器 | xtrabackup/etcd备份 |
+| 10.10.31-33 | 数据库服务器 | MySQL MGR |
+| 10.10.34-35 | ProxySQL | 读写分离 |
+| 10.10.41-46 | Redis Cluster | 6节点 |
+| 10.10.51-52 | Nginx入口 | Keepalived双主 |
+| 10.10.61-63 | CI/CD | GitLab/Jenkins/SonarQube |
+| 10.10.71-73 | 监控 | Prometheus/Grafana |
+| 10.10.81-83 | 日志 | ELK/EFK |
+| 10.10.91-92 | 安全 | 堡垒机/审计 |
 
 ## VIP地址分配
 
@@ -31,10 +31,3 @@
 | 物理网络 | 10.10.0.0/24 | 所有服务器 |
 | Pod网络 | 10.244.0.0/16 | Calico分配 |
 | Service网络 | 10.96.0.0/12 | K8s默认 |
-
-## 注意事项
-
-1. 所有服务器IP在分配前需确认无冲突
-2. VIP地址从各网段末尾开始分配
-3. 容器Pod网络使用Calico分配(10.244.0.0/16)
-4. Service网络使用K8s默认(10.96.0.0/12)
