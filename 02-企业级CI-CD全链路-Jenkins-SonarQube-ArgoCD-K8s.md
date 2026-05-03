@@ -175,7 +175,7 @@ checkout:
   image: alpine/git:latest
   script:
     - echo "代码检出完成"
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
     - /^release\/.*$/
@@ -201,7 +201,7 @@ build-java:
     key: ${CI_COMMIT_REF_SLUG}
     paths:
       - .m2/repository/
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
 
@@ -216,7 +216,7 @@ build-go:
     paths:
       - target/docker/
     expire_in: 2 hours
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
 
@@ -235,7 +235,7 @@ build-node:
     paths:
       - target/docker/
     expire_in: 2 hours
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
 
@@ -257,7 +257,7 @@ unit-test:
         path: target/site/jacoco/jacoco.xml
     expire_in: 7 days
   coverage: '/Code coverage: (\d+\.?\d*)%/'
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
 
@@ -282,7 +282,7 @@ sonarqube-analysis:
       -Dsonar.qualitygate.wait=true
       -Dsonar.qualitygate.timeout=300
   allow_failure: false
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
 
@@ -327,7 +327,7 @@ build-image:
       fi
       
       echo "镜像地址: ${TAG_COMMIT}"
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - develop
     - /^release\/.*$/
@@ -352,7 +352,7 @@ trivy-scan:
       --format table
       ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}
   allow_failure: false
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - tags
 
@@ -375,7 +375,7 @@ deploy-staging:
         -n staging
       # 等待 rollout 完成
       kubectl rollout status deployment/${CI_PROJECT_NAME} -n staging --timeout=300s
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
   when: manual
 
@@ -402,7 +402,7 @@ verify-staging:
       done
       echo "❌ Staging环境健康检查失败"
       exit 1
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
 
 # ========================================
@@ -431,7 +431,7 @@ deploy-production:
       # 等待完成
       kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
   when: manual
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - tags
 
@@ -460,7 +460,7 @@ verify-production:
       kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
       echo "已自动回滚到上一版本"
       exit 1
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
     - tags
 
@@ -475,7 +475,7 @@ rollback-production:
     - kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
     - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=300s
   when: manual
-  only:
+  only:  # [注意] only已废弃，建议改用rules
     - main
 ```
 
@@ -885,6 +885,7 @@ spec:
     namespace: production
   
   syncPolicy:
+      # [注意] selfHeal+prune在生产中可能导致意外删除，建议先在staging验证
     automated:
       prune: true
       selfHeal: true

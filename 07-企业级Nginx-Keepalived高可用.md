@@ -112,6 +112,7 @@ http {
     ssl_session_tickets off;
     ssl_stapling on;
     ssl_stapling_verify on;
+    ssl_stapling_responder http://ocsp.apple.com/;  # OCSP响应器地址(需替换为CA的OCSP地址)
 
     # Upstream后端池
     upstream app_backend {

@@ -1263,7 +1263,7 @@ echo "Kibana: http://10.10.10.211"
 # ===== 集群状态 =====
 kubectl cluster-info
 kubectl get nodes -o wide
-kubectl get componentstatuses
+kubectl get --raw=/readyz?verbose
 kubectl top nodes
 
 # ===== Pod管理 =====
@@ -2043,7 +2043,7 @@ echo "===== K8s集群巡检 ====="
 # 节点状态
 kubectl get nodes -o wide
 # 组件状态
-kubectl get componentstatuses
+kubectl get --raw=/readyz?verbose
 # 系统Pod
 kubectl get pods -n kube-system
 # 异常Pod

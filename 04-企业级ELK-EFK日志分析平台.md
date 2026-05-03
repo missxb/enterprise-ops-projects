@@ -116,7 +116,7 @@
    116|        - name: elasticsearch
    117|          image: elasticsearch:8.11.3
    118|          ports:
-   119|            - containerPort: 9200
+   119|            - containerPort: 9092  # Kafka端口
    120|              name: http
    121|            - containerPort: 9300
    122|              name: transport
@@ -148,7 +148,7 @@
    148|          readinessProbe:
    149|            httpGet:
    150|              path: /_cluster/health?local=true
-   151|              port: 9200
+   151|              port: 9092  # Kafka端口
    152|              scheme: https
    153|            initialDelaySeconds: 30
    154|            periodSeconds: 10
@@ -832,7 +832,7 @@ output {
     password => "${ELASTIC_PASSWORD}"
     ssl_certificate_verification => true
     workers => 4
-    flush_size => 5000
+    batch_size => 5000
     idle_flush_time => 5
     manage_template => false
   }
@@ -1029,7 +1029,7 @@ curl -s 'http://logstash:9600/_node/stats/pipelines/main?pretty' | jq '.pipeline
 # 2. 优化ES output配置
 # elasticsearch {
 #   workers => 4
-#   flush_size => 5000
+#   batch_size => 5000
 #   idle_flush_time => 5
 #   retry_max_interval => 30
 # }
