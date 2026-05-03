@@ -108,9 +108,10 @@
    111|loose-group_replication_recovery_get_public_key=1
    112|
    113|# 过滤不需要同步的库
-   114|binlog-do_db=app_db
-   115|binlog-do_db=user_db
-   116|binlog-do_db=order_db
+   114|# [已禁用] MGR不兼容binlog-do_db
+# binlog-do_db=app_db
+   115|# binlog-do_db=user_db
+   116|# binlog-do_db=order_db
    117|```
    118|
    119|### 3.2 初始化MGR集群

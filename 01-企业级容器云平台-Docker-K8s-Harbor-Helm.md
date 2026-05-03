@@ -166,7 +166,6 @@ EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
 
 # [已修复] 镜像加速已迁移到certs.d目录'
-TOML
 
 systemctl daemon-reload
 systemctl enable containerd
