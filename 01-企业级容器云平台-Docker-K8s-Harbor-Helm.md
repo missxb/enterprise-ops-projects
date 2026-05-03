@@ -168,7 +168,7 @@ sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k
 # 添加registry mirror
 cat >> /etc/containerd/config.toml << 'TOML'
 [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-  # [已修复] 镜像加速已迁移到certs.d目录
+  endpoint = ["https://mirror.ccs.tencentyun.com"]
 [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gcr.io"]
   endpoint = ["https://gcr.mirror.k8s.io"]
 [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
@@ -785,11 +785,13 @@ global:
 
 # ========================================
 # Nginx Ingress Controller
-# =================================
+# ========================================
+ingress-nginx
 
-... [OUTPUT TRUNCATED - 111 chars omitted out of 50111 total] ...
+... [OUTPUT TRUNCATED - 107 chars omitted out of 50107 total] ...
 
 
+      minReplicas: 3
       maxReplicas: 15
       targetCPUUtilizationPercentage: 65
     healthCheck:
