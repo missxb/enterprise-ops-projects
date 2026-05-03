@@ -99,7 +99,7 @@
    102|
    103|# MGR核心配置
    104|plugin_load_add='group_replication.so'
-   105|loose-group_replication_group_name="50e8400-e29b-41d4-a716-446554000"  # 请替换为uuidgen生成的UUID
+   105|loose-group_replication_group_name="50e8400-e29b-41d4-a716-446554000000"  # 请替换为uuidgen生成的UUID
    106|loose-group_replication_start_on_boot=OFF     # 首次启动OFF
    107|loose-group_replication_local_address="10.10.30.11:33061"  # 每台不同
    108|loose-group_replication_group_seeds="10.10.30.11:33061,10.10.30.12:33061,10.10.30.13:33061"
@@ -211,7 +211,8 @@
    213|
    214|-- 配置监控用户
    215|UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username';
-   216|UPDATE global_variables SET variable_value='Monitor@2024  # 生产环境替换' WHERE variable_name='mysql-monitor_password';
+   216|-- 生产环境请替换为真实密码
+UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='mysql-monitor_password';
    217|UPDATE global_variables SET variable_value=2000 WHERE variable_name='mysql-monitor_ping_interval';
    218|UPDATE global_variables SET variable_value=500 WHERE variable_name='mysql-monitor_read_only_interval';
    219|
