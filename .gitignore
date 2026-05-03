@@ -1,37 +1,45 @@
-# Terraform
-*.tfstate
-*.tfstate.backup
-.terraform/
-.terraform.lock.hcl
-*.tfvars
-!example.tfvars
+# .gitignore - 企业级运维项目集
 
-# Secrets
+# 环境变量文件
 .env
 .env.*
+*.env
+
+# 密钥文件
 *.pem
 *.key
 *.crt
-vault-token
-secrets.yaml
+*.p12
+id_rsa*
+*.jks
 
-# SSH
-id_rsa
-id_rsa.pub
-*.ppk
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+crash.log
+crash.*.log
 
-# IDE
-.vscode/
-.idea/
+# Ansible
+*.retry
+.vault_pass
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+*.tmp
 *.swp
-*.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Backup
+# 编辑器
+.vscode/
+.idea/
+
+# 备份
 *.bak
 *.backup
-*.old
