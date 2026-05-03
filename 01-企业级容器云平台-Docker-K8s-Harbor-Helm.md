@@ -1631,3 +1631,593 @@ enterprise-container-platform/
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设
+
+---
+
+## 真实故障案例深度分析
+
+### 案例1: Pod一直Pending无法调度
+
+**故障现象**: 新部署的Pod状态一直是Pending，kubectl describe显示no nodes match
+
+**排查过程**:
+```bash
+kubectl describe pod my-app-xxx -n production
+# Events:
+#   Warning  FailedScheduling  0/5 nodes are available: 2 Insufficient cpu, 3 Insufficient memory
+
+kubectl top nodes
+# node-01: cpu 95%, memory 88%
+# node-02: cpu 92%, memory 91%
+# 资源已耗尽!
+```
+
+**根因分析**: 集群资源不足，所有节点的CPU/内存请求都已满。HPA扩容后新Pod无法调度。
+
+**解决方案**:
+```bash
+# 1. 水平扩容节点
+kubectl scale nodepool worker-pool --replicas=8
+
+# 2. 或调整资源请求
+kubectl set resources deployment my-app -n production   --requests=cpu=100m,memory=128Mi   --limits=cpu=500m,memory=512Mi
+
+# 3. 配置优先级保证关键Pod
+kubectl apply -f - <<EOF
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: production-high
+value: 1000000
+globalDefault: false
+description: "Production high priority"
+EOF
+```
+
+### 案例2: ImagePullBackOff镜像拉取失败
+
+**故障现象**: Pod状态ImagePullBackOff
+
+**排查过程**:
+```bash
+kubectl describe pod my-app-xxx
+# Failed to pull image "harbor.internal.com/app:v2.0": rpc error:
+# code = Unknown desc = failed to pull and unpack image: pulling from host harbor.internal.com failed
+
+# 检查节点containerd配置
+crictl pull harbor.internal.com/app:v2.0
+# Error: tls: failed to verify certificate
+```
+
+**解决方案**:
+```bash
+# 1. 将Harbor CA证书分发到所有节点
+mkdir -p /etc/containerd/certs.d/harbor.internal.com
+cat > /etc/containerd/certs.d/harbor.internal.com/hosts.toml << EOF
+server = "https://harbor.internal.com"
+[host."https://harbor.internal.com"]
+  ca = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
+  skip_verify = false
+EOF
+
+# 2. 重启containerd
+systemctl restart containerd
+
+# 3. 创建ImagePullSecret
+kubectl create secret docker-registry harbor-secret   --docker-server=harbor.internal.com   --docker-username=admin   --docker-password=Harbor@2024   -n production
+```
+
+### 案例3: Service无法访问后端Pod
+
+**故障现象**: kubectl get endpoints显示Endpoints为空
+
+**排查过程**:
+```bash
+kubectl get endpoints my-service -n production
+# NAME         ENDPOINTS   AGE
+# my-service   <none>      1h
+
+kubectl get pods -n production -l app=my-app --show-labels
+# NAME                      READY   STATUS    LABELS
+# my-app-7d8f9b6c4-xxx      1/1     Running   app=my-app-v2  # 标签是v2不是v1!
+
+kubectl get service my-service -n production -o yaml | grep selector
+# selector:
+#   app: my-app-v1  # selector不匹配!
+```
+
+**解决方案**:
+```yaml
+# 修正Service selector
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: production
+spec:
+  selector:
+    app: my-app  # 修正为my-app
+  ports:
+  - port: 80
+    targetPort: 8080
+```
+
+### 案例4: PVC挂载失败导致Pod CrashLoopBackOff
+
+**故障现象**: Pod启动后反复重启
+
+**排查过程**:
+```bash
+kubectl describe pod my-app-xxx -n production
+# Warning  FailedMount  Unable to attach or mount volumes: timed out waiting for the condition
+# pvc "data-my-app-0" is being deleted
+
+kubectl get pvc data-my-app-0 -n production
+# STATUS: Terminating
+```
+
+**解决方案**:
+```bash
+# 1. 取消PVC删除
+kubectl patch pvc data-my-app-0 -n production -p '{"metadata":{"finalizers":null}}'
+
+# 2. 或配置storageClass reclaimPolicy: Retain
+kubectl patch storageclass fast-ssd -p '{"reclaimPolicy":"Retain"}'
+
+# 3. 预防: 使用StatefulSet时确保PVC不会被误删
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-my-app-0
+  namespace: production
+  finalizers:
+  - kubernetes.io/pvc-protection
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 100Gi
+EOF
+```
+
+### 案例5: Node节点NotReady
+
+**故障现象**: kubectl get nodes显示某节点NotReady
+
+**排查过程**:
+```bash
+kubectl describe node node-03
+# Conditions:
+#   Type             Status  Reason
+#   MemoryPressure   True    KubeletHasMemoryEviction
+#   DiskPressure     True    KubeletHasDiskEviction
+
+# 节点磁盘满
+ssh node-03 "df -h /var/lib/kubelet"
+# /dev/vda1  100G   98G  2G  98% /var/lib/kubelet
+```
+
+**解决方案**:
+```bash
+# 1. 清理节点磁盘
+ssh node-03 "crictl rmi --prune"
+ssh node-03 "rm -rf /var/lib/kubelet/pods/*/volumes/kubernetes.io~empty-dir/*"
+
+# 2. 配置kubelet磁盘回收策略
+cat > /etc/kubernetes/kubelet-config.yaml << EOF
+evictionHard:
+  memory.available: "500Mi"
+  nodefs.available: "10%"
+  imagefs.available: "15%"
+evictionMinimumReclaim:
+  nodefs.available: "5%"
+  imagefs.available: "10%"
+EOF
+systemctl restart kubelet
+
+# 3. 节点恢复
+kubectl uncordon node-03
+```
+
+### 案例6: DNS解析失败导致服务间通信中断
+
+**故障现象**: Pod内curl http://my-service返回"Could not resolve host"
+
+**排查过程**:
+```bash
+# 检查CoreDNS状态
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+# coredns-xxx   0/1     CrashLoopBackOff
+
+kubectl logs coredns-xxx -n kube-system
+# plugin/configuration: Corefile:2: not a valid configuration token
+
+# 检查ConfigMap
+kubectl get configmap coredns -n kube-system -o yaml
+# 发现: Corefile语法错误
+```
+
+**解决方案**:
+```yaml
+# 修复CoreDNS配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+```
+
+### 案例7: ConfigMap热更新不生效
+
+**故障现象**: 修改了ConfigMap但Pod中配置未更新
+
+**排查过程**:
+```bash
+kubectl get configmap my-config -n production -o yaml | grep resourceVersion
+# resourceVersion: "12345"
+
+kubectl get deployment my-app -n production -o yaml | grep -A5 volumeMounts
+# 发现: 使用了subPath挂载，不会自动更新
+# volumeMounts:
+#   - name: config
+#     mountPath: /etc/config/nginx.conf
+#     subPath: nginx.conf  # subPath不会自动更新!
+```
+
+**解决方案**:
+```bash
+# 1. 移除subPath，使用目录挂载
+kubectl patch deployment my-app -n production -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [{
+          "name": "my-app",
+          "volumeMounts": [{
+            "name": "config",
+            "mountPath": "/etc/config"
+          }]
+        }]
+      }
+    }
+  }
+}'
+
+# 2. 或使用Reloader自动重启
+kubectl apply -f - <<EOF
+apiVersion: stakater.com/v1
+kind: Reloader
+metadata:
+  name: my-app-reloader
+spec:
+  reloadStrategy: annotation
+  resource:
+    kind: deployment
+    name: my-app
+    namespace: production
+  configmaps:
+    - name: my-config
+      namespaces: [production]
+EOF
+```
+
+### 案例8: HPA不扩容导致服务过载
+
+**故障现象**: CPU使用率已超过80%但HPA没有扩容
+
+**排查过程**:
+```bash
+kubectl get hpa my-app -n production
+# NAME     REFERENCE              TARGETS         MINPODS   MAXPODS   REPLICAS
+# my-app   Deployment/my-app      85%/50%         3         10        3
+
+# TARGETS显示85%但副本数没变!
+kubectl describe hpa my-app
+# Warning  FailedGetMetric  unable to fetch metrics: the server could not find the requested resource
+
+# 检查metrics-server
+kubectl get pods -n kube-system | grep metrics
+# metrics-server-xxx   0/1     CrashLoopBackOff
+```
+
+**解决方案**:
+```bash
+# 1. 修复metrics-server
+kubectl logs metrics-server-xxx -n kube-system
+# Error: unable to read a client certificate from /etc/kubernetes/pki/sa.key
+
+# 重新部署metrics-server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# 2. 或安装Prometheus Adapter作为metrics源
+helm install prometheus-adapter prometheus-community/prometheus-adapter   --namespace monitoring   --set prometheus.url=http://prometheus.monitoring   --set prometheus.port=9090
+
+# 3. 调整HPA配置
+kubectl patch hpa my-app -n production -p '{
+  "spec": {
+    "minReplicas": 3,
+    "maxReplicas": 20,
+    "behavior": {
+      "scaleUp": {
+        "stabilizationWindowSeconds": 60,
+        "policies": [{"type": "Percent", "value": 100, "periodSeconds": 60}]
+      },
+      "scaleDown": {
+        "stabilizationWindowSeconds": 300,
+        "policies": [{"type": "Percent", "value": 10, "periodSeconds": 60}]
+      }
+    }
+  }
+}'
+```
+
+---
+
+## 高级性能调优参数
+
+### kubelet参数调优
+
+```yaml
+# /var/lib/kubelet/config.yaml
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+# 资源管理
+maxPods: 220              # 单节点最大Pod数(默认110)
+podsPerCore: 30           # 每核最大Pod数
+evictionHard:
+  memory.available: "500Mi"
+  nodefs.available: "10%"
+  imagefs.available: "15%"
+# 容器运行时
+serializeImagePulls: false  # 并行拉取镜像
+maxParallelImagePulls: 5
+# 健康检查
+syncFrequency: "10s"
+fileCheckFrequency: "20s"
+httpCheckFrequency: "20s"
+```
+
+### etcd调优
+
+```yaml
+# etcd配置
+etcd:
+  extraArgs:
+    # 性能
+    quota-backend-bytes: "8589934592"  # 8GB
+    auto-compaction-mode: "periodic"
+    auto-compaction-retention: "8h"
+    # 预编译
+    experimental-enable-lease-checkpoint: "true"
+    # 快照
+    snapshot-count: "10000"
+    # 心跳
+    heartbeat-interval: "100"
+    election-timeout: "1000"
+```
+
+### API Server限流
+
+```yaml
+# kube-apiserver配置
+apiServer:
+  extraArgs:
+    max-requests-inflight: "400"        # 非只读请求
+    max-mutating-requests-inflight: "200" # 只读请求
+    event-ttl: "1h"
+    audit-log-maxage: "30"
+    audit-log-maxbackup: "10"
+    audit-log-maxsize: "100"
+```
+
+### Calico网络优化
+
+```yaml
+# calico-node配置
+apiVersion: projectcalico.org/v3
+kind: Node
+metadata:
+  name: node-01
+spec:
+  bgp:
+    asNumber: 64512
+    nodeMeshMaxRestartTime: 120s
+  # Felix配置
+  config:
+    # 网络性能
+    tcpTimeoutShort: "10s"
+    tcpTimeoutMedium: "30s"
+    tcpTimeoutLong: "120s"
+    tcpInboundRestart: "10s"
+    tcpEstablishedTimeout: "120s"
+    # 连接追踪
+    conntrackMax: "1048576"
+    conntrackRateLimit: "200"
+    # BFD
+    felixBPFConnectTimeLoadBalancingEnabled: true
+```
+
+---
+
+## 双机房灾备方案
+
+### 架构设计
+
+```
+机房A (主): etcd x3 + Master x3 + Worker x6 + Harbor + Prometheus
+           │ 跨机房复制
+机房B (备): etcd x3 + Master x3 + Worker x6 + Harbor + Prometheus
+
+DNS: app.example.com → 机房A优先，机房B备用
+监控: 双机房独立采集，集中告警
+```
+
+### etcd备份恢复
+
+```bash
+#!/bin/bash
+# etcd_backup.sh - etcd自动备份
+
+BACKUP_DIR="/data/etcd-backup"
+DATE=$(date +%Y%m%d_%H%M%S)
+KEEP_DAYS=7
+
+# 执行备份
+ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/snapshot-${DATE}.db   --endpoints=https://127.0.0.1:2379   --cacert=/etc/kubernetes/pki/etcd/ca.crt   --cert=/etc/kubernetes/pki/etcd/server.crt   --key=/etc/kubernetes/pki/etcd/server.key
+
+# 验证备份
+ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-table
+
+# 清理过期备份
+find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +${KEEP_DAYS} -delete
+
+# 上传到远程存储
+aws s3 cp ${BACKUP_DIR}/snapshot-${DATE}.db s3://k8s-etcd-backup/
+```
+
+### 故障切换SOP
+
+```bash
+#!/bin/bash
+# disaster_recovery.sh
+# 机房A不可用时切换到机房B
+
+echo "===== 灾备切换开始 ====="
+
+# 1. 确认机房A不可用
+kubectl --context=dc-a get nodes 2>/dev/null
+if [ $? -eq 0 ]; then
+    echo "机房A仍然可用，请确认是否继续"
+    exit 1
+fi
+
+# 2. 提升机房B为只读模式
+kubectl --context=dc-b patch deployment kube-apiserver -n kube-system   --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/args/-","value":"--authorization-mode=RBAC,AlwaysAllow"}]'
+
+# 3. 更新DNS指向机房B
+# aws route53 change-resource-record-sets ...
+
+# 4. 验证服务可用
+kubectl --context=dc-b get pods -A | grep -v Running
+
+echo "===== 灾备切换完成 ====="
+```
+
+---
+
+## 详细成本估算
+
+| 项目 | 自建(裸金属) | 阿里云ACK | AWS EKS |
+|------|------------|----------|---------|
+| Master节点(3x4C16G) | ¥12,000/月 | ¥8,000/月 | $1,000/月 |
+| Worker节点(6x8C32G) | ¥54,000/月 | ¥45,000/月 | $5,500/月 |
+| Harbor(2x4C8G) | ¥4,000/月 | ¥2,000/月 | $250/月 |
+| 监控(Prometheus+Grafana) | ¥3,000/月 | ¥2,000/月 | $200/月 |
+| 网络(1Gbps) | ¥5,000/月 | ¥3,000/月 | $300/月 |
+| 运维人力(0.5人) | ¥10,000/月 | ¥3,000/月 | $300/月 |
+| **月度总计** | **¥88,000** | **¥63,000** | **$7,550 (¥54,000)** |
+
+三年TCO: 自建¥3,168,000 vs 阿里云¥2,268,000 (省29%) vs AWS ¥1,944,000 (省39%)
+
+---
+
+## 全链路监控告警
+
+```yaml
+groups:
+  - name: kubernetes
+    rules:
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels: { severity: warning }
+      - alert: PodNotReady
+        expr: kube_pod_status_ready{condition="false"} == 1
+        for: 5m
+        labels: { severity: warning }
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 2m
+        labels: { severity: critical }
+      - alert: PersistentVolumeFillingUp
+        expr: predict_linear(kubelet_volume_stats_available_bytes[6h], 60*60*24*4) < 0
+        for: 10m
+        labels: { severity: warning }
+      - alert: DeploymentReplicasMismatch
+        expr: kube_deployment_spec_replicas != kube_deployment_status_available_replicas
+        for: 10m
+        labels: { severity: warning }
+      - alert: HighCPUUsage
+        expr: 1 - (sum(rate(container_cpu_usage_seconds_total[5m])) by (node) / sum(kube_node_status_allocatable{resource="cpu"}) by (node)) < 0.1
+        for: 10m
+        labels: { severity: warning }
+```
+
+---
+
+## 完整运维SOP
+
+### 日常巡检
+
+```bash
+#!/bin/bash
+echo "===== K8s集群巡检 ====="
+# 节点状态
+kubectl get nodes -o wide
+# 组件状态
+kubectl get componentstatuses
+# 系统Pod
+kubectl get pods -n kube-system
+# 异常Pod
+kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded
+# PVC状态
+kubectl get pvc -A | grep -v Bound
+# 资源使用
+kubectl top nodes
+kubectl top pods -A --sort-by=cpu | head -20
+```
+
+### etcd备份SOP
+
+```bash
+# 每日自动备份 (crontab: 0 2 * * *)
+ETCDCTL_API=3 etcdctl snapshot save /data/etcd-backup/snapshot-$(date +%Y%m%d).db   --endpoints=https://127.0.0.1:2379   --cacert=/etc/kubernetes/pki/etcd/ca.crt   --cert=/etc/kubernetes/pki/etcd/server.crt   --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+### 版本升级SOP
+
+```bash
+# 1. 备份etcd
+# 2. 升级Master节点
+# 3. 验证集群状态
+# 4. 升级Worker节点(kubectl drain + uncordon)
+# 5. 验证应用正常
+```
+
+---
+
+> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
+> 适用于: 企业级容器化改造、私有PaaS平台建设

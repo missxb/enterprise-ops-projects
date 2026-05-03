@@ -1346,3 +1346,493 @@ enterprise-cicd-pipeline/
 
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: Jenkins/GitLab CI, SonarQube, Harbor, ArgoCD, K8s部署, 金丝雀发布
+
+---
+
+## 真实故障案例深度分析
+
+### 案例1: Jenkins Agent离线导致构建排队
+
+**故障现象**: Jenkins构建任务全部排队，Build Queue显示"waiting for available agent"
+
+**排查过程**:
+```bash
+# 查看Agent状态
+kubectl get pods -n jenkins -l jenkins/agent-type=slave
+# jenkins-agent-xxx   0/1     Terminating
+
+# 查看Agent日志
+kubectl logs jenkins-agent-xxx -n jenkins
+# SEVERE: jenkins.util.proxy.ProxyException: java.net.SocketException: Connection reset
+# Agent与Master连接中断
+```
+
+**解决方案**:
+```bash
+# 1. 配置Agent自动重连
+# Jenkins → Manage Jenkins → Manage Nodes → Agent配置
+# Remote FS Root: /home/jenkins
+# Launch method: Kubernetes Pod Template
+# Reconnect delay: 10s
+# Max retries: 10
+
+# 2. 配置Pod资源限制防止OOM
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins/agent-type: slave
+spec:
+  containers:
+  - name: jnlp
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+```
+
+### 案例2: SonarQube扫描超时
+
+**故障现象**: Jenkins Pipeline中SonarQube扫描步骤超时
+
+**排查过程**:
+```bash
+# 查看SonarQube日志
+kubectl logs sonarqube-xxx -n sonarqube | grep -i "timeout"
+# ERROR: SonarQube is not responding within 600000ms
+
+# 查看资源使用
+kubectl top pod sonarqube-xxx -n sonarqube
+# CPU: 3500m (接近limit 4000m)
+# Memory: 6Gi (接近limit 8Gi)
+```
+
+**解决方案**:
+```bash
+# 1. 增加SonarQube资源
+kubectl patch deployment sonarqube -n sonarqube -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [{
+          "name": "sonarqube",
+          "resources": {
+            "requests": {"cpu": "4", "memory": "8Gi"},
+            "limits": {"cpu": "8", "memory": "16Gi"}
+          }
+        }]
+      }
+    }
+  }
+}'
+
+# 2. 优化Jenkinsfile中的扫描配置
+# stage('SonarQube') {
+#   steps {
+#     withSonarQubeEnv('SonarQube') {
+#       sh 'mvn sonar:sonar -Dsonar.timeout=600 -Dsonar.threads=4'
+#     }
+#   }
+# }
+```
+
+### 案例3: ArgoCD同步失败
+
+**故障现象**: ArgoCD Application状态一直是OutOfSync，自动同步失败
+
+**排查过程**:
+```bash
+# 查看Application状态
+argocd app get my-app
+# Status: OutOfSync
+# Health: Degraded
+# Message: "error creating resource: admission webhook...denied"
+
+# 查看同步错误
+argocd app sync my-app --dry-run
+# Error: ValidationError(Deployment): unknown field "replicas" in apps/v1.Deployment
+```
+
+**解决方案**:
+```bash
+# 1. 修复YAML格式
+# 错误: apiVersion: apps/v1 但使用了旧语法
+# 修正: 确保YAML符合目标K8s版本的API
+
+# 2. 配置ArgoCD自动修复
+argocd app set my-app --sync-policy automated --auto-prune --self-heal
+
+# 3. 配置健康检查
+argocd app set my-app --health-check "Deployment/my-app"
+```
+
+### 案例4: GitLab Webhook丢失
+
+**故障现象**: 代码推送后Jenkins没有自动触发构建
+
+**排查过程**:
+```bash
+# 查看GitLab Webhook配置
+# Settings → Webhooks → 最近触发记录
+# 发现: "Delivery failed" 状态
+
+# 查看Jenkins端日志
+curl -v http://jenkins.internal:8080/generic-webhook-trigger/invoke
+# HTTP/1.1 403 Forbidden
+# Jenkins CSRF保护导致Webhook被拒
+```
+
+**解决方案**:
+```bash
+# 1. Jenkins关闭CSRF保护(仅内网)
+# Manage Jenkins → Security → CSRF Protection → 取消勾选
+
+# 2. 或使用API Token
+# Manage Jenkins → API Tokens → 生成Token
+# GitLab Webhook配置: http://jenkins:8080/generic-webhook-trigger/invoke?token=xxx
+
+# 3. 配置重试机制
+# GitLab Webhook → Enable SSL verification → Retry on failure (3次)
+```
+
+### 案例5: 镜像构建失败磁盘满
+
+**故障现象**: Jenkins构建过程中Docker build失败，报"no space left on device"
+
+**排查过程**:
+```bash
+# 查看Docker磁盘使用
+docker system df
+# Images: 150.5GB
+# Containers: 20.3GB
+# Build cache: 85.2GB
+# 总计: 256GB (磁盘只有200GB!)
+```
+
+**解决方案**:
+```bash
+# 1. 清理Docker空间
+docker system prune -af --volumes
+docker builder prune -af
+
+# 2. 配置自动清理(在Jenkinsfile中)
+# post {
+#   always {
+#     sh 'docker system prune -f'
+#   }
+# }
+
+# 3. 配置Docker daemon
+cat > /etc/docker/daemon.json << EOF
+{
+  "storage-driver": "overlay2",
+  "log-driver": "json-file",
+  "log-opts": {"max-size": "10m", "max-file": "3"},
+  "max-concurrent-downloads": 10,
+  "max-concurrent-uploads": 5
+}
+EOF
+```
+
+### 案例6: Pipeline并发冲突
+
+**故障现象**: 多个分支同时构建导致镜像标签冲突
+
+**解决方案**:
+```groovy
+// Jenkinsfile - 使用唯一标签
+pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      steps {
+        script {
+          def tag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}-${System.currentTimeMillis()}"
+          sh "docker build -t harbor.internal.com/myapp:${tag} ."
+          sh "docker push harbor.internal.com/myapp:${tag}"
+        }
+      }
+    }
+  }
+  // 使用lock step防止并发冲突
+  options {
+    lock(resource: 'docker-build', inversePrecedence: true)
+  }
+}
+```
+
+### 案例7: 凭据泄露到日志
+
+**故障现象**: Jenkins构建日志中包含明文密码
+
+**排查过程**:
+```bash
+# 查看构建日志
+cat /var/jenkins_home/jobs/my-app/builds/123/log | grep -i password
+# [Pipeline] sh
+# docker login -u admin -P MyP@ssw0rd harbor.internal.com  # 密码明文!
+```
+
+**解决方案**:
+```groovy
+// 使用Credentials绑定
+withCredentials([usernamePassword(
+  credentialsId: 'harbor-credentials',
+  usernameVariable: 'DOCKER_USER',
+  passwordVariable: 'DOCKER_PASS'
+)]) {
+  sh "docker login -u \$DOCKER_USER -p \$DOCKER_PASS harbor.internal.com"
+}
+
+// 使用MaskPasswords插件
+// Manage Jenkins → Global Tool Configuration → Mask passwords
+```
+
+### 案例8: 制品库磁盘满
+
+**故障现象**: Harbor磁盘使用率100%，无法推送新镜像
+
+**解决方案**:
+```bash
+# 1. 配置自动清理策略
+# Harbor → Projects → my-project → Tag Retention
+# 保留策略: 每个仓库最多保留10个Tag，保留30天
+
+# 2. 手动清理
+# 清理未引用的镜像
+harbor admin delete --project my-project --untagged
+# 或使用API
+curl -X DELETE "http://harbor/api/v2.0/projects/my-project/repositories"   -u admin:Harbor@2024
+
+# 3. 配置垃圾回收
+harbor gc --dry-run
+harbor gc
+```
+
+---
+
+## 高级性能调优参数
+
+### Jenkins Master调优
+
+```yaml
+# Jenkins Helm values
+controller:
+  javaOpts: "-Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  # 节点监控
+  installPlugins:
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - configuration-as-code:latest
+  # JCasC配置
+  JCasC:
+    defaultConfig: true
+    configScripts:
+      kubernetes: |
+        jenkins:
+          clouds:
+          - kubernetes:
+              name: "kubernetes"
+              serverUrl: "https://kubernetes.default"
+              namespace: "jenkins"
+              jenkinsUrl: "http://jenkins.jenkins:8080"
+              jenkinsTunnel: "jenkins-agent.jenkins:50000"
+              containerCapStr: "50"
+              maxRequestsPerHostStr: "32"
+```
+
+### SonarQube调优
+
+```yaml
+# SonarQube Helm values
+sonarqube:
+  javaOpts: "-Xmx4g -XX:+UseG1GC"
+  resources:
+    requests:
+      cpu: "4"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 16Gi
+  # 数据库优化
+  postgresql:
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+  # 插件优化
+  plugins:
+    install:
+      - sonar-java
+      - sonar-javascript
+      - sonar-python
+```
+
+### ArgoCD调优
+
+```yaml
+# ArgoCD Helm values
+server:
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+controller:
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  # 并发控制
+  processors: 10
+  # 缓存
+  cache:
+    enabled: true
+    size: 500Mi
+repoServer:
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+  # 并发
+  parallelismLimit: 10
+```
+
+---
+
+## 灾备方案
+
+### Jenkins备份
+
+```bash
+#!/bin/bash
+# jenkins_backup.sh
+JENKINS_HOME="/var/jenkins_home"
+BACKUP_DIR="/data/jenkins-backup"
+DATE=$(date +%Y%m%d)
+
+# 备份关键目录
+tar czf ${BACKUP_DIR}/jenkins-${DATE}.tar.gz   ${JENKINS_HOME}/config.xml   ${JENKINS_HOME}/jobs/*/config.xml   ${JENKINS_HOME}/secrets   ${JENKINS_HOME}/credentials.xml   ${JENKINS_HOME}/plugins/*.jpi   --exclude='*.log'
+
+# 上传到S3
+aws s3 cp ${BACKUP_DIR}/jenkins-${DATE}.tar.gz s3://jenkins-backup/
+```
+
+### ArgoCD应用迁移
+
+```bash
+# 导出ArgoCD Application
+argocd app get my-app -o yaml > my-app.yaml
+
+# 修改后在新集群部署
+kubectl apply -f my-app.yaml
+```
+
+---
+
+## 详细成本估算
+
+| 项目 | 自建 | 阿里云DevOps | GitHub Actions |
+|------|------|------------|---------------|
+| Jenkins Master(4C16G) | ¥3,000/月 | ¥2,000/月 | - |
+| SonarQube(4C16G) | ¥3,000/月 | ¥2,000/月 | - |
+| ArgoCD(2C8G) | ¥1,500/月 | ¥1,000/月 | - |
+| Harbor(4C16G) | ¥3,000/月 | ¥2,000/月 | - |
+| 运维人力(0.3人) | ¥6,000/月 | ¥1,000/月 | ¥0 |
+| **月度总计** | **¥16,500** | **¥8,000** | **按量计费** |
+
+---
+
+## 全链路监控告警
+
+```yaml
+groups:
+  - name: cicd
+    rules:
+      - alert: JenkinsBuildFailed
+        expr: jenkins_builds_failed_total > 5
+        for: 10m
+        labels: { severity: warning }
+      - alert: JenkinsJobQueueHigh
+        expr: jenkins_queue_size_value > 10
+        for: 5m
+        labels: { severity: warning }
+      - alert: SonarQubeQualityGateFailed
+        expr: sonar_quality_gate_status{status="ERROR"} == 1
+        for: 1m
+        labels: { severity: warning }
+      - alert: ArgoCDAppOutOfSync
+        expr: argocd_app_info{sync_status="OutOfSync"} == 1
+        for: 5m
+        labels: { severity: warning }
+      - alert: ArgoCDAppDegraded
+        expr: argocd_app_info{health_status="Degraded"} == 1
+        for: 2m
+        labels: { severity: critical }
+      - alert: HarborStorageFull
+        expr: harbor_project_storage_bytes / harbor_project_storage_quota_bytes > 0.9
+        for: 5m
+        labels: { severity: warning }
+```
+
+---
+
+## 完整运维SOP
+
+### 日常巡检
+
+```bash
+#!/bin/bash
+echo "===== CI/CD巡检 ====="
+# Jenkins
+kubectl get pods -n jenkins
+curl -s http://jenkins:8080/api/json | jq '.jobs[] | {name, color}'
+# SonarQube
+kubectl get pods -n sonarqube
+curl -s http://sonarqube:9000/api/system/status | jq '.status'
+# ArgoCD
+argocd app list
+# Harbor
+curl -s http://harbor/api/v2.0/systeminfo | jq '.storage'
+```
+
+### 紧急故障响应
+
+```
+Jenkins宕机: kubectl delete pod jenkins-xxx → 自动重建
+SonarQube慢: 检查DB连接池 → 增加资源 → 重启
+ArgoCD同步失败: 检查K8s权限 → 检查YAML语法
+Harbor无法推送: 检查磁盘 → 清理镜像 → 检查TLS证书
+```
+
+### 版本升级SOP
+
+```bash
+# 1. 备份当前配置
+helm get values jenkins -n jenkins > jenkins-values.yaml
+# 2. 升级
+helm upgrade jenkins jenkins/jenkins -n jenkins -f jenkins-values.yaml
+# 3. 验证
+kubectl get pods -n jenkins
+```
+
+---
+
+> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 涵盖: Jenkins + SonarQube + ArgoCD + Harbor + GitLab + K8s
+> 适用于: 企业级CI/CD全链路建设

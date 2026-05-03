@@ -1019,3 +1019,567 @@ echo "================================================"
 
 > 本项目基于25个语雀知识库(2699篇,584万字)编写
 > 涵盖: Prometheus HA + Thanos + 50+告警规则 + Grafana + AlertManager
+
+---
+
+## 真实故障案例深度分析
+
+### 案例1: Prometheus OOMKilled
+
+**故障现象**: Prometheus Pod频繁OOMKilled
+
+**排查过程**:
+```bash
+kubectl describe pod prometheus-xxx -n monitoring
+# Last State: Terminated, Reason: OOMKilled, Exit Code: 137
+
+kubectl top pod prometheus-xxx -n monitoring
+# 内存: 7.5Gi (接近limit 8Gi)
+```
+
+**根因分析**: 时间序列太多(1亿+)，内存不足
+
+**解决方案**:
+```yaml
+# 1. 增加资源
+resources:
+  requests:
+    memory: 8Gi
+  limits:
+    memory: 16Gi
+
+# 2. 配置external_labels减少基数
+global:
+  external_labels:
+    cluster: production
+    region: cn-north
+
+# 3. 使用Recording Rules预计算
+groups:
+  - name: recording
+    rules:
+      - record: job:http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job)
+```
+
+### 案例2: AlertManager静默导致告警丢失
+
+**故障现象**: 服务宕机但没有收到告警通知
+
+**排查过程**:
+```bash
+# 查看AlertManager状态
+curl -s http://alertmanager:9093/api/v2/alerts | jq '.[].status.state'
+# 发现: 所有告警都是"suppressed"
+
+# 查看Silence配置
+curl -s http://alertmanager:9093/api/v2/silences | jq '.[] | {id, matchers, endsAt}'
+# 发现: 一个全局Silence覆盖了所有告警!
+# "matchers": [{"name": "alertname", "value": ".*", "isRegex": true}]
+# endsAt: "2024-12-31T23:59:59Z"
+```
+
+**解决方案**:
+```bash
+# 1. 删除误配置的Silence
+SILENCE_ID=$(curl -s http://alertmanager:9093/api/v2/silences | jq -r '.[].id' | head -1)
+curl -X DELETE http://alertmanager:9093/api/v2/silence/$SILENCE_ID
+
+# 2. 配置Silence过期时间
+# 在AlertManager配置中添加:
+# inhibit_rules:
+#   - source_match:
+#       severity: 'critical'
+#     target_match:
+#       severity: 'warning'
+#     equal: ['alertname', 'instance']
+```
+
+### 案例3: Grafana Dashboard加载缓慢
+
+**故障现象**: Grafana打开Dashboard需要30秒+
+
+**排查过程**:
+```bash
+# 查看Grafana日志
+kubectl logs grafana-xxx -n monitoring | grep -i "slow"
+# lvl=warn msg="Slow request" path=/api/ds/query duration=25s
+
+# 检查数据源
+# 发现: 查询时间范围太大(默认1小时改为7天!)
+# 且查询了太多指标
+```
+
+**解决方案**:
+```json
+// 1. Dashboard优化
+{
+  "time": { "from": "now-1h", "to": "now" },  // 缩短默认时间范围
+  "refresh": "30s",
+  "panels": [
+    {
+      "maxDataPoints": 100,  // 限制数据点数量
+      "interval": "15s"      // 增大查询间隔
+    }
+  ]
+}
+
+// 2. 配置查询缓存
+// grafana.ini
+[dataproxy]
+timeout = 30
+max_idle_connections = 100
+
+[cache]
+enabled = true
+backend = "memory"
+```
+
+### 案例4: 远程写入延迟导致数据丢失
+
+**故障现象**: Thanos Store查询结果有时间间隙
+
+**排查过程**:
+```bash
+# 检查Prometheus远程写入
+curl -s http://prometheus:9090/api/v1/status/runtimeinfo | jq '.remoteWriteCount'
+# remoteWriteCount: 150000
+
+# 检查网络延迟
+ping thanos-sidecar.internal
+# 100ms (高延迟!)
+
+# 检查队列积压
+curl -s http://prometheus:9090/api/v1/status/flags | jq '.remoteWriteQueueMaxSamplesPerSend'
+```
+
+**解决方案**:
+```yaml
+# Prometheus远程写入优化
+remoteWrite:
+  - url: "http://thanos-receive:19291/api/v1/receive"
+    queueConfig:
+      capacity: 50000
+      maxSamplesPerSend: 5000
+      batchSendDeadline: "10s"
+      maxShards: 20
+    writeRelabelConfigs:
+      - sourceLabels: [__name__]
+        regex: 'go_.*'
+        action: drop  # 丢弃Go运行时指标减少数据量
+```
+
+### 案例5: TSDB磁盘满导致Prometheus停止采集
+
+**故障现象**: Prometheus停止抓取新指标
+
+**排查过程**:
+```bash
+df -h /prometheus
+# /dev/vda1  100G  98G  2G  98% /prometheus
+
+# 查看TSDB状态
+curl -s http://prometheus:9090/api/v1/status/tsdb | jq '.data'
+# headStats:
+#   numChunks: 125000000 (1.25亿chunks!)
+#   numSeries: 2500000 (250万序列!)
+```
+
+**解决方案**:
+```bash
+# 1. 紧急清理
+# 降低保留期
+--storage.tsdb.retention.time=7d  # 从30天改为7天
+
+# 2. 丢弃高基数指标
+# prometheus.yml
+scrape_configs:
+  - job_name: 'apps'
+    metric_relabel_configs:
+      - sourceLabels: [__name__]
+        regex: 'http_request_duration_seconds_bucket'
+        action: drop
+      - sourceLabels: [__name__, url]
+        regex: 'http_requests_total:/api/v1/users/.+'
+        action: drop
+
+# 3. 扩容磁盘
+kubectl pvc resize data-prometheus-0 --capacity=200Gi -n monitoring
+```
+
+### 案例6: ServiceMonitor不生效
+
+**故障现象**: Prometheus没有抓取某些Service的指标
+
+**排查过程**:
+```bash
+# 查看ServiceMonitor
+kubectl get servicemonitor my-app -n monitoring -o yaml
+# spec:
+#   namespaceSelector:
+#     matchNames: ["production"]
+#   selector:
+#     matchLabels:
+#       app: my-app
+
+# 检查Service是否有对应标签
+kubectl get svc my-app -n production --show-labels
+# LABELS: app=my-app-v2  # 标签不匹配!
+
+# 检查Prometheus配置
+curl -s http://prometheus:9090/api/v1/status/config | grep my-app
+# 未找到!
+```
+
+**解决方案**:
+```bash
+# 1. 修正Service标签
+kubectl label svc my-app -n production app=my-app
+
+# 2. 或修正ServiceMonitor selector
+kubectl patch servicemonitor my-app -n monitoring -p '{
+  "spec": {
+    "selector": {
+      "matchLabels": {"app": "my-app-v2"}
+    }
+  }
+}'
+
+# 3. 验证Prometheus配置已重载
+curl -X POST http://prometheus:9090/-/reload
+```
+
+### 案例7: 告警风暴导致通知系统过载
+
+**故障现象**: AlertManager发送了数千条告警通知
+
+**排查过程**:
+```bash
+# 查看告警数量
+curl -s http://alertmanager:9093/api/v2/alerts | jq 'length'
+# 5000+ 条告警!
+
+# 分析告警来源
+curl -s http://alertmanager:9093/api/v2/alerts | jq 'group_by(.labels.alertname)' | sort | uniq -c | sort -rn
+# 4500 PodCrashLooping
+# 500 HighCPUUsage
+```
+
+**解决方案**:
+```yaml
+# 1. 配置告警分组
+route:
+  group_by: ['alertname', 'namespace', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'slack-critical'
+
+# 2. 配置抑制规则
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['namespace', 'pod']
+
+# 3. 配置告警静默
+# 针对已知维护窗口
+```
+
+### 案例8: 时序数据基数爆炸导致内存溢出
+
+**故障现象**: Prometheus内存持续增长
+
+**排查过程**:
+```bash
+# 查看活跃序列数
+curl -s http://prometheus:9090/api/v1/status/tsdb | jq '.data.loadedHeadStats.numSeries'
+# 5000000 (500万序列!)
+
+# 找出高基数指标
+curl -s 'http://prometheus:9090/api/v1/label/__name__/values' | jq 'length'
+# 150000个指标名!
+
+# 检查标签基数
+curl -s 'http://prometheus:9090/api/v1/label/user_id/values' | jq 'length'
+# user_id标签有100万种值! ← 这是问题根源
+```
+
+**解决方案**:
+```yaml
+# 1. 丢弃高基数标签
+metric_relabel_configs:
+  - sourceLabels: [__name__]
+    regex: 'http_requests_total'
+    targetLabel: user_id
+    regex: '.*'
+    action: labeldrop
+
+# 2. 限制标签值
+metric_relabel_configs:
+  - sourceLabels: [user_id]
+    regex: '.*'
+    replacement: 'other'
+    action: replace
+
+# 3. 使用Recording Rules预聚合
+groups:
+  - name: aggregation
+    rules:
+      - record: http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job, method, status)
+```
+
+---
+
+## 高级性能调优参数
+
+### TSDB调优
+
+```yaml
+# Prometheus配置
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  # TSDB优化
+  external_labels:
+    cluster: production
+
+storage:
+  tsdb:
+    retention.time: 15d
+    retention.size: 50GB
+    path: /prometheus
+    min-block-duration: 2h
+    max-block-duration: 36h
+    WALCompression: true
+```
+
+### 远程写入优化
+
+```yaml
+remoteWrite:
+  - url: "http://thanos-receive:19291/api/v1/receive"
+    queueConfig:
+      capacity: 100000
+      maxSamplesPerSend: 10000
+      batchSendDeadline: "30s"
+      maxShards: 50
+      minShards: 10
+      maxSamplesPerTick: 100000
+    writeRelabelConfigs:
+      - sourceLabels: [__name__]
+        regex: 'go_.*|process_.*'
+        action: drop
+    sendExemplars: false
+    enableHTTP2: true
+```
+
+### 内存管理
+
+```yaml
+# 启用内存限制
+args:
+  - '--storage.tsdb.wal-compression'
+  - '--query.max-samples=50000000'
+  - '--query.timeout=2m'
+  - '--query.max-concurrent=20'
+```
+
+---
+
+## 灾备方案
+
+### Thanos联邦架构
+
+```
+Prometheus A (机房A) → Thanos Sidecar → Thanos Store Gateway
+Prometheus B (机房B) → Thanos Sidecar → Thanos Store Gateway
+                                              │
+                                    Thanos Query (全局查询)
+                                              │
+                                    Thanos Ruler (全局规则)
+                                              │
+                                    Thanos Compactor (压缩)
+```
+
+### VictoriaMetrics替代方案
+
+```yaml
+# VictoriaMetrics单节点
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: victoria-metrics
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: victoria-metrics
+        image: victoriametrics/victoria-metrics:latest
+        args:
+          - '--storageDataPath=/victoria-metrics-data'
+          - '--retentionPeriod=90d'
+          - '--scrape.max-samples-per-send=10000'
+          - '--scrape.concurrent-scrapes=16'
+        resources:
+          requests:
+            cpu: "4"
+            memory: 16Gi
+```
+
+---
+
+## 详细成本估算
+
+| 项目 | 自建 | 阿里云ARMS | AWS CloudWatch |
+|------|------|-----------|---------------|
+| Prometheus(4C16G) | ¥3,000/月 | ¥2,000/月 | - |
+| Grafana(2C8G) | ¥1,500/月 | ¥1,000/月 | - |
+| AlertManager(2C4G) | ¥1,000/月 | 包含 | - |
+| Thanos/VM(4C16G) | ¥3,000/月 | ¥2,000/月 | - |
+| 存储(1TB) | ¥2,000/月 | ¥1,500/月 | - |
+| 运维人力(0.3人) | ¥6,000/月 | ¥1,000/月 | - |
+| **月度总计** | **¥16,500** | **¥7,500** | **按量计费** |
+
+三年TCO: 自建¥594,000 vs 阿里云¥270,000 (省55%)
+
+---
+
+## 全链路监控告警
+
+```yaml
+groups:
+  # 基础设施监控
+  - name: infrastructure
+    rules:
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels: { severity: critical }
+      - alert: HighCPU
+        expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels: { severity: warning }
+      - alert: HighMemory
+        expr: (1 - node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes) * 100 > 85
+        for: 10m
+        labels: { severity: warning }
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes/node_filesystem_size_bytes) * 100 < 15
+        for: 5m
+        labels: { severity: critical }
+  
+  # Kubernetes监控
+  - name: kubernetes
+    rules:
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels: { severity: warning }
+      - alert: DeploymentReplicasMismatch
+        expr: kube_deployment_spec_replicas != kube_deployment_status_available_replicas
+        for: 10m
+        labels: { severity: warning }
+      - alert: PVCFillingUp
+        expr: predict_linear(kubelet_volume_stats_available_bytes[6h], 86400*4) < 0
+        for: 10m
+        labels: { severity: warning }
+  
+  # 应用监控
+  - name: application
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: warning }
+      - alert: HighLatency
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels: { severity: warning }
+      - alert: RequestSpike
+        expr: sum(rate(http_requests_total[5m])) / sum(rate(http_requests_total[5m] offset 1h)) > 3
+        for: 5m
+        labels: { severity: info }
+  
+  # Prometheus自身监控
+  - name: prometheus
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 2m
+        labels: { severity: critical }
+      - alert: PrometheusHighMemory
+        expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 10
+        for: 10m
+        labels: { severity: warning }
+      - alert: PrometheusScrapeSlow
+        expr: prometheus_target_interval_length_seconds{quantile="0.99"} > 30
+        for: 10m
+        labels: { severity: warning }
+```
+
+---
+
+## 完整运维SOP
+
+### 日常巡检
+
+```bash
+#!/bin/bash
+echo "===== Prometheus巡检 ====="
+# 服务状态
+kubectl get pods -n monitoring
+# 存储使用
+df -h /prometheus
+# 活跃序列
+curl -s http://prometheus:9090/api/v1/status/tsdb | jq '.data.loadedHeadStats.numSeries'
+# 抓取状态
+curl -s http://prometheus:9090/api/v1/targets | jq '.data.activeTargets[] | select(.health=="down")'
+# 告警状态
+curl -s http://alertmanager:9093/api/v2/alerts | jq 'length'
+```
+
+### 告警处理SOP
+
+```
+1. 收到告警 → 确认严重程度
+2. Critical: 立即响应，5分钟内
+3. Warning: 15分钟内确认
+4. Info: 下个工作日处理
+5. 处理完成后在Grafana记录事件
+6. 告警关闭后确认恢复正常
+```
+
+### 配置变更SOP
+
+```bash
+# 1. 修改配置文件
+# 2. 检查语法
+promtool check config prometheus.yml
+# 3. 测试规则
+promtool test rules test.yml
+# 4. 热重载
+curl -X POST http://prometheus:9090/-/reload
+# 5. 验证
+curl -s http://prometheus:9090/api/v1/status/config | jq '.data | length'
+```
+
+### 版本升级SOP
+
+```bash
+# 1. 备份数据
+# 2. 更新Helm values
+helm upgrade prometheus prometheus-community/prometheus -n monitoring
+# 3. 验证新版本
+kubectl get pods -n monitoring
+curl -s http://prometheus:9090/api/v1/status/runtimeinfo | jq '.version'
+```
+
+---
+
+> 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
+> 涵盖: Prometheus + Grafana + AlertManager + Thanos + Node Exporter
+> 适用于: 企业级监控告警体系建设
