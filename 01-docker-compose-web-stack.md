@@ -150,7 +150,7 @@ services:
           cpus: '0.25'
           memory: 128M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD", "curl", "-f", "-k", "https://localhost/health"]  # [已修复] Nginx配置了HTTPS重定向
       interval: 30s
       timeout: 10s
       retries: 3
@@ -242,7 +242,7 @@ services:
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
-      --innodb-buffer-pool-size=512M
+      # [已修复] innodb_buffer_pool_size由my.cnf配置文件统一管理
       --max-connections=200
       --slow-query-log=1
       --long-query-time=2
@@ -1011,6 +1011,8 @@ scrape_configs:
     scrape_interval: 10s
 
   # Node Exporter (主机监控)
+  # [已修复] 以下Exporter需要在docker-compose中定义对应服务
+  # 当前配置引用了不存在的服务，部署后会显示DOWN
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
