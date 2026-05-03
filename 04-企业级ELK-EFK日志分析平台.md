@@ -104,6 +104,8 @@
    104|        - name: sysctl
    105|          image: busybox
    106|          command: ['sysctl', '-w', 'vm.max_map_count=262144']
+          # [注意] 这只在Pod运行时生效。节点重启后需在初始化脚本中持久化:
+          # echo "vm.max_map_count=262144" >> /etc/sysctl.d/99-elasticsearch.conf && sysctl -p
    107|          securityContext:
    108|            privileged: true
    109|        # 设置文件描述符
@@ -328,7 +330,7 @@
    328|          image: elastic/filebeat:8.11.3
    329|          args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
    330|          securityContext:
-   331|            runAsUser: 0  # Filebeat需要root访问日志目录，生产环境考虑非root方案
+   331|            runAsUser: 0  # 需要root访问日志目录。生产替代方案: 1)挂载hostPath并设置fsGroup 2)使用Filebeat提供的非root镜像
    332|          resources:
    333|            requests:
    334|              cpu: 100m
