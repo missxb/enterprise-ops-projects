@@ -1,4 +1,4 @@
-# 企业级CI/CD全链路 - Jenkins + SonarQube + Harbor + ArgoCD + Kubernetes
+# 企业级CI/CD全链路 - GitLab CI + SonarQube + Harbor + ArgoCD + Kubernetes
 
 > 完整实现从代码提交到生产部署的全自动化流水线
 > 覆盖: 代码扫描、单元测试、安全扫描、镜像构建、自动部署、灰度发布、自动回滚
