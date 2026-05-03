@@ -491,7 +491,7 @@ apply:
 	cd terraform && terraform apply -input=false  # [注意] 生产环境应先执行terraform plan并人工审批
 
 destroy:
-	cd terraform && terraform destroy -auto-approve
+	cd terraform && terraform destroy  # [注意] 生产环境不要用-auto-approve
 
 ansible-base:
 	cd ansible && ansible-playbook -i inventory/production/hosts playbooks/base.yml

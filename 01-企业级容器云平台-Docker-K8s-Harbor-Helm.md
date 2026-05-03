@@ -1199,7 +1199,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set grafana.service.loadBalancerIP=10.10.10.210 \
   --set grafana.persistence.enabled=true \
   --set grafana.persistence.size=20Gi \
-  --set prometheus.retention=30d \
+  --set prometheus.prometheusSpec.retention=30d \
   --set prometheus.persistence.size=100Gi \
   --set alertmanager.persistence.size=10Gi \
   --set nodeExporter.enabled=true \
@@ -1228,7 +1228,7 @@ echo "部署Elasticsearch..."
 helm install elasticsearch elastic/elasticsearch \
   --namespace logging --create-namespace \
   --set replicas=3 \
-  --set minimumMasterNodes=2 \
+  # --set minimumMasterNodes=2  # ES 7.x+已废弃，自动仲裁
   --set resources.requests.cpu=1 \
   --set resources.requests.memory=4Gi \
   --set persistence.enabled=true \

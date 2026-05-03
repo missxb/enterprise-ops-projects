@@ -71,7 +71,7 @@
     71|# GTID配置（MGR依赖GTID）
     72|gtid_mode=ON
     73|enforce_gtid_consistency=ON
-    74|binlog_checksum=NONE                 # MySQL 8.0.20+ MGR已支持CRC32
+    74|binlog_checksum=CRC32  # MySQL 8.0.20+ MGR支持CRC32
     75|log_bin=mysql-bin
     76|binlog_format=ROW
     77|max_binlog_size=512M
@@ -310,7 +310,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    310|xtrabackup --copy-back --target-dir=${LATEST_FULL}
    311|
    312|echo "Step 4: 应用binlog到目标时间点..."
-mysqlbinlog --stop-datetime="2024-01-15 10:30:00" /data/backup/binlog/binlog-*.sql | mysql -uroot -p${MYSQL_ROOT_PASSWORD}
+mysqlbinlog --stop-datetime="${TARGET_TIME}" /data/backup/binlog/binlog-*.sql | mysql -uroot -p${MYSQL_ROOT_PASSWORD}
    313|# 找到对应的binlog文件
    314|xtrabackup --prepare --target-dir=${LATEST_FULL}
    315|
