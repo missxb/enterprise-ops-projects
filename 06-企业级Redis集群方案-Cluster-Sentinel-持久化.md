@@ -1,6 +1,9 @@
 # 企业级Redis集群方案 - Cluster + Sentinel + 持久化
 
 > 完整实现Redis高可用方案，覆盖Cluster 6节点集群、Sentinel哨兵、持久化策略、内存优化、分布式锁
+> [注意] Cluster和Sentinel是两种互斥的高可用方案，实际部署时选择其中一种即可:
+> - Cluster: 适合大数据量、高并发场景，数据自动分片
+> - Sentinel: 适合小数据量、简单高可用场景，数据不分片
 > 适用于: 电商、社交、游戏等高并发场景
 > 技术栈: Redis 7.2 Cluster + Sentinel 3节点 + Prometheus监控
 
@@ -214,8 +217,8 @@ client-output-buffer-limit replica 256mb 64mb 60
 client-output-buffer-limit pubsub 32mb 8mb 60
 
 # ===== 安全配置 =====
-requirepass ${REDIS_PASSWORD}
-masterauth ${REDIS_PASSWORD}
+requirepass ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
+masterauth ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 rename-command FLUSHDB ""
 rename-command FLUSHALL ""
 rename-command DEBUG ""
@@ -278,7 +281,7 @@ set -euo pipefail
 
 echo "========== 1. 启动所有Redis实例 =========="
 for i in {11..16}; do
-  for port in 6379 6380; do
+  for port in 6379; do  # 每台1个实例，共6节点 do
     echo "启动 10.10.40.${i}:${port}..."
     ssh root@10.10.40.${i} "systemctl start redis@${port}"
   done
@@ -289,7 +292,7 @@ sleep 5
 
 echo "========== 2. 验证实例状态 =========="
 for i in {11..16}; do
-  for port in 6379 6380; do
+  for port in 6379; do  # 验证集群节点 do
     status=$(redis-cli -h 10.10.40.${i} -p ${port} -a ${REDIS_PASSWORD} ping 2>/dev/null)
     echo "  10.10.40.${i}:${port} -> ${status}"
   done
