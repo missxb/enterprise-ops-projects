@@ -1,0 +1,34 @@
+---
+- name: 安装Docker依赖
+  yum:
+    name:
+      - yum-utils
+      - device-mapper-persistent-data
+      - lvm2
+    state: present
+
+- name: 添加Docker仓库
+  yum_repository:
+    name: docker-ce
+    description: Docker CE Stable
+    baseurl: https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+    enabled: yes
+
+- name: 安装Docker
+  yum:
+    name: docker-ce-{{ docker_version }}.*
+    state: present
+  notify: 启动Docker
+
+- name: 配置Docker daemon
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+  notify: 重启Docker
+
+- name: 添加用户到docker组
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop: "{{ docker_users }}"

@@ -1,0 +1,53 @@
+# GitLab CI 示例 - 与Jenkins二选一
+stages:
+  - build
+  - test
+  - scan
+  - image
+  - deploy
+
+variables:
+  DOCKER_REGISTRY: harbor.example.com
+
+build-java:
+  stage: build
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - mvn clean package -DskipTests
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+unit-test:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - mvn test
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+sonarqube:
+  stage: scan
+  image: sonarsource/sonar-scanner-cli
+  script:
+    - sonar-scanner -Dsonar.host.url=http://sonarqube:9000
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+build-image:
+  stage: image
+  image: gcr.io/kaniko-project/executor:debug
+  script:
+    - /kaniko/executor --dockerfile=Dockerfile --destination=${DOCKER_REGISTRY}/app:${CI_COMMIT_SHA}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy-staging:
+  stage: deploy
+  script:
+    - kubectl apply -f k8s/overlays/staging/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment:
+    name: staging

@@ -1,0 +1,11 @@
+---
+- name: 启动Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: 重启Docker
+  systemd:
+    name: docker
+    state: restarted
