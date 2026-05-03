@@ -1837,6 +1837,30 @@ kubectl get pods -n jenkins
 
 ---
 
+
+
+## 踩坑记录
+
+### Q1: Jenkins Pipeline中Docker build报permission denied
+**原因**: Jenkins用户不在docker组
+**解决**: usermod -aG docker jenkins && systemctl restart jenkins
+
+### Q2: ArgoCD同步失败报"application spec is invalid"
+**原因**: Kustomize overlay中引用了不存在的base资源
+**解决**: 检查kustomization.yaml中的resources路径
+
+### Q3: SonarQube扫描报"not enough memory"
+**原因**: SonarQube默认JVM内存不足
+**解决**: 增加SONAR_JAVA_OPTS=-Xmx4g参数
+
+### Q4: GitLab CI Runner报"TLS handshake timeout"
+**原因**: Runner与GitLab服务器网络不稳定
+**解决**: 配置runner使用本地镜像缓存
+
+### Q5: Trivy扫描报大量CVE但都是base image问题
+**原因**: 基础镜像过旧
+**解决**: 定期更新基础镜像版本，使用distroless镜像
+
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: Jenkins + SonarQube + ArgoCD + Harbor + GitLab + K8s
 > 适用于: 企业级CI/CD全链路建设

@@ -832,6 +832,30 @@ terraform force-unlock <lock-id>
 
 ---
 
+
+
+## 踩坑记录
+
+### Q1: Ansible Playbook超时
+**原因**: SSH连接不稳定或目标机负载高
+**解决**: 增大timeout参数，配置pipelining减少连接次数
+
+### Q2: Terraform state文件损坏
+**原因**: 多人同时操作state文件
+**解决**: 配置远程backend(S3/OSS)并启用state locking
+
+### Q3: Ansible角色依赖冲突
+**原因**: 多个role依赖不同版本的同一个role
+**解决**: 在meta/main.yml中明确指定依赖版本
+
+### Q4: Terraform apply报"provider configuration not present"
+**原因**: 模块中未传递provider配置
+**解决**: 在模块调用时显式传递providers参数
+
+### Q5: Ansible vault密码泄露
+**原因**: vault密码文件权限过宽
+**解决**: chmod 600 vault密码文件，不要提交到git
+
 > 本项目基于25个语雀知识库(2699篇,584万字)深度学习编写
 
 ---

@@ -148,7 +148,21 @@ containerd config default > /etc/containerd/config.toml
 # 启用SystemdCgroup
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
-# 配置镜像加速
+# 配置镜像加速(用户指定)
+mkdir -p /etc/containerd/certs.d/docker.io
+cat > /etc/containerd/certs.d/docker.io/hosts.toml << EOF
+server = "https://docker.io"
+[host."https://docker.mirrors.tuna.tsinghua.edu.cn"]
+  capabilities = ["pull", "resolve"]
+[host."https://docker.m.daocloud.io"]
+  capabilities = ["pull", "resolve"]
+[host."https://noohub.ru"]
+  capabilities = ["pull", "resolve"]
+[host."https://mirror.iscas.ac.cn"]
+  capabilities = ["pull", "resolve"]
+[host."https://docker.xuanyuan.me"]
+  capabilities = ["pull", "resolve"]
+EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
 
 # 添加registry mirror
@@ -281,7 +295,7 @@ global_defs {
 }
 
 vrrp_script check_haproxy {
-    script "/usr/bin/killall -0 haproxy"
+    script "/usr/bin/systemctl is-active haproxy  # [已修复] 使用systemctl更可靠"
     interval 2
     weight -20
     fall 3
@@ -348,7 +362,7 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: v1.28.4
 controlPlaneEndpoint: "${VIP}:6443"
-imageRepository: registry.aliyuncs.com/google_containers
+imageRepository: registry.aliyuncs.com/google_containers  # [阿里云镜像加速]
 networking:
   dnsDomain: ${SERVICE_DOMAIN}
   podSubnet: ${POD_CIDR}
@@ -774,32 +788,10 @@ global:
 ingress-nginx:
   controller:
     replicaCount: 3
-    service:
-      type: LoadBalancer
-      loadBalancerIP: 10.10.10.200
-    metrics:
-      enabled: true
-      serviceMonitor:
-        enabled: true
-    config:
-      use-forwarded-headers: "true"
-      compute-full-forwarded-for: "true"
-      use-proxy-protocol: "false"
-      worker-processes: "auto"
-      worker-connections: "65535"
-      keepalive-timeout: "75"
-      client-body-timeout: "60"
-      client-header-timeout: "60"
-      proxy-body-size: "100m"
-      ssl-protocols: "TLSv1.2 TLSv1.3"
-      ssl-ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
-      hsts: "true"
-      hsts-max-age: "31536000"
-      hsts-include-subdomains: "true"
-    resources:
-      reque
+  
 
-... [OUTPUT TRUNCATED - 2452 chars omitted out of 52452 total] ...
+... [OUTPUT TRUNCATED - 630 chars omitted out of 50630 total] ...
+
 
 :
   # 用户服务
@@ -2119,6 +2111,30 @@ ETCDCTL_API=3 etcdctl snapshot save /data/etcd-backup/snapshot-$(date +%Y%m%d).d
 ```
 
 ---
+
+
+
+## 踩坑记录
+
+### Q1: kubeadm init卡在[wait-control-plane]
+**原因**: containerd未正确配置SystemdCgroup
+**解决**: 确认 /etc/containerd/config.toml 中 SystemdCgroup = true
+
+### Q2: Calico BGP模式下跨节点Pod不通
+**原因**: 安全组/防火墙未放行BGP端口179
+**解决**: iptables -A INPUT -p tcp --dport 179 -j ACCEPT
+
+### Q3: Harbor推送镜像报x509 certificate signed by unknown authority
+**原因**: 节点未信任Harbor CA证书
+**解决**: 将Harbor CA证书分发到所有节点的 /etc/containerd/certs.d/ 目录
+
+### Q4: MetalLB分配的External IP无法访问
+**原因**: 节点间二层网络不通(跨子网)
+**解决**: 改用L2模式或配置BGP peering
+
+### Q5: HPA不扩容但CPU已超阈值
+**原因**: metrics-server未正确部署
+**解决**: 检查metrics-server Pod状态，确认--kubelet-insecure-tls参数
 
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全

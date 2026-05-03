@@ -1062,6 +1062,30 @@ redis-cluster/
 
 ---
 
+
+
+## 踩坑记录
+
+### Q1: Redis Cluster创建时报"Node is not empty"
+**原因**: 目标节点已有数据
+**解决**: 先执行FLUSHALL清空数据，再创建集群
+
+### Q2: Cluster节点间通信超时
+**原因**: 节点间网络延迟过高
+**解决**: 增大cluster-node-timeout到15000ms
+
+### Q3: 某个slot无法写入
+**原因**: 该slot对应的master节点故障且无slave接管
+**解决**: 检查cluster slots，修复故障节点
+
+### Q4: 内存碎片率过高(>1.5)
+**原因**: 大量key删除后内存未回收
+**解决**: 配置activedefrag yes或重启Redis
+
+### Q5: Sentinel切换后客户端连接失败
+**原因**: 客户端缓存了旧的master地址
+**解决**: 客户端配置Sentinel发现机制，不硬编码IP
+
 > 本项目基于25个语雀知识库(2699篇,584万字)深度学习编写
 > 包含真实故障案例、性能调优参数、灾备方案、容量规划、运维SOP
 > 适用于: 电商、社交、游戏等高并发Redis场景

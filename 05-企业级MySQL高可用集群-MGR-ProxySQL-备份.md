@@ -1685,4 +1685,28 @@ mysql -uroot -pMySQL@Root2024 -e "
 
 ---
 
+
+
+## 踩坑记录
+
+### Q1: MGR成员频繁RECOVERING
+**原因**: 大事务导致flow_control触发
+**解决**: 分批执行大事务(每批10000行)
+
+### Q2: ProxySQL读写分离不生效
+**原因**: query_rules中的match_pattern未正确匹配
+**解决**: 使用SELECT ... FOR UPDATE测试写路由
+
+### Q3: xtrabackup备份失败报"not a valid backup"
+**原因**: 备份目录权限不正确
+**解决**: 确保备份目录所有者为mysql用户
+
+### Q4: 磁盘满导致MySQL无法写入
+**原因**: binlog未自动清理
+**解决**: SET GLOBAL expire_logs_days = 7
+
+### Q5: 主从复制延迟超过30秒
+**原因**: 从库单线程回放binlog
+**解决**: 启用多线程复制(replica_parallel_workers=4)
+
 > 本项目基于25个语雀知识库(2699篇,584万字)编写

@@ -701,12 +701,10 @@ echo "========== ELK日常巡检 =========="
 curl -s 'http://es-master:9200/_cluster/health?pretty' | grep -E "status|number_of_nodes|unassigned_shards"
 
 # 2. 索引统计
-curl -s 'http://es-master:9200/_cat/indices?v&s=store.size:desc&h=index,health,pri,rep,docs.count,store.size' | head -20
+curl -
 
-# 3. 磁盘使用
-cu
+... [OUTPUT TRUNCATED - 197 chars omitted out of 50197 total] ...
 
-... [OUTPUT TRUNCATED - 2264 chars omitted out of 52264 total] ...
 
 name: KAFKA_CFG_LOG_RETENTION_HOURS
               value: "24"
@@ -1920,5 +1918,29 @@ curl -s 'http://es-master:9200/_cluster/health?pretty'
 ```
 
 ---
+
+
+
+## 踩坑记录
+
+### Q1: ES集群状态RED
+**原因**: 节点宕机导致主分片丢失
+**解决**: 重启宕机节点或使用allocate_stale_primary强制分配
+
+### Q2: Filebeat日志丢失
+**原因**: 背压(backpressure)导致丢弃日志
+**解决**: 增大queue.mem.events和bulk_max_size
+
+### Q3: Kibana Discover加载缓慢
+**原因**: 索引数据量太大+查询范围过广
+**解决**: 缩短默认时间范围，配置ILM生命周期
+
+### Q4: Logstash pipeline积压
+**原因**: ES写入速度跟不上Logstash输出速度
+**解决**: 增加Logstash worker数量，减小batch size
+
+### Q5: ILM rollover不生效
+**原因**: Filebeat index名称与ILM rollover_alias不匹配
+**解决**: 确保Filebeat输出使用alias而非直接写入索引名
 
 > 本项目基于25个语雀知识库(2699篇,584万字)深度学习编写

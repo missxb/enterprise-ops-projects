@@ -1787,6 +1787,30 @@ curl -s http://prometheus:9090/api/v1/status/runtimeinfo | jq '.version'
 
 ---
 
+
+
+## 踩坑记录
+
+### Q1: Prometheus OOMKilled
+**原因**: 时间序列基数太高(metric cardinality explosion)
+**解决**: 使用metric_relabel_configs丢弃高基数标签
+
+### Q2: Thanos Query查询结果有重复数据
+**原因**: 未配置--query.replica-label
+**解决**: 在Thanos Query启动参数中添加 --query.replica-label=prometheus_replica
+
+### Q3: Grafana Dashboard加载超过30秒
+**原因**: 查询时间范围太大+数据点太多
+**解决**: 缩短默认时间范围，增加maxDataPoints限制
+
+### Q4: AlertManager静默了所有告警
+**原因**: 创建了全局匹配的Silence规则
+**解决**: 检查Silence配置，确保matchers精确匹配
+
+### Q5: node-exporter采集失败显示DOWN
+**原因**: DaemonSet未在所有节点运行
+**解决**: 检查node-exporter Pod的toleration配置
+
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: Prometheus + Grafana + AlertManager + Thanos + Node Exporter
 > 适用于: 企业级监控告警体系建设
