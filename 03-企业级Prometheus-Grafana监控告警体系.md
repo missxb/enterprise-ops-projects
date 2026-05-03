@@ -227,7 +227,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceName: thanos-compactor
-  replicas: 1  # 只能有1个实例
+  replicas: 1  # [关键] 多实例会导致数据损坏不可恢复
   selector:
     matchLabels:
       app: thanos-compactor
@@ -1065,7 +1065,7 @@ data:
       smtp_smarthost: 'smtp.feishu.cn:465'  # 465=SMTPS隐式TLS
       smtp_auth_username: 'alertmanager@company.com'
       smtp_auth_password: 'smtp-password'
-      smtp_require_tls: false  # 465端口不需要STARTTLS  # [已修复] 生产环境必须启用TLS
+      smtp_require_tls: false  # 465端口不需要STARTTLS
     
     # 告警模板
     templates:

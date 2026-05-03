@@ -683,7 +683,7 @@ mkdir -p ${BACKUP_DIR}
 
 echo "========== RDB备份 =========="
 for node in 10.10.40.{11..16}; do
-  for port in 6379 6380; do
+  for port in 6379; do  # MGR单主模式只用6379
     BEFORE=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)
     redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} BGSAVE
     
@@ -842,7 +842,7 @@ set -euo pipefail
 echo "========== Redis集群日常巡检 $(date '+%Y-%m-%d %H:%M') =========="
 
 for node in 10.10.40.{11..16}; do
-  for port in 6379 6380; do
+  for port in 6379; do
     echo ""
     echo "--- ${node}:${port} ---"
     

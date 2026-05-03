@@ -584,7 +584,8 @@ sonar.authenticator.downcased=true
 EOF
 
 # 内核参数（SonarQube需要）
-sysctl -w vm.max_map_count=524288 && sysctl -p /etc/sysctl.d/99-sonarqube.conf
+echo "vm.max_map_count=524288" >> /etc/sysctl.d/99-sonarqube.conf
+sysctl -p /etc/sysctl.d/99-sonarqube.conf
 echo "vm.max_map_count=524288" >> /etc/sysctl.d/99-sonarqube.conf
 
 # 创建systemd服务

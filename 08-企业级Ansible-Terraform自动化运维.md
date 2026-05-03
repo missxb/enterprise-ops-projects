@@ -488,7 +488,7 @@ plan:
 	cd terraform && terraform plan
 
 apply:
-	cd terraform && -input=false  # [注意] 生产环境应先执行terraform plan并人工审批
+	cd terraform && terraform apply -input=false  # [注意] 生产环境应先执行terraform plan并人工审批
 
 destroy:
 	cd terraform && terraform destroy -auto-approve

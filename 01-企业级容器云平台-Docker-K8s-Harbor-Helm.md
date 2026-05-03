@@ -1363,6 +1363,7 @@ spec:
 # for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id root@${ip}; done
 # [错误处理] 设置set -e和错误捕获
 set -euo pipefail
+trap 'echo "部署失败，请检查日志"; exit 1' ERR
 
 echo "================================================"
 echo "  企业级容器云平台 - 一键部署"

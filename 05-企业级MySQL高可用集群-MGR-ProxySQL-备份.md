@@ -310,6 +310,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    310|xtrabackup --copy-back --target-dir=${LATEST_FULL}
    311|
    312|echo "Step 4: 应用binlog到目标时间点..."
+mysqlbinlog --stop-datetime="2024-01-15 10:30:00" /data/backup/binlog/binlog-*.sql | mysql -uroot -p${MYSQL_ROOT_PASSWORD}
    313|# 找到对应的binlog文件
    314|xtrabackup --prepare --target-dir=${LATEST_FULL}
    315|
@@ -1085,8 +1086,6 @@ SELECT * FROM sys.schema_redundant_indexes;
                     ├─────────────────┬───────────────────────┤
                     │    机房A (主)    │    机房B (备)          │
                     │  10.10.30.0/24  │  10.10.40.0/24        │
-                    ├─────────────────┼───────────────────────┤
-                    │ MySQL-01 (Primary)│ MySQL-02 (Secondary) │
                     │ MySQL-03 (Secondary)│ MySQL-04 (Secondary)│
                     │ MySQL-01 (Primary) │ MySQL-02 (Secondary) │
                     │ MySQL-03 (Secondary)│ MySQL-04 (Sync Standby)│
