@@ -116,7 +116,7 @@
    116|        - name: elasticsearch
    117|          image: elasticsearch:8.11.3
    118|          ports:
-   119|            - containerPort: 9092  # Kafka端口
+   119|            - containerPort: 9200  # ES端口
    120|              name: http
    121|            - containerPort: 9300
    122|              name: transport
@@ -148,7 +148,7 @@
    148|          readinessProbe:
    149|            httpGet:
    150|              path: /_cluster/health?local=true
-   151|              port: 9092  # Kafka端口
+   151|              port: 9200  # ES端口
    152|              scheme: https
    153|            initialDelaySeconds: 30
    154|            periodSeconds: 10

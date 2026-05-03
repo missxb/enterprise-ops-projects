@@ -303,7 +303,7 @@ vrrp_instance K8S_VIP {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS}
+        auth_pass K8sHA2024Secure!  # 生产环境请替换为随机字符串: openssl rand -hex 8
     }
     virtual_ipaddress {
         ${VIP}/24 dev eth0
@@ -1359,6 +1359,11 @@ spec:
 
 ```bash
 #!/bin/bash
+# [前置条件] 需要先配置SSH密钥分发:
+# for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id root@${ip}; done
+# [错误处理] 设置set -e和错误捕获
+set -e
+trap 'echo "部署失败，请检查日志"; exit 1' ERR
 # full_deploy.sh - 一键部署完整容器云平台
 
 set -euo pipefail

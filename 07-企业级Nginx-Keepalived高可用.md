@@ -267,7 +267,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS}
+        auth_pass NginxHA2024Secure!  # 生产环境请替换为随机字符串: openssl rand -hex 8
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -415,7 +415,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS}
+        auth_pass NginxHA2024Secure!  # 生产环境请替换为随机字符串: openssl rand -hex 8
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -440,7 +440,7 @@ vrrp_instance VI_2 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS}
+        auth_pass NginxHA2024Secure!  # 生产环境请替换为随机字符串: openssl rand -hex 8
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
