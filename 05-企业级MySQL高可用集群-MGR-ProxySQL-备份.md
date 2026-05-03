@@ -201,7 +201,7 @@
    203|systemctl start proxysql
    204|
    205|echo "配置后端MySQL..."
-   206|mysql -uadmin -padmin -h127.0.0.1 -P6032 << 'SQL'
+   206|mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 << 'SQL'
    207|-- 添加MySQL服务器
    208|INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight, max_connections, max_replication_lag)
    209|VALUES
@@ -240,7 +240,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    241|SQL
    242|
    243|echo "✅ ProxySQL配置完成"
-   244|echo "管理端口: 6032 (admin/admin)"
+   244|echo "管理端口: 6032 (${PROXYSQL_ADMIN_PASSWORD}/${PROXYSQL_ADMIN_PASSWORD})"
    245|echo "服务端口: 6033 (app_user/${APP_USER_PASSWORD})"
    246|```
    247|
@@ -1157,7 +1157,7 @@ SQL
 
 # 3. 更新ProxySQL配置
 echo "更新ProxySQL路由..."
-mysql -uadmin -padmin -h127.0.0.1 -P6032 << 'SQL'
+mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 << 'SQL'
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=10 WHERE hostname='10.10.30.11';
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=20 WHERE hostname='10.10.30.12';
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=20 WHERE hostname='10.10.30.13';
@@ -1564,7 +1564,7 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 "
 
 # 6. 停止ProxySQL监控
-mysql -uadmin -padmin -h127.0.0.1 -P6032 -e "
+mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
   UPDATE global_variables SET variable_value=0 WHERE variable_name='mysql-monitor_enabled';
   LOAD MYSQL VARIABLES TO RUNTIME;
   SAVE MYSQL VARIABLES TO DISK;
@@ -1619,7 +1619,7 @@ mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 "
 
 # 4. 启用ProxySQL监控
-mysql -uadmin -padmin -h127.0.0.1 -P6032 -e "
+mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
   UPDATE global_variables SET variable_value=1 WHERE variable_name='mysql-monitor_enabled';
   LOAD MYSQL VARIABLES TO RUNTIME;
   SAVE MYSQL VARIABLES TO DISK;
@@ -1642,7 +1642,7 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 "
 
 # 3. 验证ProxySQL路由
-mysql -uadmin -padmin -h127.0.0.1 -P6032 -e "
+mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
   SELECT * FROM stats_mysql_connection_pool;
 "
 

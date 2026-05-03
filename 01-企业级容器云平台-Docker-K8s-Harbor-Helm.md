@@ -1229,7 +1229,6 @@ echo "部署Elasticsearch..."
 helm install elasticsearch elastic/elasticsearch \
   --namespace logging --create-namespace \
   --set replicas=3 \
-  # --set minimumMasterNodes=2  # ES 7.x+已废弃，自动仲裁
   --set resources.requests.cpu=1 \
   --set resources.requests.memory=4Gi \
   --set persistence.enabled=true \

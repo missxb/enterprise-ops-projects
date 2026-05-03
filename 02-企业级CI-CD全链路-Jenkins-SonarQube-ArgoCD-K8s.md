@@ -197,14 +197,9 @@ build-java:
     paths:
       - target/docker/
     expire_in: 2 hours
-  cache:
-    key: ${CI_COMMIT_REF_SLUG}
-    paths:
-      - .m2/repository/
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
-
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
 build-go:
   stage: build
   image: golang:1.21-alpine

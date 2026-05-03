@@ -157,6 +157,22 @@ Thanos Store Gateway从对象存储(S3/MinIO)查询历史数据。
 
 ```yaml
 # thanos-store-gateway-statefulset.yaml
+---
+# thanos-objstore-config-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thanos-objstore-config
+  namespace: monitoring
+data:
+  objstore.yml: |
+    type: S3
+    config:
+      bucket: thanos
+      endpoint: minio.monitoring:9000
+      access_key: ${MINIO_ACCESS_KEY}
+      secret_key: ${MINIO_SECRET_KEY}
+      insecure: true
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
