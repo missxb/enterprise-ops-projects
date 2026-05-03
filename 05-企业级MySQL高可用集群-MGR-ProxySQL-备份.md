@@ -1743,7 +1743,7 @@ vrrp_instance VI_1 {
 }
 
 vrrp_script check_proxysql {
-  script "/usr/bin/mysql -uadmin -pPr0xySQL@2024 -P6032 -e 'SELECT 1' -h127.0.0.1"
+  script "/usr/bin/mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -P6032 -e 'SELECT 1' -h127.0.0.1"
   interval 2
   weight -20
   fall 3

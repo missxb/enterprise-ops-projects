@@ -1560,7 +1560,7 @@ EOF
 systemctl restart containerd
 
 # 3. 创建ImagePullSecret
-kubectl create secret docker-registry harbor-secret   --docker-server=harbor.internal.com   --docker-username=admin   --docker-password=Harbor@2024   -n production
+kubectl create secret docker-registry harbor-secret   --docker-server=harbor.internal.com   --docker-username=admin   --docker-password=${HARBOR_ADMIN_PASSWORD}   -n production
 ```
 
 ### 案例3: Service无法访问后端Pod
