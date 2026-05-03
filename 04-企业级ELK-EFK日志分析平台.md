@@ -135,7 +135,7 @@
    135|          resources:
    136|            requests:
    137|              cpu: "4"
-   138|              memory: 20Gi
+   138|              memory: 32Gi
    139|            limits:
    140|              cpu: "8"
    141|              memory: 32Gi
@@ -738,7 +738,7 @@ kubectl exec -it kafka-0 -n logging -- \
   --topic elk-logs \
   --partitions 12 \
   --replication-factor 3 \
-  --config retention.ms=86400000 \
+  --config retention.ms=604800000  # 7天 \
   --config retention.bytes=107374182400 \
   --config min.insync.replicas=2 \
   --config compression.type=lz4 \

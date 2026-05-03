@@ -295,7 +295,7 @@ build-image:
   services:
     - docker:24-dind
   before_script:
-    - docker login -u ${HARBOR_USER} -p ${HARBOR_PASSWORD} ${HARBOR_REGISTRY}
+    - echo "${HARBOR_PASSWORD}" | docker login -u ${HARBOR_USER} --password-stdin ${HARBOR_REGISTRY}
   script:
     - |
       # 多标签策略
@@ -777,7 +777,7 @@ spec:
                     container('docker') {
                         script {
                             sh """
-                                docker login -u ${HARBOR_CREDS_USR} -p ${HARBOR_CREDS_PSW} ${HARBOR_REGISTRY}
+                                echo "${HARBOR_CREDS_PSW}" | docker login -u ${HARBOR_CREDS_USR} --password-stdin ${HARBOR_REGISTRY}
                                 docker build -t ${IMAGE_NAME}:${env.BUILD_NUMBER} -f ${cfg.dockerfile} .
                                 docker push ${IMAGE_NAME}:${env.BUILD_NUMBER}
                             """

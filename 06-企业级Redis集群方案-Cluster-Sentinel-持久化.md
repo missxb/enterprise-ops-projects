@@ -153,7 +153,7 @@ redis-server --version
 # 每台服务器部署1个Redis实例(端口6379)，共6台组成3主3从集群
 
 # ===== 基础配置 =====
-bind 0.0.0.0
+bind 127.0.0.1 ${REDIS_BIND_IP:-0.0.0.0}  # 生产环境应绑定内网IP
 port 6379                           # 第二个实例改为6380
 daemonize yes
 pidfile /var/run/redis/redis_6379.pid
