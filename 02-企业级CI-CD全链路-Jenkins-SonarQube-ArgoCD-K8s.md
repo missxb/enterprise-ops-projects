@@ -211,9 +211,9 @@ build-go:
     paths:
       - target/docker/
     expire_in: 2 hours
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
 
 build-node:
   stage: build
@@ -230,9 +230,9 @@ build-node:
     paths:
       - target/docker/
     expire_in: 2 hours
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
 
 # ========================================
 # 阶段3: 单元测试
@@ -252,9 +252,9 @@ unit-test:
         path: target/site/jacoco/jacoco.xml
     expire_in: 7 days
   coverage: '/Code coverage: (\d+\.?\d*)%/'
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
 
 # ========================================
 # 阶段4: SonarQube代码扫描
@@ -277,9 +277,9 @@ sonarqube-analysis:
       -Dsonar.qualitygate.wait=true
       -Dsonar.qualitygate.timeout=300
   allow_failure: false
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
 
 # ========================================
 # 阶段5: 构建Docker镜像
@@ -323,11 +323,11 @@ build-image:
       fi
       
       echo "镜像地址: ${TAG_COMMIT}"
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - develop
-    - /^release\/.*$/
-    - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ ^release\/.*$
+    - if: $CI_COMMIT_TAG
 
 # ========================================
 # 阶段6: Trivy安全扫描
@@ -348,9 +348,9 @@ trivy-scan:
       --format table
       ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}
   allow_failure: false
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
 
 # ========================================
 # 阶段7: 部署到Staging
@@ -371,9 +371,9 @@ deploy-staging:
         -n staging
       # 等待 rollout 完成
       kubectl rollout status deployment/${CI_PROJECT_NAME} -n staging --timeout=300s
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
 
 # ========================================
 # 阶段8: Staging验证
@@ -398,8 +398,8 @@ verify-staging:
       done
       echo "❌ Staging环境健康检查失败"
       exit 1
-  only:  # [注意] only已废弃，建议改用rules
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 
 # ========================================
 # 阶段9: 部署到生产
@@ -427,9 +427,9 @@ deploy-production:
       # 等待完成
       kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
   when: manual
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
 
 # ========================================
 # 阶段10: 生产验证
@@ -456,9 +456,9 @@ verify-production:
       kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
       echo "已自动回滚到上一版本"
       exit 1
-  only:  # [注意] only已废弃，建议改用rules
-    - main
-    - tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
 
 # ========================================
 # 回滚Job（手动触发）
@@ -471,8 +471,8 @@ rollback-production:
     - kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
     - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=300s
   when: manual
-  only:  # [注意] only已废弃，建议改用rules
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 ```
 
 ---
