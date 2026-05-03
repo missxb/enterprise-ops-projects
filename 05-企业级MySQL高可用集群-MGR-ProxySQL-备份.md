@@ -225,7 +225,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    226|
    227|-- 添加用户
    228|INSERT INTO mysql_users(username, password, default_hostgroup, max_connections)
-   229|VALUES ('app_user', 'AppP@ss2024!', 10, 2000);
+   229|VALUES ('app_user', ${APP_USER_PASSWORD}, 10, 2000);
    230|
    231|-- 加载配置
    232|LOAD MYSQL SERVERS TO RUNTIME;
@@ -241,7 +241,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    242|
    243|echo "✅ ProxySQL配置完成"
    244|echo "管理端口: 6032 (admin/admin)"
-   245|echo "服务端口: 6033 (app_user/AppP@ss2024!)"
+   245|echo "服务端口: 6033 (app_user/${APP_USER_PASSWORD})"
    246|```
    247|
    248|---
@@ -515,7 +515,7 @@ START GROUP_REPLICATION;
 PURGE BINARY LOGS BEFORE DATE_SUB(NOW(), INTERVAL 1 DAY);
 
 -- 2. 设置自动过期
-SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天;
+SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天
 
 -- 3. 监控磁盘空间
 -- Prometheus告警规则
@@ -879,7 +879,7 @@ SHOW VARIABLES LIKE 'binlog_expire_logs_seconds';
 SHOW VARIABLES LIKE 'max_binlog_size';
 
 -- 3. 优化binlog配置
-SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天;  -- 保留7天
+SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天  -- 保留7天
 SET GLOBAL max_binlog_size = 256M;  -- 每个文件最大256MB
 
 -- 4. 对大表使用Row模式优化
@@ -1088,14 +1088,15 @@ SELECT * FROM sys.schema_redundant_indexes;
                     ├─────────────────┼───────────────────────┤
                     │ MySQL-01 (Primary)│ MySQL-02 (Secondary) │
                     │ MySQL-03 (Secondary)│ MySQL-04 (Secondary)│
-                    │ ProxySQL-01     │ ProxySQL-02           │
-                    │ 备份服务器       │ 备份服务器             │
+                    │ MySQL-01 (Primary) │ MySQL-02 (Secondary) │
+                    │ MySQL-03 (Secondary)│ MySQL-04 (Sync Standby)│
                     ├─────────────────┼───────────────────────┤
                     │        ◄── 专线互联 (延迟<2ms) ──►       │
                     └─────────────────┴───────────────────────┘
 
                     流量路由:
                     - 正常: 全部流量 → 机房A
+                    - 注意: MGR要求奇数节点(3/5/7)，4节点需配置仲裁节点或改为3节点
                     - 故障: 切换DNS → 机房B
                     - RPO < 1秒, RTO < 30秒
 ```
@@ -1648,10 +1649,10 @@ mysql -uadmin -padmin -h127.0.0.1 -P6032 -e "
 "
 
 # 4. 验证应用连接
-mysql -uapp_user -pAppP@ss2024! -h127.0.0.1 -P6033 -e "SELECT 1"
+mysql -uapp_user -p${APP_USER_PASSWORD} -h127.0.0.1 -P6033 -e "SELECT 1"
 
 # 5. 运行压力测试
-mysqlslap --user=app_user --password=AppP@ss2024! \
+mysqlslap --user=app_user --password=${APP_USER_PASSWORD} \
   --host=127.0.0.1 --port=6033 \
   --auto-generate-sql \
   --auto-generate-sql-load-type=read \
