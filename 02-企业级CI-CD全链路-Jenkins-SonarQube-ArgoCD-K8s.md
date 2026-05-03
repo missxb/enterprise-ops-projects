@@ -291,6 +291,7 @@ sonarqube-analysis:
 # ========================================
 build-image:
   stage: image
+  # [注意] docker:dind需privileged:true，有安全风险。生产环境建议改用Kaniko或Buildah构建镜像
   image: docker:24-dind
   services:
     - docker:24-dind

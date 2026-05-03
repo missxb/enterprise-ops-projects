@@ -8,6 +8,7 @@
 
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
+> 脚本中 ${VARIABLE} 占位符需通过 envsubst 或 export 预设，直接执行会输出空值。
 > 切勿将真实密码硬编码在配置文件或脚本中。
 
 ## 一、项目背景与目标
