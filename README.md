@@ -36,3 +36,19 @@
 ## 📜 License
 
 [MIT](LICENSE)
+
+## 版本兼容性矩阵
+
+| 组件 | 版本 | 依赖组件 | 兼容说明 |
+|------|------|----------|----------|
+| K8s | 1.28 | containerd 1.7+ | 需要CRI v1 |
+| Calico | 3.26 | K8s 1.28 | BGP模式需内核4.19+ |
+| MetalLB | 0.13 | K8s 1.24+ | L2模式需ARP |
+| Harbor | 2.10 | Docker 20.10+ | HA需外部PG |
+| Prometheus | 2.50 | K8s 1.25+ | Thanos需0.35+ |
+| Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
+| MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |
+| Redis | 7.0 | - | Cluster需6节点 |
+| Istio | 1.20 | K8s 1.25+ | Envoy sidecar |
+| Kong | 3.4 | - | dbless模式 |
+

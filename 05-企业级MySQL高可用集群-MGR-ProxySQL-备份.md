@@ -122,7 +122,7 @@
    124|
    125|set -euo pipefail
    126|
-   127|MYSQL_CMD="mysql -uroot -pMySQL@Root2024"
+   127|MYSQL_CMD="mysql -uroot -p${MYSQL_ROOT_PASSWORD}"
    128|
    129|echo "Step 1: 配置复制用户..."
    130|${MYSQL_CMD} << 'SQL'
@@ -163,19 +163,19 @@
    165|set -euo pipefail
    166|
    167|echo "========== 集群成员状态 =========="
-   168|mysql -uroot -pMySQL@Root2024 -e "
+   168|mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
    169|  SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
    170|  FROM performance_schema.replication_group_members;
    171|"
    172|
    173|echo "========== 复制延迟 =========="
-   174|mysql -uroot -pMySQL@Root2024 -e "
+   174|mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
    175|  SELECT CHANNEL_NAME, SERVICE_STATE, COUNT_TRANSACTIONS_IN_QUEUE
    176|  FROM performance_schema.replication_group_member_stats;
    177|"
    178|
    179|echo "========== 集群一致性检查 =========="
-   180|mysql -uroot -pMySQL@Root2024 -e "
+   180|mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
    181|  SELECT MEMBER_ROLE, MEMBER_STATE FROM performance_schema.replication_group_members
    182|  WHERE MEMBER_STATE != 'ONLINE';
    183|" 2>/dev/null && echo "⚠️ 有异常成员!" || echo "✅ 所有成员正常"
@@ -362,7 +362,7 @@
 
 ---
 
-> ⚠️ **安全声明**: 本文档中的密码(如MySQL@Root2024、Harbor12345等)均为示例占位符。
+> ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 切勿将真实密码硬编码在配置文件或脚本中。
 
@@ -631,18 +631,18 @@ MySQL服务器内存分配(64GB):
 echo "========== MySQL日常巡检 =========="
 
 # 1. 实例状态
-mysql -uroot -pMySQL@Root2024 -e "SELECT VERSION(); SELECT UPTIME;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION(); SELECT UPTIME;"
 
 # 2. 连接数
-mysql -uroot -pMySQL@Root2024 -e "SHOW STATUS LIKE 'Threads_connected';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Threads_connected';"
 
 # 3. 复制状态
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;"
 
 # 4. 慢查询数量
-mysql -uroot -pMySQL@Root2024 -e "SHOW STATUS LIKE 'Slow_queries';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Slow_queries';"
 
 # 5. 磁盘空间
 df -h /data/mysql
@@ -715,7 +715,7 @@ mysql-ha-cluster/
 **根因分析**:
 ```bash
 # 查看复制状态
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SHOW REPLICA STATUS\G
 " | grep -E "Seconds_Behind_Master|Slave_SQL_Running|Exec_Master_Log_Pos"
 
@@ -761,7 +761,7 @@ DELETE FROM logs WHERE created_at < '2023-01-01' LIMIT 10000;
 **根因分析**:
 ```bash
 # 查看从库线程状态
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SHOW REPLICA STATUS\G
 " | grep -E "Slave_IO_Running|Slave_SQL_Running|Last_Error"
 
@@ -775,7 +775,7 @@ iostat -x 1 5
 # 发现: 磁盘IO利用率达到98%，写延迟高
 
 # 查看InnoDB状态
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SHOW ENGINE INNODB STATUS\G
 " | grep -A5 "SEMAPHORES"
 
@@ -808,7 +808,7 @@ SET GLOBAL slave_preserve_commit_order = 1;
 **根因分析**:
 ```bash
 # 查看锁等待
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT 
     r.trx_id waiting_trx_id,
     r.trx_mysql_thread_id waiting_thread,
@@ -839,7 +839,7 @@ KILL <blocking_thread_id>;
 -- 3. 使用pt-online-schema-change代替ALTER TABLE
 pt-online-schema-change \
   --alter "ADD COLUMN new_col VARCHAR(100)" \
-  --user=root --password=MySQL@Root2024 \
+  --user=root --password=${MYSQL_ROOT_PASSWORD} \
   --host=10.10.30.11 \
   D=app_db,t=users \
   --execute
@@ -906,7 +906,7 @@ tail -100 /data/mysql/error.log | grep -i "access denied"
 # [Note] Access denied for user 'app_user'@'10.10.30.21'. (Using password: YES)
 
 # 检查密码过期策略
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT user, host, password_expired, password_lifetime 
   FROM mysql.user WHERE user='app_user';
 "
@@ -1138,7 +1138,7 @@ echo "========== 跨机房故障切换 =========="
 
 # 1. 确认主库不可用
 echo "检查机房A MySQL状态..."
-mysql -h 10.10.30.11 -uroot -pMySQL@Root2024 -e "SELECT 1" 2>/dev/null
+mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1" 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "❌ 主库仍可用，无需切换"
     exit 1
@@ -1148,7 +1148,7 @@ echo "⚠️ 主库不可用，开始切换..."
 
 # 2. 将机房B的Secondary提升为Primary
 echo "提升MySQL-04为Primary..."
-mysql -h 10.10.40.14 -uroot -pMySQL@Root2024 << 'SQL'
+mysql -h 10.10.40.14 -uroot -p${MYSQL_ROOT_PASSWORD} << 'SQL'
 STOP GROUP_REPLICATION;
 SET GLOBAL group_replication_bootstrap_group = ON;
 START GROUP_REPLICATION;
@@ -1172,7 +1172,7 @@ echo "更新DNS记录..."
 
 # 5. 验证
 echo "验证切换..."
-mysql -h 10.10.40.14 -uroot -pMySQL@Root2024 -e "
+mysql -h 10.10.40.14 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
@@ -1427,29 +1427,29 @@ groups:
 echo "========== MySQL日常巡检 =========="
 
 # 1. 实例状态
-mysql -uroot -pMySQL@Root2024 -e "SELECT VERSION(); SELECT UPTIME;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION(); SELECT UPTIME;"
 
 # 2. 连接数
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT 
     (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Threads_connected') as current_conn,
     (SELECT VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME='max_connections') as max_conn;
 "
 
 # 3. MGR集群状态
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
 
 # 4. 复制延迟
-mysql -uroot -pMySQL@Root2024 -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
 
 # 5. 慢查询数量
-mysql -uroot -pMySQL@Root2024 -e "SHOW STATUS LIKE 'Slow_queries';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Slow_queries';"
 
 # 6. InnoDB缓冲池命中率
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT 
     ROUND((1 - (
       (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Innodb_buffer_pool_reads') /
@@ -1547,7 +1547,7 @@ echo "4. 扩容磁盘"
 
 ```bash
 # 1. 检查当前版本
-mysql -uroot -pMySQL@Root2024 -e "SELECT VERSION();"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION();"
 
 # 2. 查看兼容性矩阵
 # https://dev.mysql.com/doc/refman/8.0/en/upgrading-from-previous-series.html
@@ -1559,7 +1559,7 @@ mysql -uroot -pMySQL@Root2024 -e "SELECT VERSION();"
 mysqlcheck --all-databases --check-upgrade
 
 # 5. 禁用MGR自动重启
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   STOP GROUP_REPLICATION;
 "
 
@@ -1583,7 +1583,7 @@ yum install -y mysql-community-server-8.0.36
 systemctl start mysqld
 
 # 等待从库启动
-mysql -uroot -pMySQL@Root2024 -e "SELECT VERSION();"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION();"
 
 # 2. 升级从库MySQL-02
 echo "升级MySQL-02..."
@@ -1594,12 +1594,12 @@ systemctl start mysqld
 # 3. 升级主库MySQL-01
 echo "升级MySQL-01..."
 # 先将MGR切换到MySQL-02
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SET GLOBAL group_replication_force_members = '10.10.30.12:33061,10.10.30.13:33061';
 "
 
 # 等待新Primary就绪
-mysql -h 10.10.30.12 -uroot -pMySQL@Root2024 -e "
+mysql -h 10.10.30.12 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ROLE FROM performance_schema.replication_group_members;
 "
 
@@ -1609,7 +1609,7 @@ yum install -y mysql-community-server-8.0.36
 systemctl start mysqld
 
 # 将MySQL-01重新加入集群
-mysql -h 10.10.30.11 -uroot -pMySQL@Root2024 -e "
+mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   CHANGE REPLICATION SOURCE TO
     SOURCE_USER='repl_user',
     SOURCE_PASSWORD='Repl@Pass2024',
@@ -1630,13 +1630,13 @@ mysql -uadmin -padmin -h127.0.0.1 -P6032 -e "
 
 ```bash
 # 1. 验证所有节点版本
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
 
 # 2. 验证MGR集群健康
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT CHANNEL_NAME, MEMBER_STATE, COUNT_TRANSACTIONS_IN_QUEUE
   FROM performance_schema.replication_group_member_stats;
 "
@@ -1678,7 +1678,7 @@ systemctl start mysqld
 /usr/local/bin/mysql_restore.sh
 
 # 5. 验证集群恢复
-mysql -uroot -pMySQL@Root2024 -e "
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "

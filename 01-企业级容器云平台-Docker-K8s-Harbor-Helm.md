@@ -6,7 +6,7 @@
 
 ---
 
-> ⚠️ **安全声明**: 本文档中的密码(如MySQL@Root2024、Harbor12345等)均为示例占位符。
+> ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 切勿将真实密码硬编码在配置文件或脚本中。
 
@@ -635,7 +635,7 @@ https:
   port: 443
   certificate: /opt/harbor/certs/harbor.crt
   private_key: /opt/harbor/certs/harbor.key
-harbor_admin_password: Harbor12345
+harbor_admin_password: ${HARBOR_ADMIN_PASSWORD}
 database:
   password: root123
   max_idle_conns: 100
@@ -696,7 +696,7 @@ systemctl enable harbor
 
 echo "✅ Harbor安装完成"
 echo "访问: https://${HARBOR_DOMAIN}"
-echo "用户名: admin / 密码: Harbor12345"
+echo "用户名: admin / 密码: ${HARBOR_ADMIN_PASSWORD}"
 ```
 
 ### 5.2 配置K8s节点信任Harbor
@@ -716,7 +716,7 @@ echo "创建Harbor拉取Secret..."
 kubectl create secret docker-registry harbor-secret \
   --docker-server=${HARBOR_DOMAIN} \
   --docker-username=admin \
-  --docker-password=Harbor12345 \
+  --docker-password=${HARBOR_ADMIN_PASSWORD} \
   -n default
 
 echo "配置containerd信任Harbor..."
@@ -1150,6 +1150,8 @@ KEEP_DAYS=7
 
 mkdir -p ${BACKUP_DIR}
 
+# Step 1: 检查etcd健康状态
+etcdctl endpoint health --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key || { echo "etcd不健康，跳过备份"; exit 1; }
 echo "备份etcd..."
 ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
   --endpoints=https://127.0.0.1:2379 \

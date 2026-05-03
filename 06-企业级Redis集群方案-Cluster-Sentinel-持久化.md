@@ -214,8 +214,8 @@ client-output-buffer-limit replica 256mb 64mb 60
 client-output-buffer-limit pubsub 32mb 8mb 60
 
 # ===== 安全配置 =====
-requirepass Redis@Cluster2024!
-masterauth Redis@Cluster2024!
+requirepass ${REDIS_PASSWORD}
+masterauth ${REDIS_PASSWORD}
 rename-command FLUSHDB ""
 rename-command FLUSHALL ""
 rename-command DEBUG ""
@@ -250,7 +250,7 @@ Type=notify
 User=redis
 Group=redis
 ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_%i.conf --supervised systemd
-ExecStop=/usr/local/redis/bin/redis-cli -p %i -a Redis@Cluster2024! shutdown
+ExecStop=/usr/local/redis/bin/redis-cli -p %i -a ${REDIS_PASSWORD} shutdown
 ExecReload=/bin/kill -USR2 $MAINPID
 Restart=always
 RestartSec=5
@@ -290,7 +290,7 @@ sleep 5
 echo "========== 2. 验证实例状态 =========="
 for i in {11..16}; do
   for port in 6379 6380; do
-    status=$(redis-cli -h 10.10.40.${i} -p ${port} -a Redis@Cluster2024! ping 2>/dev/null)
+    status=$(redis-cli -h 10.10.40.${i} -p ${port} -a ${REDIS_PASSWORD} ping 2>/dev/null)
     echo "  10.10.40.${i}:${port} -> ${status}"
   done
 done
@@ -302,22 +302,22 @@ redis-cli --cluster create \
   10.10.40.11:6379 10.10.40.12:6379 10.10.40.13:6379 \
   10.10.40.14:6379 10.10.40.15:6379 10.10.40.16:6379 \
   --cluster-replicas 1 \
-  -a Redis@Cluster2024!
+  -a ${REDIS_PASSWORD}
 
 echo "========== 4. 验证集群状态 =========="
-redis-cli -a Redis@Cluster2024! cluster info
+redis-cli -a ${REDIS_PASSWORD} cluster info
 echo ""
 echo "集群节点:"
-redis-cli -a Redis@Cluster2024! cluster nodes
+redis-cli -a ${REDIS_PASSWORD} cluster nodes
 
 echo "========== 5. 测试集群功能 =========="
 echo "写入测试数据..."
 for i in {1..100}; do
-  redis-cli -c -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!     SET "test:key:${i}" "value_${i}" > /dev/null 2>&1
+  redis-cli -c -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}     SET "test:key:${i}" "value_${i}" > /dev/null 2>&1
 done
 
 echo "读取测试数据..."
-redis-cli -c -h 10.10.40.14 -p 6379 -a Redis@Cluster2024!   GET "test:key:1" > /dev/null 2>&1 && echo "✅ 跨节点读写正常"
+redis-cli -c -h 10.10.40.14 -p 6379 -a ${REDIS_PASSWORD}   GET "test:key:1" > /dev/null 2>&1 && echo "✅ 跨节点读写正常"
 
 echo "✅ Redis Cluster创建完成"
 ```
@@ -338,7 +338,7 @@ dir /data/redis
 
 # 监控主节点
 sentinel monitor mymaster 10.10.40.11 6379 2
-sentinel auth-pass mymaster Redis@Cluster2024!
+sentinel auth-pass mymaster ${REDIS_PASSWORD}
 
 # 下线判定
 sentinel down-after-milliseconds mymaster 5000
@@ -393,7 +393,7 @@ fi
 
 set -euo pipefail
 
-REDIS_CMD="redis-cli -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!"
+REDIS_CMD="redis-cli -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}"
 
 echo "========== 扫描大Key =========="
 ${REDIS_CMD} --bigkeys
@@ -437,16 +437,16 @@ fi
 
 ```bash
 # 1. 监控内存增长趋势
-redis-cli -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   INFO memory | grep used_memory_human
+redis-cli -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}   INFO memory | grep used_memory_human
 
 # 2. 分析key数量变化
-redis-cli -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   INFO keyspace
+redis-cli -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}   INFO keyspace
 
 # 3. 抓取内存分配器信息
-redis-cli -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   MEMORY MALLOC-STATS
+redis-cli -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}   MEMORY MALLOC-STATS
 
 # 4. 使用memory doctor诊断
-redis-cli -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   MEMORY DOCTOR
+redis-cli -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}   MEMORY DOCTOR
 ```
 
 ---
@@ -513,7 +513,7 @@ auto-aof-rewrite-min-size 64mb
 
 ```bash
 # 使用redis-benchmark测试
-redis-benchmark -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   -c 100 -n 1000000 -t set,get -q
+redis-benchmark -h 10.10.40.11 -p 6379 -a ${REDIS_PASSWORD}   -c 100 -n 1000000 -t set,get -q
 
 # 预期结果:
 # SET: 150,000+ ops/sec (单节点)
@@ -538,13 +538,13 @@ redis-benchmark -h 10.10.40.11 -p 6379 -a Redis@Cluster2024!   -c 100 -n 1000000
 **解决方案**:
 ```bash
 # 1. 查看集群状态
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! cluster info | grep cluster_state
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} cluster info | grep cluster_state
 
 # 2. 手动完成迁移
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CLUSTER SETSLOT <slot> NODE <target-node-id>
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD}   CLUSTER SETSLOT <slot> NODE <target-node-id>
 
 # 3. 设置集群允许降级读取
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CONFIG SET cluster-allow-reads-when-down yes
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD}   CONFIG SET cluster-allow-reads-when-down yes
 ```
 
 **预防措施**:
@@ -559,21 +559,21 @@ redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CONFIG SET cluster-allow-rea
 **根因分析**:
 ```bash
 # 发现大量未设置TTL的key
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! INFO keyspace
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} INFO keyspace
 # db0:keys=5000000,expires=100000  # 只有2%的key设置了过期时间
 
 # 内存使用
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! INFO memory
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} INFO memory
 # used_memory_human:19.8G  # 接近20GB上限
 ```
 
 **解决方案**:
 ```bash
 # 1. 紧急清理大Key
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! --bigkeys
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} --bigkeys
 
 # 2. 批量设置TTL(使用Lua脚本保证原子性)
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! --eval "
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} --eval "
   local keys = redis.call('SCAN', 0, 'COUNT', 1000)
   for i, key in ipairs(keys[2]) do
     local ttl = redis.call('TTL', key)
@@ -584,7 +584,7 @@ redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! --eval "
 " , 0
 
 # 3. 调整淘汰策略
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CONFIG SET maxmemory-policy volatile-lru
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD}   CONFIG SET maxmemory-policy volatile-lru
 
 # 4. 设置告警阈值
 # Prometheus告警规则
@@ -614,13 +614,13 @@ redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CONFIG SET maxmemory-policy 
 **解决方案**:
 ```bash
 # 1. 调整cluster-node-timeout
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CONFIG SET cluster-node-timeout 15000
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD}   CONFIG SET cluster-node-timeout 15000
 
 # 2. 检查集群状态
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! cluster nodes | grep FAIL
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} cluster nodes | grep FAIL
 
 # 3. 手动修复slot分配
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CLUSTER SETSLOT <slot> STABLE
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD}   CLUSTER SETSLOT <slot> STABLE
 ```
 
 **预防措施**:
@@ -635,7 +635,7 @@ redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024!   CLUSTER SETSLOT <slot> STABL
 **根因分析**:
 ```bash
 # 查看慢查询日志
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! slowlog get 50
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} slowlog get 50
 
 # 发现大量 KEYS 命令(已禁用但仍有)
 # 发现大量 SORT 命令(对大集合排序)
@@ -682,11 +682,11 @@ echo "========== RDB备份 =========="
 for node in 10.10.40.{11..16}; do
   for port in 6379 6380; do
     echo "备份 ${node}:${port}..."
-    redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! BGSAVE
+    redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} BGSAVE
     sleep 2
     
     # 等待备份完成
-    while [ "$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! LASTSAVE)" = "0" ]; do
+    while [ "$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)" = "0" ]; do
       sleep 1
     done
     
@@ -735,7 +735,7 @@ if [ "${CHOICE}" = "1" ]; then
   ssh root@${TARGET_IP} "systemctl start redis@${TARGET_PORT}"
   
   echo "验证数据..."
-  redis-cli -h ${TARGET_IP} -p ${TARGET_PORT} -a Redis@Cluster2024! DBSIZE
+  redis-cli -h ${TARGET_IP} -p ${TARGET_PORT} -a ${REDIS_PASSWORD} DBSIZE
   
   echo "✅ 恢复完成"
 fi
@@ -754,7 +754,7 @@ echo "  Redis Cluster故障转移演练"
 echo "============================================"
 
 echo "演练前状态:"
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! cluster nodes | grep master
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} cluster nodes | grep master
 
 echo ""
 echo "Step 1: 模拟Master-01故障(停止Redis)..."
@@ -762,7 +762,7 @@ ssh root@10.10.40.11 "systemctl stop redis@6379"
 
 echo "Step 2: 等待故障转移(最多30秒)..."
 for i in {1..30}; do
-  STATE=$(redis-cli -c -h 10.10.40.12 -a Redis@Cluster2024! cluster info 2>/dev/null | grep cluster_state)
+  STATE=$(redis-cli -c -h 10.10.40.12 -a ${REDIS_PASSWORD} cluster info 2>/dev/null | grep cluster_state)
   echo "  ${i}s: ${STATE}"
   if echo "${STATE}" | grep -q "ok"; then
     echo "✅ 故障转移成功！"
@@ -772,13 +772,13 @@ for i in {1..30}; do
 done
 
 echo "Step 3: 验证新Master..."
-redis-cli -c -h 10.10.40.12 -a Redis@Cluster2024! cluster nodes | grep master
+redis-cli -c -h 10.10.40.12 -a ${REDIS_PASSWORD} cluster nodes | grep master
 
 echo "Step 4: 恢复旧Master为从节点..."
 ssh root@10.10.40.11 "systemctl start redis@6379"
 
 echo "Step 5: 重新加入集群..."
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! CLUSTER REPLICATE <new-master-id>
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} CLUSTER REPLICATE <new-master-id>
 
 echo ""
 echo "演练结果:"
@@ -847,38 +847,38 @@ for node in 10.10.40.{11..16}; do
     echo "--- ${node}:${port} ---"
     
     # 1. 实例状态
-    PING=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! ping 2>/dev/null)
+    PING=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} ping 2>/dev/null)
     echo "  状态: ${PING}"
     
     # 2. 内存使用
-    MEM=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! INFO memory 2>/dev/null | grep used_memory_human | cut -d: -f2 | tr -d '\r')
+    MEM=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} INFO memory 2>/dev/null | grep used_memory_human | cut -d: -f2 | tr -d '\r')
     echo "  内存: ${MEM}"
     
     # 3. 连接数
-    CONN=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! INFO clients 2>/dev/null | grep connected_clients | cut -d: -f2 | tr -d '\r')
+    CONN=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} INFO clients 2>/dev/null | grep connected_clients | cut -d: -f2 | tr -d '\r')
     echo "  连接数: ${CONN}"
     
     # 4. 命中率
-    HITS=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! INFO stats 2>/dev/null | grep keyspace_hits | cut -d: -f2 | tr -d '\r')
-    MISSES=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! INFO stats 2>/dev/null | grep keyspace_misses | cut -d: -f2 | tr -d '\r')
+    HITS=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} INFO stats 2>/dev/null | grep keyspace_hits | cut -d: -f2 | tr -d '\r')
+    MISSES=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} INFO stats 2>/dev/null | grep keyspace_misses | cut -d: -f2 | tr -d '\r')
     if [ "${HITS}" -gt 0 ] 2>/dev/null; then
       HIT_RATE=$(echo "scale=2; ${HITS} / (${HITS} + ${MISSES}) * 100" | bc 2>/dev/null || echo "N/A")
       echo "  命中率: ${HIT_RATE}%"
     fi
     
     # 5. 碎片率
-    FRAG=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! INFO memory 2>/dev/null | grep mem_fragmentation_ratio | cut -d: -f2 | tr -d '\r')
+    FRAG=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} INFO memory 2>/dev/null | grep mem_fragmentation_ratio | cut -d: -f2 | tr -d '\r')
     echo "  碎片率: ${FRAG}"
     
     # 6. 慢查询数量
-    SLOW=$(redis-cli -h ${node} -p ${port} -a Redis@Cluster2024! SLOWLOG LEN 2>/dev/null)
+    SLOW=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} SLOWLOG LEN 2>/dev/null)
     echo "  慢查询: ${SLOW}条"
   done
 done
 
 echo ""
 echo "========== 集群状态 =========="
-redis-cli -c -h 10.10.40.11 -a Redis@Cluster2024! cluster info 2>/dev/null | grep -E "cluster_state|cluster_slots|cluster_known_nodes"
+redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} cluster info 2>/dev/null | grep -E "cluster_state|cluster_slots|cluster_known_nodes"
 ```
 
 ### 11.2 周度维护
@@ -893,20 +893,20 @@ echo "========== Redis周度维护 $(date '+%Y-%m-%d') =========="
 
 echo "1. 大Key扫描..."
 for node in 10.10.40.{11..16}; do
-  redis-cli -h ${node} -p 6379 -a Redis@Cluster2024! --bigkeys > /tmp/bigkeys_${node}.log 2>/dev/null
+  redis-cli -h ${node} -p 6379 -a ${REDIS_PASSWORD} --bigkeys > /tmp/bigkeys_${node}.log 2>/dev/null
   BIG_KEYS=$(grep -c "Biggest" /tmp/bigkeys_${node}.log 2>/dev/null || echo "0")
   echo "  ${node}: ${BIG_KEYS}个大Key"
 done
 
 echo "2. 内存碎片整理..."
 for node in 10.10.40.{11..16}; do
-  redis-cli -h ${node} -p 6379 -a Redis@Cluster2024! MEMORY PURGE > /dev/null 2>&1
+  redis-cli -h ${node} -p 6379 -a ${REDIS_PASSWORD} MEMORY PURGE > /dev/null 2>&1
   echo "  ${node}: 碎片整理完成"
 done
 
 echo "3. 慢查询日志清理..."
 for node in 10.10.40.{11..16}; do
-  redis-cli -h ${node} -p 6379 -a Redis@Cluster2024! SLOWLOG RESET > /dev/null 2>&1
+  redis-cli -h ${node} -p 6379 -a ${REDIS_PASSWORD} SLOWLOG RESET > /dev/null 2>&1
   echo "  ${node}: 慢查询日志已清理"
 done
 
