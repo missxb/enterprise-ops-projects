@@ -1316,8 +1316,11 @@ webhook:
 ```
 enterprise-cicd-pipeline/
 ├── scripts/
+│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_gitlab.sh
+│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_jenkins.sh
+│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_sonarqube.sh
 │   ├── install_argocd.sh
 │   ├── setup_webhook.sh

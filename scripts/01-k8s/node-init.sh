@@ -36,7 +36,7 @@ enabled=1
 gpgcheck=1
 gpgkey=https://mirrors.aliyun.com/kubernetes-new/core/stable/v1.28/rpm/repodata/repomd.xml.key
 EOF
-yum install -y kubelet kubeadm kubectl
+yum install -y kubelet-${K8S_VERSION}-0 kubeadm-${K8S_VERSION}-0 kubectl-${K8S_VERSION}-0
 systemctl enable kubelet
 
 echo "✅ 节点初始化完成，请在Master节点执行kubeadm init"

@@ -12,4 +12,5 @@ variable "project" {
 variable "zone_id" {
   description = "可用区ID"
   type        = string
+  default     = "cn-hangzhou-h"
 }
