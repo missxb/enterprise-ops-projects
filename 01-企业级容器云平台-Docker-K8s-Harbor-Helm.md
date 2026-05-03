@@ -1880,8 +1880,8 @@ etcd:
 # kube-apiserver配置
 apiServer:
   extraArgs:
-    max-requests-inflight: "400"        # 非只读请求
-    max-mutating-requests-inflight: "200" # 只读请求
+    max-requests-inflight: "400"        # 只读请求
+    max-mutating-requests-inflight: "200" # 变更请求
     event-ttl: "1h"
     audit-log-maxage: "30"
     audit-log-maxbackup: "10"

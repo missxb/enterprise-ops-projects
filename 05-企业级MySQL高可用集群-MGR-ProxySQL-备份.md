@@ -71,7 +71,7 @@
     71|# GTID配置（MGR依赖GTID）
     72|gtid_mode=ON
     73|enforce_gtid_consistency=ON
-    74|binlog_checksum=NONE                 # MGR必须NONE
+    74|binlog_checksum=NONE                 # MySQL 8.0.20+ MGR已支持CRC32
     75|log_bin=mysql-bin
     76|binlog_format=ROW
     77|max_binlog_size=512M
