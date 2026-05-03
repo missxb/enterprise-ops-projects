@@ -517,7 +517,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # 节点宕机
           - alert: NodeDown
             expr: up{job="node-exporter"} == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
@@ -622,7 +622,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # Job失败
           - alert: JobFailed
             expr: kube_job_status_failed > 0
-            for: 1m
+            for: 3m
             labels:
               severity: warning
             annotations:
@@ -635,7 +635,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # MySQL宕机
           - alert: MySQLDown
             expr: mysql_up == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
@@ -698,7 +698,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # Redis宕机
           - alert: RedisDown
             expr: redis_up == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
@@ -750,7 +750,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # Nginx宕机
           - alert: NginxDown
             expr: nginx_up == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:

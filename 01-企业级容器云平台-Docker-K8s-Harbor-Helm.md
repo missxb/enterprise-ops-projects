@@ -102,6 +102,7 @@ sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
 echo "SELinux已关闭"
 
 echo "========== [3/8] 关闭防火墙 =========="
+# [K8s节点专用] K8s不兼容firewalld，生产环境使用NetworkPolicy
 systemctl stop firewalld 2>/dev/null || true
 systemctl disable firewalld 2>/dev/null || true
 echo "防火墙已关闭"
@@ -302,7 +303,7 @@ vrrp_instance K8S_VIP {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass a3b7c9d1
+        auth_pass K8sHA2024Secure!
     }
     virtual_ipaddress {
         ${VIP}/24 dev eth0
