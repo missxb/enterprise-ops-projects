@@ -680,6 +680,7 @@ mkdir -p ${BACKUP_DIR}
 
 echo "========== RDB备份 =========="
 for node in 10.10.40.{11..16}; do
+  for port in 6379 6380; do
     BEFORE=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)
     redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} BGSAVE
     
@@ -692,7 +693,6 @@ for node in 10.10.40.{11..16}; do
     echo "  ✅ ${node}:${port} 备份完成"
   done
 done
-
 echo "========== 清理过期备份 =========="
 find ${BACKUP_DIR} -name "*.rdb" -mtime +${KEEP_DAYS} -delete
 
