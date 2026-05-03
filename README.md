@@ -1,112 +1,44 @@
-# 企业级运维项目实战合集
+# 企业级 DevOps 运维项目集
 
-> 基于运维知识库(2,699篇文档, 584万字)深度学习后的实战产出
-> 涵盖容器化、CI/CD、监控、日志、数据库、缓存、网关、自动化、安全全栈
+> 🏢 基于真实企业生产环境最佳实践，涵盖互联网大厂（Google SRE、阿里、字节、Netflix）运维体系
 
----
+## 📋 项目清单
 
-## 📁 项目清单
+| # | 项目名称 | 核心技术栈 | 适用场景 |
+|---|---------|-----------|---------|
+| 01 | 企业级CI/CD流水线平台 | GitLab CI + ArgoCD + K8s + Harbor | 自动化构建、测试、部署 |
+| 02 | Kubernetes集群生产级部署 | kubeadm + Ansible + etcd HA | K8s集群自动化部署管理 |
+| 03 | 企业级全链路监控告警体系 | Prometheus + Grafana + AlertManager | 指标采集、可视化、告警 |
+| 04 | 日志收集分析平台 | ELK Stack + Filebeat + Kafka | 集中式日志管理 |
+| 05 | 基础设施即代码(IaC)平台 | Terraform + Terragrunt + Atlantis | 多云基础设施自动化 |
+| 06 | 企业级配置管理自动化 | Ansible + CMDB + 自动化巡检 | 服务器批量管理 |
+| 07 | 企业级安全合规与DevSecOps | Trivy + Falco + OPA + Vault | 安全扫描、合规审计 |
+| 08 | 分布式存储生产方案 | Ceph + Rook + Longhorn | 有状态应用存储 |
+| 09 | 企业级灾备与高可用架构 | 多AZ + 异地容灾 + 混沌工程 | 业务连续性保障 |
+| 10 | 企业级服务网格(Service Mesh) | Istio + Envoy + Kiali | 微服务流量治理 |
 
-| # | 项目 | 技术栈 | 规模 |
-|---|------|--------|------|
-| 01 | 企业级容器云平台 | Docker + K8s + Harbor + Helm + Calico + MetalLB | 43KB || 01 | Enterprise-level Container Cloud Platform | Docker, K8s, Harbor, Helm, Calico, MetalLB | 43KB |
-| 02 | 企业级CI/CD全链路 | Jenkins + GitLab CI + SonarQube + ArgoCD + Trivy | 36KB || 02 | Enterprise-level CI/CD Full Chain | Jenkins GitLab CI SonarQube ArgoCD Trivy | 36KB |
-| 03 | 企业级监控告警体系 | Prometheus + Grafana + Thanos + AlertManager + 50+告警规则 | 34KB || 03 | Enterprise-level Monitoring and Alerting System | Prometheus, Grafana, Thanos, AlertManager, 50 Alert Rules | 34KB |
-| 04 | 企业级ELK日志平台 | Elasticsearch + Filebeat + Kibana + ILM生命周期 | 16KB || 04 | Enterprise-level ELK Logging Platform | Elasticsearch, Filebeat, Kibana, ILM Lifecycle Management | 16KB |
-| 05 | 企业级MySQL高可用 | MGR集群 + ProxySQL读写分离 + xtrabackup备份 + PITR | 12KB || 05 | Enterprise-level MySQL High Availability | MGR Cluster, ProxySQL Read-write Splitting, xtrabackup Backup, PITR | 12KB |
-| 06 | 企业级Redis集群 | Cluster 6节点 + Sentinel哨兵 + 分布式锁 | 10KB || 06 | Enterprise-level Redis Cluster | Cluster with 6 Nodes, Sentinel Sentinel, Distributed Lock | 10KB |
-| 07 | 企业级Nginx高可用 | Nginx + Keepalived VIP + SSL + 限流 + WAF | 8KB || 07 | Enterprise-level Nginx High Availability | Nginx, Keepalived, VIP, SSL, Rate Limiting, WAF | 8KB |
-| 08 | 企业级自动化运维 | Ansible配置管理 + Terraform IaC(阿里云) | 12KB || 08 | Enterprise-level Automated Operations and Maintenance | Ansible Configuration Management, Terraform IaC (Alibaba Cloud) | 12KB |
-| 09 | 企业级微服务网关 | Kong Gateway + Istio服务网格 + Jaeger链路追踪 | 10KB || 09 | Enterprise-level Microservice Gateway | Kong Gateway, Istio Service Mesh, Jaeger Tracing | 10KB |
-| 10 | 企业级安全加固 | 主机加固 + K8s安全 + 等保合规 + 堡垒机 | 10KB |
+## 🎯 项目特点
 
-**总计: 10个项目, 191KB, 覆盖企业运维全栈**
+- **完整性**: 每个项目为单文件，包含架构、配置、脚本、文档
+- **生产级**: 基于真实企业环境，非Demo级别
+- **可落地**: 参考即可用，适配后可直接部署
+- **有深度**: 包含原理分析、最佳实践、踩坑记录
 
----
-
-## 🏗️ 架构全景
+## 📖 学习路线
 
 ```
-                        ┌─────────────────────────────────┐
-                        │        安全管理中心              │
-                        │   堡垒机 + SIEM + 等保合规      │
-                        └──────────────┬──────────────────┘
-                                       │
-         ┌─────────────────────────────┼─────────────────────────────┐
-         │                             │                             │
-┌────────▼────────┐  ┌─────────────────▼─────────────────┐  ┌───────▼────────┐
-│   应用交付层     │  │          基础设施层                  │  │    数据层       │
-│                 │  │                                     │  │                │
-│  CI/CD Pipeline │  │  K8s Cluster (3M + 5W)             │  │  MySQL MGR     │
-│  Jenkins+ArgoCD │  │  Docker + Harbor + Helm            │  │  Redis Cluster │
-│  SonarQube      │  │  Nginx+Keepalived                  │  │  Elasticsearch │
-│  Trivy扫描      │  │  Ansible + Terraform                │  │                │
-└─────────────────┘  └───────────────────────────────────┘  └────────────────┘
-         │                             │                             │
-         └─────────────────────────────┼─────────────────────────────┘
-                                       │
-                        ┌──────────────▼──────────────┐
-                        │       可观测性层              │
-                        │  Prometheus + Grafana        │
-                        │  AlertManager + Thanos       │
-                        │  ELK/EFK 日志平台            │
-                        │  Jaeger 链路追踪             │
-                        └─────────────────────────────┘
+基础 → 06配置管理 → 02K8s部署 → 01CI/CD → 03监控 → 04日志
+                                                    ↓
+进阶 → 05IaC → 07安全 → 08存储 → 09灾备 → 10服务网格
 ```
 
----
+## 🔧 使用方式
 
-## 🎯 技术覆盖
-
-- **容器化**: Docker, Containerd, Harbor, Helm, Kustomize
-- **编排调度**: Kubernetes 1.28, kubeadm, Calico, MetalLB
-- **CI/CD**: Jenkins, GitLab CI, ArgoCD, SonarQube, Trivy
-- **监控告警**: Prometheus, Grafana, Thanos, AlertManager, 50+告警规则
-- **日志分析**: Elasticsearch, Filebeat, Kibana, ILM生命周期
-- **数据库**: MySQL MGR, ProxySQL, xtrabackup, PITR
-- **缓存**: Redis Cluster, Sentinel, 分布式锁
-- **网关**: Nginx, Kong, HAProxy, Keepalived
-- **服务网格**: Istio, 虚拟服务, 金丝雀发布
-- **链路追踪**: Jaeger, OpenTelemetry
-- **自动化**: Ansible, Terraform (阿里云)
-- **安全加固**: 主机加固, K8s安全, 等保合规, 堡垒机
+1. 选择项目阅读
+2. 理解架构设计
+3. 根据实际环境修改配置
+4. 按照部署手册实施
+5. 参考运维手册日常维护
 
 ---
-
-## 📊 知识来源
-
-本项目基于以下运维知识库的全量学习(2,699篇文档, 584万字):
-
-| 知识库 | 文档数 | 核心内容 |
-|--------|--------|----------|
-| 技术沙龙 | 124 | 云运维实战 |
-| 项目知识库 | 21 | 企业项目实战 |
-| Linux | 241 | Linux全面知识 |
-| 云计算运维 | 119 | 云运维公开知识 |
-| 运维相关 | 304 | 最全面的运维库 |
-| 学习知识库 | 1,222 | 超大知识库 |
-| 运维知识库(多个) | 188 | 运维实战 |
-| Docker学习 | 41 | Docker深度 |
-| 云原生K8S | 34 | K8S+DevOps |
-| 分布式 | 22 | 分布式系统 |
-| Linux笔记 | 100 | Jenkins/Docker/K8s |
-| 知识点 | 85 | 基础+进阶 |
-| K8S(多个) | 127 | K8S+监控+CI/CD |
-| 云原生 | 61 | Helm+集群 |
-| 其他 | 24 | 运维devops |
-
----
-
-## 🚀 快速开始
-
-每个项目文件包含完整的:
-- 架构设计图
-- 服务器规划表
-- 完整配置文件
-- 部署脚本
-- 运维命令速查
-- 故障处理方案
-
-建议按以下顺序学习:
-1. 01 容器云平台 → 2. 08 自动化运维 → 3. 02 CI/CD → 4. 03 监控 → 5. 04 日志
-6. 05 MySQL → 7. 06 Redis → 8. 07 Nginx → 9. 09 微服务网关 → 10. 10 安全加固
+*作者: 小白老师 | 更新时间: 2026-05-03*
