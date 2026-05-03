@@ -9,15 +9,15 @@
 
 | # | 项目 | 技术栈 | 规模 |
 |---|------|--------|------|
-| 01 | 企业级容器云平台 | Docker + K8s + Harbor + Helm + Calico + MetalLB | 43KB |
-| 02 | 企业级CI/CD全链路 | Jenkins + GitLab CI + SonarQube + ArgoCD + Trivy | 36KB |
-| 03 | 企业级监控告警体系 | Prometheus + Grafana + Thanos + AlertManager + 50+告警规则 | 34KB |
-| 04 | 企业级ELK日志平台 | Elasticsearch + Filebeat + Kibana + ILM生命周期 | 16KB |
-| 05 | 企业级MySQL高可用 | MGR集群 + ProxySQL读写分离 + xtrabackup备份 + PITR | 12KB |
-| 06 | 企业级Redis集群 | Cluster 6节点 + Sentinel哨兵 + 分布式锁 | 10KB |
-| 07 | 企业级Nginx高可用 | Nginx + Keepalived VIP + SSL + 限流 + WAF | 8KB |
-| 08 | 企业级自动化运维 | Ansible配置管理 + Terraform IaC(阿里云) | 12KB |
-| 09 | 企业级微服务网关 | Kong Gateway + Istio服务网格 + Jaeger链路追踪 | 10KB |
+| 01 | 企业级容器云平台 | Docker + K8s + Harbor + Helm + Calico + MetalLB | 43KB || 01 | Enterprise-level Container Cloud Platform | Docker, K8s, Harbor, Helm, Calico, MetalLB | 43KB |
+| 02 | 企业级CI/CD全链路 | Jenkins + GitLab CI + SonarQube + ArgoCD + Trivy | 36KB || 02 | Enterprise-level CI/CD Full Chain | Jenkins GitLab CI SonarQube ArgoCD Trivy | 36KB |
+| 03 | 企业级监控告警体系 | Prometheus + Grafana + Thanos + AlertManager + 50+告警规则 | 34KB || 03 | Enterprise-level Monitoring and Alerting System | Prometheus, Grafana, Thanos, AlertManager, 50 Alert Rules | 34KB |
+| 04 | 企业级ELK日志平台 | Elasticsearch + Filebeat + Kibana + ILM生命周期 | 16KB || 04 | Enterprise-level ELK Logging Platform | Elasticsearch, Filebeat, Kibana, ILM Lifecycle Management | 16KB |
+| 05 | 企业级MySQL高可用 | MGR集群 + ProxySQL读写分离 + xtrabackup备份 + PITR | 12KB || 05 | Enterprise-level MySQL High Availability | MGR Cluster, ProxySQL Read-write Splitting, xtrabackup Backup, PITR | 12KB |
+| 06 | 企业级Redis集群 | Cluster 6节点 + Sentinel哨兵 + 分布式锁 | 10KB || 06 | Enterprise-level Redis Cluster | Cluster with 6 Nodes, Sentinel Sentinel, Distributed Lock | 10KB |
+| 07 | 企业级Nginx高可用 | Nginx + Keepalived VIP + SSL + 限流 + WAF | 8KB || 07 | Enterprise-level Nginx High Availability | Nginx, Keepalived, VIP, SSL, Rate Limiting, WAF | 8KB |
+| 08 | 企业级自动化运维 | Ansible配置管理 + Terraform IaC(阿里云) | 12KB || 08 | Enterprise-level Automated Operations and Maintenance | Ansible Configuration Management, Terraform IaC (Alibaba Cloud) | 12KB |
+| 09 | 企业级微服务网关 | Kong Gateway + Istio服务网格 + Jaeger链路追踪 | 10KB || 09 | Enterprise-level Microservice Gateway | Kong Gateway, Istio Service Mesh, Jaeger Tracing | 10KB |
 | 10 | 企业级安全加固 | 主机加固 + K8s安全 + 等保合规 + 堡垒机 | 10KB |
 
 **总计: 10个项目, 191KB, 覆盖企业运维全栈**
@@ -75,7 +75,7 @@
 
 ## 📊 知识来源
 
-本项目基于以下25个语雀知识库的全量学习(2,699篇文档, 584万字):
+本项目基于以下运维知识库的全量学习(2,699篇文档, 584万字):
 
 | 知识库 | 文档数 | 核心内容 |
 |--------|--------|----------|
