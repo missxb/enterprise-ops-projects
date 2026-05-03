@@ -64,4 +64,4 @@ if [ "$FAIL" -eq 0 ]; then
 else
   echo "⚠️ 有 $FAIL 项未通过"
 fi
-exit 0
+exit $FAIL

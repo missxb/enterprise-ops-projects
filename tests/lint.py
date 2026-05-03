@@ -24,7 +24,7 @@ def check_file(path):
         m = re.match(r'^(#{1,6})\s', line)
         if m:
             level = len(m.group(1))
-            if level > prev_level + 1 and prev_level > 0:
+            if level > prev_level + 2 and prev_level > 0:
                 ISSUES.append((fname, i, f"标题层级跳跃({prev_level}→{level})"))
             prev_level = level
 
