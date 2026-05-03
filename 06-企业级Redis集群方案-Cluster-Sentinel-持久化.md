@@ -680,16 +680,13 @@ mkdir -p ${BACKUP_DIR}
 
 echo "========== RDB备份 =========="
 for node in 10.10.40.{11..16}; do
-  for port in 6379 6380; do
-    echo "备份 ${node}:${port}..."
+    BEFORE=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)
     redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} BGSAVE
-    sleep 2
     
-    # 等待备份完成
-    while [ $(date +%s) -lt $(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE) ]; do
+    # 等待备份完成(LASTSAVE时间戳变化)
+    while [ "$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)" = "$BEFORE" ]; do
       sleep 1
     done
-    
     # 复制RDB文件
     ssh root@${node} "cp /data/redis/dump_${port}.rdb ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb"
     echo "  ✅ ${node}:${port} 备份完成"
