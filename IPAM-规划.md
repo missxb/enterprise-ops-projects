@@ -6,14 +6,14 @@
 
 | 网段 | 用途 | 说明 |
 |------|------|------|
-| 10.10.11-13 | K8s Master节点 | 3台Master |
-| 10.10.21-25 | K8s Worker节点 | 5台Worker |
+| 10.10.10.11-13 | K8s Master节点 | 3台Master |
+| 10.10.10.21-25 | K8s Worker节点 | 5台Worker |
 | 10.10.30.11-13 | MySQL MGR节点 | 3台MGR |
 | 10.10.30.21 | ProxySQL | 读写分离 |
 | 10.10.40.11-16 | Redis集群 | 6节点Cluster |
 | 10.10.50.11-12 | Nginx入口 | 2台高可用 |
-| 10.10.100 | VIP | K8s API/MySQL Proxy |
-| 10.10.210 | VIP | Nginx入口 |
+| 10.10.10.100 | VIP | K8s API Server |
+| 10.10.50.100 | VIP | Nginx入口 |
 
 ## 容器网络
 

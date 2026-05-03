@@ -1609,7 +1609,7 @@ withCredentials([usernamePassword(
 # 清理未引用的镜像
 harbor admin delete --project my-project --untagged
 # 或使用API
-curl -X DELETE "http://harbor/api/v2.0/projects/my-project/repositories"   -u admin:Harbor@2024
+curl -X DELETE "http://harbor/api/v2.0/projects/my-project/repositories"   -u admin:${HARBOR_ADMIN_PASSWORD}
 
 # 3. 配置垃圾回收
 harbor gc --dry-run
