@@ -1,6 +1,7 @@
 #!/bin/bash
 # Harbor双节点部署脚本
 set -euo pipefail
+umask 077
 
 # Harbor HA需要:
 # 1. 外部PostgreSQL(主备同步)

@@ -1,6 +1,7 @@
 #!/bin/bash
 # 安全加固检查脚本
 set -euo pipefail
+umask 077
 
 echo "=== 安全加固检查 ==="
 

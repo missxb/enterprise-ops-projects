@@ -4,6 +4,7 @@
 # 版本配置(修改此处锁定版本)
 K8S_VERSION="${K8S_VERSION:-1.28}"
 set -euo pipefail
+umask 077
 
 NODE_IP=$(hostname -I | awk '{print $1}')
 POD_CIDR="10.244.0.0/16"
