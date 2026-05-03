@@ -110,6 +110,7 @@
    108|            privileged: true
    109|        # 设置文件描述符
    110|        - name: ulimit
+          # [注意] initContainer中ulimit不会传递到主容器，需通过securityContext或节点级sysctl配置
    111|          image: busybox
    112|          command: ['sh', '-c', 'ulimit -n 65536']
    113|          securityContext:
