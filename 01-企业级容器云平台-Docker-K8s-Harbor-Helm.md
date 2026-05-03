@@ -288,7 +288,7 @@ global_defs {
 }
 
 vrrp_script check_haproxy {
-    script "/usr/bin/systemctl is-active haproxy  # [已修复] 使用systemctl更可靠"
+    script "/usr/bin/systemctl is-active haproxy"
     interval 2
     weight -20
     fall 3

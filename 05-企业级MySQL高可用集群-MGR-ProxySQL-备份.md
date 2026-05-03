@@ -75,7 +75,7 @@
     75|log_bin=mysql-bin
     76|binlog_format=ROW
     77|max_binlog_size=512M
-    78|expire_logs_days=7
+    78|binlog_expire_logs_seconds=604800  # 7天
     79|
     80|# [已修复] MGR内部使用Paxos协议同步，不需要半同步复制
 # 半同步复制(semisync)与MGR会冲突，已移除
@@ -99,7 +99,7 @@
    102|
    103|# MGR核心配置
    104|plugin_load_add='group_replication.so'
-   105|loose-group_replication_group_name="$(uuidgen)"
+   105|loose-group_replication_group_name="50e8400-e29b-41d4-a716-446554000"  # 请替换为uuidgen生成的UUID
    106|loose-group_replication_start_on_boot=OFF     # 首次启动OFF
    107|loose-group_replication_local_address="10.10.30.11:33061"  # 每台不同
    108|loose-group_replication_group_seeds="10.10.30.11:33061,10.10.30.12:33061,10.10.30.13:33061"
@@ -211,7 +211,7 @@
    213|
    214|-- 配置监控用户
    215|UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username';
-   216|UPDATE global_variables SET variable_value='${MYSQL_MONITOR_PASSWORD}' WHERE variable_name='mysql-monitor_password';
+   216|UPDATE global_variables SET variable_value='Monitor@2024  # 生产环境替换' WHERE variable_name='mysql-monitor_password';
    217|UPDATE global_variables SET variable_value=2000 WHERE variable_name='mysql-monitor_ping_interval';
    218|UPDATE global_variables SET variable_value=500 WHERE variable_name='mysql-monitor_read_only_interval';
    219|
@@ -514,7 +514,7 @@ START GROUP_REPLICATION;
 PURGE BINARY LOGS BEFORE DATE_SUB(NOW(), INTERVAL 1 DAY);
 
 -- 2. 设置自动过期
-SET GLOBAL expire_logs_days = 7;
+SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天;
 
 -- 3. 监控磁盘空间
 -- Prometheus告警规则
@@ -874,11 +874,11 @@ mysqlbinlog --base64-output=DECODE-ROWS -v mysql-bin.000002 | head -100
 PURGE BINARY LOGS BEFORE DATE_SUB(NOW(), INTERVAL 1 DAY);
 
 -- 2. 检查当前binlog设置
-SHOW VARIABLES LIKE 'expire_logs_days';
+SHOW VARIABLES LIKE 'binlog_expire_logs_seconds';
 SHOW VARIABLES LIKE 'max_binlog_size';
 
 -- 3. 优化binlog配置
-SET GLOBAL expire_logs_days = 7;  -- 保留7天
+SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天;  -- 保留7天
 SET GLOBAL max_binlog_size = 256M;  -- 每个文件最大256MB
 
 -- 4. 对大表使用Row模式优化
@@ -1704,7 +1704,7 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 
 ### Q4: 磁盘满导致MySQL无法写入
 **原因**: binlog未自动清理
-**解决**: SET GLOBAL expire_logs_days = 7
+**解决**: SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天
 
 ### Q5: 主从复制延迟超过30秒
 **原因**: 从库单线程回放binlog
