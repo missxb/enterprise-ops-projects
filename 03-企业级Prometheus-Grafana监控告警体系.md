@@ -86,7 +86,213 @@ data:
                 - alertmanager-02:9093
     
     # Thanos Sidecar配置
-    # [已修复] Thanos Sidecar模式下不需要remote_write，两者互斥
+    
+
+### Thanos Query (全局查询入口)
+
+Thanos Query是Thanos架构的查询层，提供全局统一查询视图。
+
+```yaml
+# thanos-query-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: thanos-query
+  template:
+    metadata:
+      labels:
+        app: thanos-query
+    spec:
+      containers:
+      - name: thanos-query
+        image: thanos/thanos:v0.34.0
+        args:
+        - query
+        - --log.level=info
+        - --grpc-address=0.0.0.0:10901
+        - --http-address=0.0.0.0:10902
+        - --store=thanos-sidecar-0.monitoring:10901
+        - --store=thanos-sidecar-1.monitoring:10901
+        - --store=thanos-store-gateway.monitoring:10901
+        - --query.replica-label=prometheus_replica
+        ports:
+        - name: grpc
+          containerPort: 10901
+        - name: http
+          containerPort: 10902
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  selector:
+    app: thanos-query
+  ports:
+  - name: http
+    port: 9090
+    targetPort: 10902
+  - name: grpc
+    port: 10901
+    targetPort: 10901
+```
+
+### Thanos Store Gateway (对象存储网关)
+
+Thanos Store Gateway从对象存储(S3/MinIO)查询历史数据。
+
+```yaml
+# thanos-store-gateway-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-store-gateway
+  namespace: monitoring
+spec:
+  serviceName: thanos-store-gateway
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  template:
+    metadata:
+      labels:
+        app: thanos-store-gateway
+    spec:
+      containers:
+      - name: thanos-store-gateway
+        image: thanos/thanos:v0.34.0
+        args:
+        - store
+        - --log.level=info
+        - --data-dir=/thanos-store
+        - --objstore.config-file=/etc/thanos/objstore.yml
+        - --index-cache-size=500MB
+        - --chunk-pool-size=2GB
+        ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        volumeMounts:
+        - name: store-data
+          mountPath: /thanos-store
+        - name: objstore-config
+          mountPath: /etc/thanos
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+      volumes:
+      - name: objstore-config
+        configMap:
+          name: thanos-objstore-config
+  volumeClaimTemplates:
+  - metadata:
+      name: store-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+```
+
+### Thanos Compactor (数据压缩)
+
+Thanos Compactor对历史数据进行压缩和降采样，减少存储空间和查询延迟。
+
+```yaml
+# thanos-compactor-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-compactor
+  namespace: monitoring
+spec:
+  serviceName: thanos-compactor
+  replicas: 1  # 只能有1个实例
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+    spec:
+      containers:
+      - name: thanos-compactor
+        image: thanos/thanos:v0.34.0
+        args:
+        - compact
+        - --log.level=info
+        - --data-dir=/thanos-compactor
+        - --objstore.config-file=/etc/thanos/objstore.yml
+        - --retention.resolution-raw=30d
+        - --retention.resolution-5m=90d
+        - --retention.resolution-1h=365d
+        - --compact.concurrency=4
+        - --downsample.concurrency=4
+        ports:
+        - name: http
+          containerPort: 10902
+        volumeMounts:
+        - name: compactor-data
+          mountPath: /thanos-compactor
+        - name: objstore-config
+          mountPath: /etc/thanos
+        resources:
+          requests:
+            cpu: "1"
+            memory: 4Gi
+          limits:
+            cpu: "2"
+            memory: 8Gi
+      volumes:
+      - name: objstore-config
+        configMap:
+          name: thanos-objstore-config
+  volumeClaimTemplates:
+  - metadata:
+      name: compactor-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+```
+
+> **注意**: Thanos Compactor只能运行1个实例，多实例会导致数据损坏。
+
+### Thanos完整架构图
+
+```
+Prometheus A ──▶ Thanos Sidecar ──┐
+                                  ├──▶ Thanos Query (全局查询) ──▶ Grafana
+Prometheus B ──▶ Thanos Sidecar ──┘         │
+                                       Thanos Store Gateway ──▶ MinIO/S3
+                                       Thanos Compactor (压缩+降采样)
+```
+
+> **去重配置**: Thanos Query需要配置 `--query.replica-label` 来去除多Prometheus实例的重复数据。
+
+# [已修复] Thanos Sidecar模式下不需要remote_write，两者互斥
 # remote_write:
       - url: 'http://thanos-receive:19291/api/v1/receive'
     

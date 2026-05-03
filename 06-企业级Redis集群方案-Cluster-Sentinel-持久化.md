@@ -150,7 +150,7 @@ redis-server --version
 
 ```ini
 # /etc/redis/redis.conf - Redis Cluster实例配置
-# 每台服务器部署2个Redis实例(端口6379和6380)
+# 每台服务器部署1个Redis实例(端口6379)，共6台组成3主3从集群
 
 # ===== 基础配置 =====
 bind 0.0.0.0
@@ -373,7 +373,7 @@ curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TO
       "title": "Redis故障切换",
       "text": "## Redis故障切换通知\n- **事件**: ${EVENT}\n- **实例**: ${NAME}\n- **旧状态**: ${OLD_STATE}\n- **新状态**: ${NEW_STATE}\n- **时间**: $(date '+%Y-%m-%d %H:%M:%S')"
     }
-  }"
+  }' 
 
 # 如果是主从切换，发送紧急短信
 if [ "${EVENT}" = "failover" ]; then
