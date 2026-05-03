@@ -740,7 +740,7 @@ kubectl exec -it kafka-0 -n logging -- \
   --topic elk-logs \
   --partitions 12 \
   --replication-factor 3 \
-  --config retention.ms=604800000  # 7天 \
+  --config retention.ms=604800000 \
   --config retention.bytes=107374182400 \
   --config min.insync.replicas=2 \
   --config compression.type=lz4 \

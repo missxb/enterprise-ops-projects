@@ -281,7 +281,7 @@ set -euo pipefail
 
 echo "========== 1. 启动所有Redis实例 =========="
 for i in {11..16}; do
-  for port in 6379; do  # 每台1个实例，共6节点 do
+  for port in 6379; do  # 每台1个实例，共6节点
     echo "启动 10.10.40.${i}:${port}..."
     ssh root@10.10.40.${i} "systemctl start redis@${port}"
   done
@@ -292,7 +292,7 @@ sleep 5
 
 echo "========== 2. 验证实例状态 =========="
 for i in {11..16}; do
-  for port in 6379; do  # 验证集群节点 do
+  for port in 6379; do  # 验证集群节点
     status=$(redis-cli -h 10.10.40.${i} -p ${port} -a ${REDIS_PASSWORD} ping 2>/dev/null)
     echo "  10.10.40.${i}:${port} -> ${status}"
   done

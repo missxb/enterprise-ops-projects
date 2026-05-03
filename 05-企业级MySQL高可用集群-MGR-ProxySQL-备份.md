@@ -879,7 +879,7 @@ SHOW VARIABLES LIKE 'binlog_expire_logs_seconds';
 SHOW VARIABLES LIKE 'max_binlog_size';
 
 -- 3. 优化binlog配置
-SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天  -- 保留7天
+SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天
 SET GLOBAL max_binlog_size = 256M;  -- 每个文件最大256MB
 
 -- 4. 对大表使用Row模式优化

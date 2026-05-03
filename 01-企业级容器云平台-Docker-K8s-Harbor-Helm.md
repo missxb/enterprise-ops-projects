@@ -1362,10 +1362,6 @@ spec:
 # [前置条件] 需要先配置SSH密钥分发:
 # for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id root@${ip}; done
 # [错误处理] 设置set -e和错误捕获
-set -e
-trap 'echo "部署失败，请检查日志"; exit 1' ERR
-# full_deploy.sh - 一键部署完整容器云平台
-
 set -euo pipefail
 
 echo "================================================"
