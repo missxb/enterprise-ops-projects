@@ -265,7 +265,8 @@
    267|xtrabackup --backup   --user=${MYSQL_USER} --password=${MYSQL_PASS}   --target-dir=${BACKUP_DIR}/full/full-${DATE}   --parallel=4   --compress   --compress-threads=4
    268|
    269|echo "获取LSN..."
-   270|LSN=$(xtrabackup --backup --prepare --target-dir=${BACKUP_DIR}/full/full-${DATE} --export 2>&1 | grep "completed OK" | tail -1)
+   270|# [已修复] 备份阶段不需要--prepare和--export，直接备份即可
+# xtrabackup备份会自动记录LSN到xtrabackup_info文件
    271|
    272|echo "备份binlog..."
    273|mysqlbinlog --read-from-remote-server   --host=10.10.30.11 --user=${MYSQL_USER} --password=${MYSQL_PASS}   --start-datetime="$(date -d '1 hour ago' '+%Y-%m-%d %H:%M:%S')"   --stop-datetime="$(date '+%Y-%m-%d %H:%M:%S')"   mysql-bin.000001 > ${BACKUP_DIR}/binlog/binlog-${DATE}.sql
