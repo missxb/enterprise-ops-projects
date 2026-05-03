@@ -175,15 +175,10 @@ checkout:
   image: alpine/git:latest
   script:
     - echo "代码检出完成"
-  only:  # [注意] only已废弃，建议改用rules
-  # rules替代写法:
-  # rules:
-  #   - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
-  #   - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
-  #   - if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
-    - main
-    - develop
-    - /^release\/.*$/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+    - if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
     - /^hotfix\/.*$/
 
 # ========================================
@@ -894,7 +889,7 @@ spec:
       # [注意] selfHeal+prune在生产中可能导致意外删除，建议先在staging验证
     automated:
       prune: true
-      selfHeal: true
+      selfHeal: false  # 生产中建议关闭，避免Git误改导致资源被删
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
