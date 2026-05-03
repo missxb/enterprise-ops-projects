@@ -1188,7 +1188,7 @@ kubectl create namespace monitoring
 echo "部署kube-prometheus-stack..."
 helm install prometheus prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
-  --set grafana.adminPassword=Admin@2024 \
+  --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \
   --set grafana.service.type=LoadBalancer \
   --set grafana.service.loadBalancerIP=10.10.10.210 \
   --set grafana.persistence.enabled=true \
@@ -1205,7 +1205,7 @@ echo "等待就绪..."
 kubectl -n monitoring rollout status deployment/prometheus-grafana --timeout=300s
 
 echo "✅ 监控系统部署完成"
-echo "Grafana: http://10.10.10.210 (Admin@2024)"
+echo "Grafana: http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
 ```
 
 ---
@@ -1417,7 +1417,7 @@ echo "================================================"
 echo "  ✅ 企业级容器云平台部署完成！"
 echo "================================================"
 echo "  K8s API:      https://10.10.10.100:6443"
-echo "  Grafana:      http://10.10.10.210 (Admin@2024)"
+echo "  Grafana:      http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
 echo "  Kibana:       http://10.10.10.211"
 echo "  Harbor:       https://harbor.internal.com"
 echo "  Ingress LB:   10.10.10.200"

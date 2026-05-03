@@ -257,7 +257,7 @@
    259|DATE=$(date +%Y%m%d_%H%M%S)
    260|KEEP_DAYS=7
    261|MYSQL_USER="backup"
-   262|MYSQL_PASS="Backup@2024"
+   262|MYSQL_PASS="${BACKUP_PASSWORD}"
    263|
    264|mkdir -p ${BACKUP_DIR}/{full,incr,binlog}
    265|

@@ -50,5 +50,5 @@
 | MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |
 | Redis | 7.0 | - | Cluster需6节点 |
 | Istio | 1.20 | K8s 1.25+ | Envoy sidecar |
-| Kong | 3.4 | - | dbless模式 |
+| Kong | 3.5 | - | dbless模式 |
 

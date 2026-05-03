@@ -1208,7 +1208,7 @@ echo "Step 7: 配置Helm (可选)..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm install kube-prometheus prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
-  --set grafana.adminPassword=Admin@2024 \
+  --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \
   --set prometheus.retention=15d
 
 echo ""
@@ -1216,7 +1216,7 @@ echo "================================================"
 echo "  ✅ 监控体系部署完成！"
 echo "================================================"
 echo "  Prometheus: http://prometheus:9090"
-echo "  Grafana:    http://grafana:3000 (Admin@2024)"
+echo "  Grafana:    http://grafana:3000 (${GRAFANA_ADMIN_PASSWORD})"
 echo "  AlertMgr:   http://alertmanager:9093"
 echo "  Thanos:     http://thanos-query:10902"
 echo "================================================"
