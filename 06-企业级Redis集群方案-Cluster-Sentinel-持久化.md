@@ -53,9 +53,9 @@
 | Master-01 | redis-m-01 | 10.10.40.11 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
 | Master-02 | redis-m-02 | 10.10.40.12 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
 | Master-03 | redis-m-03 | 10.10.40.13 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
-| Master-04 | redis-m-04 | 10.10.40.14 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
-| Master-05 | redis-m-05 | 10.10.40.15 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
-| Master-06 | redis-m-06 | 10.10.40.16 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
+| Slave-01 | redis-s-01 | 10.10.40.14 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
+| Slave-02 | redis-s-02 | 10.10.40.15 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
+| Slave-03 | redis-s-03 | 10.10.40.16 | 8C | 32G | 100G SSD | 500G NVMe | 20G | 2,800元 |
 
 **总月成本: ~16,800元** (6台云服务器)
 **总内存容量: 120GB** (可用数据 100GB，预留20%系统开销)

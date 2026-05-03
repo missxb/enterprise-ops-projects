@@ -119,10 +119,10 @@ http {
         ip_hash;  # 基于客户端IP哈希的会话保持(weight不生效)
         keepalive 32;
 
-        server 10.10.50.11:8080 weight=5 max_fails=3 fail_timeout=30s;
-        server 10.10.50.12:8080 weight=5 max_fails=3 fail_timeout=30s;
-        server 10.10.50.13:8080 weight=3 max_fails=3 fail_timeout=30s;
-        server 10.10.50.14:8080 weight=3 max_fails=3 fail_timeout=30s backup;
+        server 10.10.50.11:8080 max_fails=3 fail_timeout=30s;
+        server 10.10.50.12:8080 max_fails=3 fail_timeout=30s;
+        server 10.10.50.13:8080 max_fails=3 fail_timeout=30s;
+        server 10.10.50.14:8080 max_fails=3 fail_timeout=30s backup;
     }
 
     upstream api_backend {

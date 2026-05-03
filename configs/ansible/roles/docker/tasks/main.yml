@@ -11,7 +11,7 @@
   yum_repository:
     name: docker-ce
     description: Docker CE Stable
-    baseurl: https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+    baseurl: https://mirrors.aliyun.com/docker-ce/linux/centos/$releasever/$basearch/stable
     enabled: yes
 
 - name: 安装Docker

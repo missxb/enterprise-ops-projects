@@ -18,4 +18,21 @@ spec:
         ports:
         - containerPort: {{ .Values.service.port }}
         resources:
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
           {{- toYaml .Values.resources | nindent 10 }}

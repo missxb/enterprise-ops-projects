@@ -14,3 +14,9 @@ variable "zone_id" {
   type        = string
   default     = "cn-hangzhou-h"
 }
+
+variable "admin_cidr" {
+  description = "管理IP白名单CIDR"
+  type        = string
+  default     = "10.10.0.0/16"
+}
