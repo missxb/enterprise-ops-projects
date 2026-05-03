@@ -2095,6 +2095,65 @@ ETCDCTL_API=3 etcdctl snapshot save /data/etcd-backup/snapshot-$(date +%Y%m%d).d
 **原因**: metrics-server未正确部署
 **解决**: 检查metrics-server Pod状态，确认--kubelet-insecure-tls参数
 
+
+
+## etcd备份与恢复
+
+### 自动备份脚本
+
+```bash
+#!/bin/bash
+# etcd-backup.sh - 每日自动备份etcd
+BACKUP_DIR="/data/etcd-backup"
+DATE=$(date +%Y%m%d)
+KEEP_DAYS=7
+
+mkdir -p ${BACKUP_DIR}
+
+# 执行备份
+ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/snapshot-${DATE}.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# 验证备份
+ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-out=table
+
+# 清理过期备份
+find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +${KEEP_DAYS} -delete
+
+echo "etcd备份完成: snapshot-${DATE}.db"
+```
+
+### crontab配置
+
+```bash
+# 每天凌晨3点执行etcd备份
+0 3 * * * /opt/scripts/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1
+```
+
+### 恢复步骤
+
+```bash
+# 1. 停止所有Master节点的etcd
+systemctl stop etcd
+
+# 2. 恢复etcd数据
+ETCDCTL_API=3 etcdctl snapshot restore /data/etcd-backup/snapshot-20240115.db \
+  --data-dir=/var/lib/etcd-restore \
+  --name=<etcd-member-name> \
+  --initial-cluster=<etcd-cluster> \
+  --initial-advertise-peer-urls=https://<ip>:2380
+
+# 3. 替换数据目录
+mv /var/lib/etcd /var/lib/etcd.bak
+mv /var/lib/etcd-restore /var/lib/etcd
+
+# 4. 重启etcd
+systemctl start etcd
+```
+
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设

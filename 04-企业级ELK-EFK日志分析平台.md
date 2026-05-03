@@ -344,7 +344,7 @@
    344|              mountPath: /var/log
    345|              readOnly: true
    346|            - name: containers
-   347|              mountPath: /var/lib/docker/containers  # [已修复] containerd环境请改为/var/log/pods/
+   347|              mountPath: /var/log/pods  # [已修复] containerd环境请改为/var/log/pods/
    348|              readOnly: true
    349|            - name: data
    350|              mountPath: /usr/share/filebeat/data
@@ -363,7 +363,7 @@
    363|            path: /var/log
    364|        - name: containers
    365|          hostPath:
-   366|            path: /var/lib/docker/containers
+   366|            path: /var/log/pods
    367|        - name: data
    368|          emptyDir: {}
    369|

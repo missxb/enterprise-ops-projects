@@ -358,7 +358,7 @@ resource "alicloud_instance" "k8s_master" {
   instance_name        = "k8s-master-${count.index + 1}"
   host_name            = "k8s-master-${count.index + 1}"
   instance_type        = "ecs.g7.2xlarge"  # 8C/32G
-  image_id             = "centos_7_9_x64_20G_alibase_20230816.vhd"
+  image_id             = "rockylinux_9_x64_20G_alibase_20230816.vhd"
   security_groups      = [alicloud_security_group.k8s.id]
   vswitch_id           = alicloud_vswitch.web[count.index % 3].id
   system_disk_category = "cloud_essd"
@@ -378,7 +378,7 @@ resource "alicloud_instance" "k8s_worker" {
   instance_name        = "k8s-worker-${count.index + 1}"
   host_name            = "k8s-worker-${count.index + 1}"
   instance_type        = count.index < 3 ? "ecs.c7.4xlarge" : "ecs.g7.8xlarge"
-  image_id             = "centos_7_9_x64_20G_alibase_20230816.vhd"
+  image_id             = "rockylinux_9_x64_20G_alibase_20230816.vhd"
   security_groups      = [alicloud_security_group.k8s.id]
   vswitch_id           = alicloud_vswitch.web[count.index % 3].id
   system_disk_category = "cloud_essd"
