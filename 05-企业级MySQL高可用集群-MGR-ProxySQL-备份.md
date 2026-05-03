@@ -1733,7 +1733,7 @@ vrrp_instance VI_1 {
   advert_int 1
   authentication {
     auth_type PASS
-    auth_pass ProxySQL2024Secure!
+    auth_pass CHANGEME
   }
   virtual_ipaddress {
     10.10.30.20/24 dev eth0

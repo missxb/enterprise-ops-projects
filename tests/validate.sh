@@ -46,7 +46,7 @@ check "set -euo pipefail" "grep -rq 'set -euo pipefail' $REPO_DIR/scripts/*/*.sh
 check "umask 077" "grep -rq 'umask 077' $REPO_DIR/scripts/*/*.sh"
 
 echo "--- 5. 安全检查 ---"
-check "无硬编码密码" "! grep -rq 'Admin@2024\\|password123\\|Repl@Pass\\|K8sHA2024\\|root123\\|NginxHA2024' $REPO_DIR/*.md $REPO_DIR/scripts/*/*.sh 2>/dev/null | grep -v 'changeme\\|占位符\\|openssl\\|sed.*password' | grep -q ."
+check "无硬编码密码" "! grep -rq 'Admin@2024\\|password123\\|Repl@Pass\\|K8sHA2024\\|root123\\|NginxHA2024|ProxySQL2024' $REPO_DIR/*.md $REPO_DIR/scripts/*/*.sh 2>/dev/null | grep -v 'changeme\\|占位符\\|openssl\\|sed.*password' | grep -q ."
 check "无only残留" "! grep -q 'only:' $REPO_DIR/02-*.md 2>/dev/null"
 check "Helm resources正确" "grep -q 'resources:' $REPO_DIR/configs/helm/app/templates/deployment.yaml && ! grep -A1 'resources:' $REPO_DIR/configs/helm/app/templates/deployment.yaml | grep -q 'readinessProbe'"
 
