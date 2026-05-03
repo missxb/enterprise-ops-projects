@@ -956,7 +956,7 @@ metadata:
   name: grafana
   namespace: monitoring
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: grafana

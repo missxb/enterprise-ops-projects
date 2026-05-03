@@ -1711,3 +1711,43 @@ mysql -uroot -pMySQL@Root2024 -e "
 **解决**: 启用多线程复制(replica_parallel_workers=4)
 
 > 本项目基于官方文档、技术博客和社区实践编写
+## ProxySQL高可用方案
+
+### 问题: ProxySQL单点故障
+
+当前只部署1台ProxySQL(10.10.30.22)，宕机则所有数据库连接中断。
+
+### 解决方案: 双ProxySQL + Keepalived
+
+Client → VIP(10.10.30.20) → ProxySQL-01(10.10.30.21) → MySQL MGR
+                              ProxySQL-02(10.10.30.22) ↗
+
+Keepalived配置:
+
+vrrp_instance VI_1 {
+  state MASTER
+  interface eth0
+  virtual_router_id 52
+  priority 100
+  advert_int 1
+  authentication {
+    auth_type PASS
+    auth_pass Pr0xySQL
+  }
+  virtual_ipaddress {
+    10.10.30.20/24 dev eth0
+  }
+  track_script {
+    check_proxysql
+  }
+}
+
+vrrp_script check_proxysql {
+  script "/usr/bin/mysql -uadmin -pPr0xySQL@2024 -P6032 -e 'SELECT 1' -h127.0.0.1"
+  interval 2
+  weight -20
+  fall 3
+  rise 2
+}
+
+两台ProxySQL使用同步的mysql_servers和mysql_users配置，通过ProxySQL Admin API或配置文件同步。

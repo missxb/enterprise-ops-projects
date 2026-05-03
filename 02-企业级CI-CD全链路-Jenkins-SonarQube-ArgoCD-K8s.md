@@ -1864,3 +1864,54 @@ kubectl get pods -n jenkins
 > 本项目基于25个语雀知识库(2699篇文档,584万字)的学习成果编写
 > 涵盖: Jenkins + SonarQube + ArgoCD + Harbor + GitLab + K8s
 > 适用于: 企业级CI/CD全链路建设
+## Jenkins高可用方案
+
+### 问题: Jenkins单点故障
+
+Jenkins单节点部署，宕机则所有CI/CD流水线中断。
+
+### 方案A: Kubernetes Deployment (推荐)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: jenkins
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    spec:
+      containers:
+        - name: jenkins
+          image: jenkins/jenkins:lts-jdk17
+          ports:
+            - containerPort: 8080
+            - containerPort: 50000
+          volumeMounts:
+            - name: jenkins-home
+              mountPath: /var/jenkins_home
+      volumes:
+        - name: jenkins-home
+          persistentVolumeClaim:
+            claimName: jenkins-pvc
+```
+
+注意: Jenkins本身不支持多实例共享同一数据目录，HA方案主要保证快速恢复而非负载均衡。
+实际建议: 使用单副本 + PVC持久化 + 快速重启策略，或迁移到Tekton/ArgoCD Workflows。
+
+### 方案B: 堡垒机快速恢复
+
+Jenkins宕机后:
+1. kubectl delete pod jenkins-xxx (K8s自动重建)
+2. 或 systemctl restart jenkins (物理机)
+3. 恢复时间: 30秒-2分钟
+
+Jenkins配置和流水线定义在Git中，重建后可自动恢复。

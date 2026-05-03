@@ -724,7 +724,7 @@ server = "https://${HARBOR_DOMAIN}"
 
 [host."https://${HARBOR_DOMAIN}"]
   capabilities = ["pull", "resolve"]
-  skip_verify = true
+  skip_verify = true  # [注意] 生产环境应分发CA证书后改为false
 EOF
 
 systemctl restart containerd
