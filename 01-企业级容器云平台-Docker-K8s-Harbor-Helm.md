@@ -302,7 +302,7 @@ vrrp_instance K8S_VIP {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass K8sHA2024
+        auth_pass K8s2024a
     }
     virtual_ipaddress {
         ${VIP}/24 dev eth0

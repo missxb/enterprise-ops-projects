@@ -266,7 +266,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass NginxHA2024
+        auth_pass Nginx202b
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -414,7 +414,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass NginxHA2024
+        auth_pass Nginx202b
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -439,7 +439,7 @@ vrrp_instance VI_2 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass NginxHA2024
+        auth_pass Nginx202b
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
