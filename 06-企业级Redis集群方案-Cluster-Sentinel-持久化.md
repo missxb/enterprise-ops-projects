@@ -173,6 +173,9 @@ tcp-keepalive 300
 tcp-user-timeout 60
 
 # ===== 内存配置 =====
+# [优化建议] 8C/32G服务器只部署1个实例浪费资源
+# 生产环境建议每台部署2-3个实例，maxmemory设为物理内存的60-70%
+# 例: 32G服务器→2个实例→各用10G，或3个实例→各用7G
 maxmemory 20gb
 maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru(仅淘汰有TTL的key)
 maxmemory-samples 10
@@ -204,8 +207,10 @@ lazyfree-lazy-expire yes
 lazyfree-lazy-server-del yes
 lazyfree-lazy-user-del yes
 lazyfree-lazy-user-flush yes
-io-threads 4
-# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
+io-threads 2
+# [说明] io-threads仅用于网络IO，Redis主线程仍为单线程
+# 8C服务器建议2-4，不宜超过CPU核心数的一半
+# io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes
 
 # ===== 慢查询 =====
@@ -500,7 +505,7 @@ tcp-keepalive 300          # 保活探测间隔
 timeout 300                # 空闲连接超时
 
 # ===== 应用层调优 =====
-io-threads 4               # IO线程数(CPU核心数/2)
+io-threads 2               # IO线程数(8C服务器建议2，不宜超过核心数一半)
 # [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes    # 读操作使用多线程
 lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
@@ -687,7 +692,7 @@ mkdir -p ${BACKUP_DIR}
 
 echo "========== RDB备份 =========="
 for node in 10.10.40.{11..16}; do
-  for port in 6379; do  # MGR单主模式只用6379
+  for port in 6379; do  # 每台1个Redis实例(Cluster模式)
     BEFORE=$(redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} LASTSAVE)
     redis-cli -h ${node} -p ${port} -a ${REDIS_PASSWORD} BGSAVE
     
@@ -833,9 +838,152 @@ echo "  - 业务影响: 无感知"
 
 ---
 
-## 十一、运维SOP
+## 十、Redis Cluster扩缩容方案
 
-### 11.1 日常巡检
+### 10.1 添加节点(扩容)
+
+```bash
+# 1. 启动新节点(例如10.10.40.17:6379)
+ssh root@10.10.40.17 "systemctl start redis@6379"
+
+# 2. 将新节点加入集群
+redis-cli --cluster add-node 10.10.40.17:6379 10.10.40.11:6379
+
+# 3. 分配slot(从现有节点迁移slot到新节点)
+redis-cli --cluster reshard 10.10.40.11:6379 \
+  --cluster-from <source-node-id> \
+  --cluster-to <new-node-id> \
+  --cluster-slots 4096 \
+  --cluster-yes
+
+# 4. 验证
+redis-cli --cluster check 10.10.40.11:6379
+```
+
+### 10.2 移除节点(缩容)
+
+```bash
+# 1. 迁移该节点的slot到其他节点
+redis-cli --cluster reshard 10.10.40.11:6379 \
+  --cluster-from <node-to-remove-id> \
+  --cluster-to <target-node-id> \
+  --cluster-slots <slot-count> \
+  --cluster-yes
+
+# 2. 移除节点(如果是从节点)
+redis-cli --cluster del-node 10.10.40.11:6379 <node-to-remove-id>
+
+# 3. 关闭并下线节点
+ssh root@10.10.40.17 "systemctl stop redis@6379"
+```
+
+### 10.3 Slot分配规划
+
+| 节点 | Slot范围 | 负责数据 |
+|------|----------|----------|
+| Node-01 | 0-5460 | 约1/3数据 |
+| Node-02 | 5461-10922 | 约1/3数据 |
+| Node-03 | 10923-16383 | 约1/3数据 |
+
+---
+
+## 十一、Sentinel迁移到Cluster方案
+
+### 11.1 迁移前提
+
+```bash
+# Sentinel和Cluster可以并行运行(Redis 7.0+)
+# Sentinel可以监控Cluster节点，但不推荐混用
+# 推荐: 先部署Cluster，验证无误后下线Sentinel
+```
+
+### 11.2 迁移步骤
+
+```bash
+# 1. 在Cluster中导入Sentinel数据
+# Redis Cluster不支持SELECT，需要逐key迁移
+redis-cli --cluster import 10.10.40.11:6379 \
+  --cluster-from 10.10.40.11:6379 \
+  --cluster-copy \
+  --cluster-replace
+
+# 2. 验证数据一致性
+redis-cli -h 10.10.40.11 -p 6379 dbsize
+
+# 3. 更新应用连接地址
+# Sentinel: host:port → Cluster: host1:port1,host2:port2,...
+# 使用redis-cli --cluster check验证所有节点健康
+```
+
+---
+
+## 十二、客户端连接池配置
+
+### 12.1 Java (Jedis/Lettuce)
+
+```java
+// Jedis连接池配置
+JedisPoolConfig poolConfig = new JedisPoolConfig();
+poolConfig.setMaxTotal(128);          // 最大连接数
+poolConfig.setMaxIdle(64);            // 最大空闲连接
+poolConfig.setMinIdle(16);            // 最小空闲连接
+poolConfig.setMaxWaitMillis(3000);    // 获取连接超时
+poolConfig.setTestOnBorrow(true);     // 借出时检测连接
+poolConfig.setTestWhileIdle(true);    // 空闲时检测连接
+
+// Cluster模式连接
+Set<HostAndPort> nodes = new HashSet<>();
+nodes.add(new HostAndPort("10.10.40.11", 6379));
+nodes.add(new HostAndPort("10.10.40.12", 6379));
+nodes.add(new HostAndPort("10.10.40.13", 6379));
+JedisCluster cluster = new JedisCluster(nodes, 3000, 3000, 3, "password", poolConfig);
+```
+
+```java
+// Lettuce连接池(Spring Boot)
+spring:
+  redis:
+    cluster:
+      nodes: 10.10.40.11:6379,10.10.40.12:6379,10.10.40.13:6379
+    lettuce:
+      pool:
+        max-active: 128
+        max-idle: 64
+        min-idle: 16
+        max-wait: 3000ms
+```
+
+### 12.2 Go (go-redis)
+
+```go
+rdb := redis.NewClusterClient(&redis.ClusterOptions{
+    Addrs:        []string{"10.10.40.11:6379", "10.10.40.12:6379", "10.10.40.13:6379"},
+    Password:     "your-password",
+    PoolSize:     128,           // 连接池大小
+    MinIdleConns: 16,            // 最小空闲连接
+    PoolTimeout:  3 * time.Second,
+    ReadTimeout:  3 * time.Second,
+    WriteTimeout: 3 * time.Second,
+    RouteByLatency: true,        // 按延迟路由(集群模式)
+})
+```
+
+### 12.3 连接池参数建议
+
+| 参数 | 开发环境 | 生产环境(8C/32G) | 说明 |
+|------|----------|-------------------|------|
+| maxTotal | 20 | 128 | 最大连接数 |
+| maxIdle | 10 | 64 | 最大空闲连接 |
+| minIdle | 5 | 16 | 最小空闲连接(保持预热) |
+| maxWait | 3s | 3s | 获取连接超时 |
+| testOnBorrow | true | true | 借出时检测连接活性 |
+| testWhileIdle | true | true | 空闲时定期检测 |
+
+---
+
+## 十三、运维SOP
+
+### 13.1 日常巡检
 
 ```bash
 #!/bin/bash
@@ -885,7 +1033,7 @@ echo "========== 集群状态 =========="
 redis-cli -c -h 10.10.40.11 -a ${REDIS_PASSWORD} cluster info 2>/dev/null | grep -E "cluster_state|cluster_slots|cluster_known_nodes"
 ```
 
-### 11.2 周度维护
+### 13.2 周度维护
 
 ```bash
 #!/bin/bash
@@ -927,9 +1075,9 @@ echo "✅ 周度维护完成"
 
 ---
 
-## 十二、应急预案
+## 十四、应急预案
 
-### 12.1 Redis不可用
+### 14.1 Redis不可用
 
 ```
 1. 立即检查:
@@ -948,7 +1096,7 @@ echo "✅ 周度维护完成"
    - 记录故障报告
 ```
 
-### 12.2 数据丢失
+### 14.2 数据丢失
 
 ```
 1. 立即停止写入
@@ -960,7 +1108,7 @@ echo "✅ 周度维护完成"
 
 ---
 
-## 十三、监控告警
+## 十五、监控告警
 
 ```yaml
 # prometheus-redis-alerts.yaml
@@ -1012,7 +1160,7 @@ groups:
 
 ---
 
-## 十四、项目文件清单
+## 十六、项目文件清单
 
 ```
 redis-cluster/
@@ -1040,28 +1188,28 @@ redis-cluster/
 
 ---
 
-## 十五、关键要点总结
+## 十七、关键要点总结
 
-### 15.1 架构要点
+### 17.1 架构要点
 - **Cluster**: 6节点起步，3主3从，16384个slot均匀分配
 - **Sentinel**: 3节点，quorum=2，自动故障转移
 - **持久化**: 混合模式(RDB+AOF)，everysec同步
 - **内存**: maxmemory + allkeys-lru，预留15%余量
 
-### 15.2 性能要点
+### 17.2 性能要点
 - **网络**: tcp-backlog 511, tcp-keepalive 300
-- **IO**: io-threads 4, io-threads-do-reads yes
+- **IO**: io-threads 2, io-threads-do-reads yes
 # [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 - **内存**: lazyfree异步删除, maxmemory-samples 10
 - **持久化**: aof-use-rdb-preamble yes
 
-### 15.3 安全要点
+### 17.3 安全要点
 - **认证**: requirepass + masterauth
 - **命令禁用**: KEYS, FLUSHALL, CONFIG, SHUTDOWN
 - **网络**: 绑定内网IP, 防火墙限制
 - **审计**: 慢查询日志, 命令统计
 
-### 15.4 监控要点
+### 17.4 监控要点
 - **核心指标**: 内存、连接数、命中率、QPS、延迟
 - **告警阈值**: 内存85%、延迟10ms、命中率80%
 - **集群状态**: cluster_state、slot分配、节点状态

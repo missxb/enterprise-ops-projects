@@ -112,7 +112,10 @@ http {
     ssl_session_tickets off;
     ssl_stapling on;
     ssl_stapling_verify on;
-    ssl_stapling_responder http://ocsp.example.com/;  # 替换为CA的OCSP地址(如Let's Encrypt: http://r3.o.lencr.org)
+    ssl_stapling_responder http://ocsp.example.com/;  # 替换为CA的OCSP地址
+    # [注意] Let's Encrypt OCSP地址已变更，当前地址: http://r3.o.lencr.org
+    # 但不同证书颁发机构地址不同，请使用CA提供的实际OCSP responder URL
+    # 可通过: openssl x509 -in cert.pem -noout -ocsp_uri 查询
 
     # Upstream后端池
     upstream app_backend {
@@ -371,10 +374,9 @@ upstream backend_weighted {
     server 10.10.50.12:8080 weight=3;  # 4C服务器
 }
 
-# 最少连接
+# 最少连接(推荐用于K8s Ingress前置LB)
 upstream backend_leastconn {
-    ip_hash;  # 加权轮询+会话保持
-# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
+    least_conn;
     server 10.10.50.11:8080;
     server 10.10.50.12:8080;
 }
@@ -675,7 +677,10 @@ SecRequestBodyAccess On
 SecResponseBodyAccess Off
 
 # SQL注入防护
-SecRule REQUEST_URI|REQUEST_HEADERS|REQUEST_BODY   "@rx (?i:(?:union\s+select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+table))"   "id:1001,phase:1,deny,status:403,log,msg:'SQL Injection Detected'"
+# [注意] 正则仅匹配高风险模式，避免误拦截包含SQL关键字的正常请求
+# 建议先在DetectionOnly模式测试，确认无误后再改为deny
+SecRuleEngine DetectionOnly  # 初期用DetectionOnly观察，稳定后改为On
+SecRule REQUEST_URI|REQUEST_HEADERS|REQUEST_BODY   "@rx (?i:(?:union\s+(?:all\s+)?select|select\s+[\s\S]{1,50}\s+from\s+[\s\S]{1,50}\s+where|insert\s+into\s+\w+\s*\(|delete\s+from\s+\w+\s+where|drop\s+(?:table|database)\s+\w+))"   "id:1001,phase:1,pass,status:200,log,msg:'SQL Injection Detected (review needed)'"
 
 # XSS防护
 SecRule REQUEST_URI|REQUEST_HEADERS|REQUEST_BODY   "@rx (?i:(?:<script|javascript:|onerror=|onload=))"   "id:1002,phase:1,deny,status:403,log,msg:'XSS Attack Detected'"
