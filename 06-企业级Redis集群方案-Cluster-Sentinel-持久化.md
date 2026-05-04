@@ -231,7 +231,6 @@ cluster-node-timeout 15000
 cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
 cluster-allow-reads-when-down no  # 默认关闭，故障时可临时开启
 cluster-allow-pubsub-shard-down no
-cluster-node-timeout 15000
 
 # ===== 危险命令禁用 =====
 rename-command KEYS "KEYS_b2c0a7e1"

@@ -26,7 +26,7 @@ resource "alicloud_security_group_rule" "ssh" {
 resource "alicloud_instance" "master" {
   count                = 3
   instance_name        = "${var.project}-master-${count.index + 1}"
-  image_id             = "centos_7_9_x64_20G_alibase_20230816.vhd"
+  image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
   instance_type        = "ecs.g6.large"
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
@@ -41,7 +41,7 @@ resource "alicloud_instance" "master" {
 resource "alicloud_instance" "worker" {
   count                = 3
   instance_name        = "${var.project}-worker-${count.index + 1}"
-  image_id             = "centos_7_9_x64_20G_alibase_20230816.vhd"
+  image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
   instance_type        = "ecs.g6.xlarge"
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id

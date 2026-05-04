@@ -8,8 +8,12 @@ echo "=== 安全加固检查 ==="
 echo "1. SSH配置检查..."
 grep -E "^PermitRootLogin|^PasswordAuthentication|^Port" /etc/ssh/sshd_config || echo "  ⚠️ SSH配置未找到"
 
-echo "2. 防火墙状态..."
-firewall-cmd --state 2>/dev/null || echo "  ⚠️ firewalld未运行"
+echo "2. 防火墙状态(K8s节点需关闭firewalld)..."
+if firewall-cmd --state 2>/dev/null; then
+  echo "  ⚠️ firewalld运行中，K8s节点建议关闭"
+else
+  echo "  ✅ firewalld已关闭"
+fi
 
 echo "3. fail2ban状态..."
 systemctl is-active fail2ban || echo "  ⚠️ fail2ban未运行"

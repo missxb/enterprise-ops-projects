@@ -51,3 +51,13 @@ deploy-staging:
     - if: $CI_COMMIT_BRANCH == "main"
   environment:
     name: staging
+
+deploy-production:
+  stage: deploy
+  script:
+    - kubectl apply -f k8s/overlays/production/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  environment:
+    name: production
