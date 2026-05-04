@@ -11,6 +11,13 @@ K8S_PKG_VERSION="${K8S_PKG_VERSION:-1.31.0}"  # 具体patch版本
 POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 SERVICE_CIDR="${SERVICE_CIDR:-10.96.0.0/12}"
 
+# 幂等性检查(重复执行时跳过已完成的步骤)
+if kubectl get nodes &>/dev/null && kubectl get node $(hostname) --show-labels 2>/dev/null | grep -q 'node.kubernetes.io'; then
+  echo "⚠️ 此节点已初始化(K8s已安装)，跳过初始化"
+  echo "如需重新初始化，请先执行: kubeadm reset -f"
+  exit 0
+fi
+
 # 检测包管理器
 if command -v apt-get &>/dev/null; then
   PKG_MGR="apt"

@@ -20,6 +20,17 @@ password=${MYSQL_ROOT_PASSWORD}
 CNFEOF
 trap 'rm -f "${MYSQL_CNF}"' EXIT
 
+# 回滚函数(部署失败时调用)
+rollback() {
+  echo "⚠️ 部署失败，开始回滚..."
+  for node in ${NODES}; do
+    ssh root@${node} "systemctl stop mysqld 2>/dev/null; rm -rf /var/lib/mysql/*" 2>/dev/null || true
+  done
+  echo "✅ 回滚完成(数据已清除，需重新部署)"
+  exit 1
+}
+trap rollback ERR
+
 echo "=== MySQL MGR集群生产级部署 ==="
 echo "节点: ${NODES}"
 echo "版本: MySQL ${MYSQL_VERSION}"
