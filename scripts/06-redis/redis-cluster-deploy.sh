@@ -117,12 +117,12 @@ ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
 echo ""
 echo ">>> Step 3: 验证Cluster状态"
 ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
-  -a ${REDIS_PASSWORD} cluster info
+  REDISCLI_AUTH=${REDIS_PASSWORD} cluster info
 
 echo ""
 echo ">>> Cluster节点信息"
 ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
-  -a ${REDIS_PASSWORD} cluster nodes
+  REDISCLI_AUTH=${REDIS_PASSWORD} cluster nodes
 
 echo ""
 echo "=== Redis Cluster部署完成 ==="

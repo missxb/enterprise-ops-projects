@@ -18,13 +18,13 @@ for node in ${REDIS_NODES}; do
   for port in 6379; do
     echo "备份 ${node}:${port}..."
     # 记录BGSAVE前的LASTSAVE
-    BEFORE=$(ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} LASTSAVE" 2>/dev/null)
+    BEFORE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} LASTSAVE" 2>/dev/null)
     # 触发BGSAVE
-    ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} BGSAVE" 2>/dev/null
+    ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} BGSAVE" 2>/dev/null
     # 等待LASTSAVE变化(最多5分钟)
     MAX_WAIT=300
     WAITED=0
-    while [ "$(ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} LASTSAVE" 2>/dev/null)" = "$BEFORE" ]; do
+    while [ "$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} LASTSAVE" 2>/dev/null)" = "$BEFORE" ]; do
       sleep 1
       WAITED=$((WAITED+1))
       if [ $WAITED -ge $MAX_WAIT ]; then
