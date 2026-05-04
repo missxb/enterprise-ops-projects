@@ -1,7 +1,7 @@
 replicaCount: 2
 image:
   repository: harbor.example.com/app
-  tag: "latest"
+  tag: "1.2.0"
   pullPolicy: IfNotPresent
 service:
   type: ClusterIP

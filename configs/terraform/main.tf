@@ -48,7 +48,7 @@ resource "alicloud_instance" "master" {
   count                = 3
   instance_name        = "${var.project}-master-${count.index + 1}"
   image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
-  instance_type        = "ecs.g6.large"
+  instance_type        = "ecs.g7.2xlarge"  # 8C16G, 文档要求8C16G
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"
@@ -63,7 +63,7 @@ resource "alicloud_instance" "worker" {
   count                = 5
   instance_name        = "${var.project}-worker-${count.index + 1}"
   image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
-  instance_type        = "ecs.g6.xlarge"
+  instance_type        = "ecs.g7.4xlarge"  # 16C64G, 文档要求16C64G或32C128G
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"

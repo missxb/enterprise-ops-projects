@@ -43,7 +43,7 @@ for node in ${NODES}; do
 cat > /etc/nginx/conf.d/app.conf << CONF
 # === Nginx生产级负载均衡配置 ===
 
-\${UPSTREAM_CONF}
+${UPSTREAM_CONF}
 
 # === 限流配置 ===
 limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
@@ -111,7 +111,7 @@ for i in "${!NODE_ARRAY[@]}"; do
   ssh root@${node} bash << KEEPALIVED_EOF
 yum install -y keepalived
 
-cat > /etc/keepalived/keepalived.conf << 'CONF'
+cat > /etc/keepalived/keepalived.conf << CONF
 global_defs {
     router_id ${node}
 }

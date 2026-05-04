@@ -119,7 +119,81 @@ subjects:
     namespace: ${NAMESPACE}
 EOF
 
-# 6. SonarQube(需要先部署PostgreSQL: sonar-db)
+# 6. SonarQube PostgreSQL(必须先部署)
+echo "部署SonarQube PostgreSQL..."
+SONAR_DB_PASS="${SONAR_DB_PASS:?请设置SONAR_DB_PASS}"
+kubectl apply -n ${NAMESPACE} -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sonar-db-secret
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "${SONAR_DB_PASS}"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sonar-db
+spec:
+  replicas: 1
+  serviceName: sonar-db
+  selector:
+    matchLabels:
+      app: sonar-db
+  template:
+    metadata:
+      labels:
+        app: sonar-db
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:14-alpine
+          env:
+            - name: POSTGRES_DB
+              value: sonarqube
+            - name: POSTGRES_USER
+              value: sonar
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sonar-db-secret
+                  key: POSTGRES_PASSWORD
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonar-db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: sonar-db
+EOF
+
+# 7. SonarQube
 echo "部署SonarQube..."
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: apps/v1
@@ -150,6 +224,13 @@ spec:
           env:
             - name: SONAR_JDBC_URL
               value: "jdbc:postgresql://sonar-db:5432/sonarqube"
+            - name: SONAR_JDBC_USERNAME
+              value: "sonar"
+            - name: SONAR_JDBC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sonar-db-secret
+                  key: POSTGRES_PASSWORD
           volumeMounts:
             - name: sonar-data
               mountPath: /opt/sonarqube/data
@@ -170,7 +251,7 @@ spec:
     app: sonarqube
 EOF
 
-# 7. ArgoCD
+# 8. ArgoCD
 echo "部署ArgoCD..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml

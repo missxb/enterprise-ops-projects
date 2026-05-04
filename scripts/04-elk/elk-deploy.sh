@@ -13,8 +13,20 @@ echo "=== ELK生产级部署 ==="
 echo ">>> Step 1: 创建命名空间"
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
-# Step 2: 部署Elasticsearch集群(3节点)
-echo ">>> Step 2: 部署Elasticsearch集群"
+# Step 2: 创建ES密码Secret
+echo ">>> Step 2: 创建ES密码Secret"
+kubectl apply -n ${NAMESPACE} -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: es-secret
+type: Opaque
+stringData:
+  password: "${ES_PASSWORD}"
+EOF
+
+# Step 3: 部署Elasticsearch集群(3节点)
+echo ">>> Step 3: 部署Elasticsearch集群"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: StatefulSet
@@ -57,7 +69,10 @@ spec:
             - name: xpack.security.enabled
               value: "true"
             - name: ELASTIC_PASSWORD
-              value: "${ES_PASSWORD}"
+              valueFrom:
+                secretKeyRef:
+                  name: es-secret
+                  key: password
           ports:
             - containerPort: 9200
             - containerPort: 9300
@@ -81,8 +96,8 @@ spec:
             storage: 500Gi
 EOF
 
-# Step 3: 部署Logstash
-echo ">>> Step 3: 部署Logstash"
+# Step 4: 部署Logstash
+echo ">>> Step 4: 部署Logstash"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -118,8 +133,8 @@ spec:
             name: logstash-config
 EOF
 
-# Step 4: 部署Filebeat(DaemonSet)
-echo ">>> Step 4: 部署Filebeat"
+# Step 5: 部署Filebeat(DaemonSet)
+echo ">>> Step 5: 部署Filebeat"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: DaemonSet
@@ -166,8 +181,8 @@ spec:
             name: filebeat-config
 EOF
 
-# Step 5: 部署Kibana
-echo ">>> Step 5: 部署Kibana"
+# Step 6: 部署Kibana
+echo ">>> Step 6: 部署Kibana"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment

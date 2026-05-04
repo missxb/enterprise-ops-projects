@@ -39,3 +39,10 @@ spec:
           runAsUser: 1000
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+          postStart:
+            exec:
+              command: ["/bin/sh", "-c", "echo 'Container started' > /tmp/ready"]

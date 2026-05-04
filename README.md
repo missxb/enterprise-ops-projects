@@ -55,7 +55,7 @@
 | Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
 | Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
 | MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |
-| Redis | 7.0 | - | Cluster需6节点 |
+| Redis | 7.2 | - | Cluster需6节点 |
 | Kong | 3.5 | - | DB-less模式有限制 |
 
 ---

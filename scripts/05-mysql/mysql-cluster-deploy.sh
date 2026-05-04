@@ -79,7 +79,7 @@ echo ">>> Step 2: 初始化MGR集群"
 
 # 在第一个节点执行
 FIRST_NODE=$(echo ${NODES} | awk '{print $1}')
-ssh root@${FIRST_NODE} mysql -uroot -p${MYSQL_ROOT_PASSWORD} << 'MGR_INIT'
+ssh root@${FIRST_NODE} mysql -uroot -p${MYSQL_ROOT_PASSWORD} << MGR_INIT
   # 创建复制用户
   CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
   GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';

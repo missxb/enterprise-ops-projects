@@ -20,15 +20,15 @@ echo ">>> Step 1: 安装Redis"
 for node in ${NODES}; do
   echo "  安装 ${node}..."
   ssh ${REDIS_USER}@${node} sudo bash << EOF
-    # 编译安装Redis
-    cd /tmp
-    wget -q https://download.redis.io/releases/redis-${REDIS_VERSION}.tar.gz
-    tar xzf redis-${REDIS_VERSION}.tar.gz
-    cd redis-${REDIS_VERSION}
-    make -j4 && make install PREFIX=/usr/local/redis
+    # 通过Remi仓库安装Redis(推荐生产环境使用包管理器)
+    # 避免编译安装: 每台节点编译耗时长，无法统一升级管理
+    yum install -y epel-release
+    yum install -y yum-utils
+    yum-config-manager --add-repo https://rpms.remirepo.net/enterprise/remi.repo
+    yum module enable -y remi:redis-${REDIS_VERSION%.*} 2>/dev/null || true
+    yum install -y redis
 
-    # 创建用户和目录
-    useradd -r -s /bin/false redis 2>/dev/null || true
+    # 创建目录
     mkdir -p /etc/redis /var/lib/redis /var/log/redis
     chown redis:redis /var/lib/redis /var/log/redis
 
@@ -84,8 +84,8 @@ After=network.target
 [Service]
 User=redis
 Group=redis
-ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_${PORT}.conf
-ExecStop=/usr/local/redis/bin/redis-cli -p ${PORT} shutdown
+ExecStart=/usr/bin/redis-server /etc/redis/redis_${PORT}.conf
+ExecStop=/usr/bin/redis-cli -p ${PORT} shutdown
 Restart=always
 LimitNOFILE=65535
 [Install]
@@ -109,19 +109,19 @@ for node in ${NODES}; do
   NODE_ARGS="${NODE_ARGS} ${node}:${PORT}"
 done
 
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/local/redis/bin/redis-cli \
+ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
   REDISCLI_AUTH=${REDIS_PASSWORD} --cluster create ${NODE_ARGS} \
   --cluster-replicas 1 --cluster-yes
 
 # Step 3: 验证Cluster状态
 echo ""
 echo ">>> Step 3: 验证Cluster状态"
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/local/redis/bin/redis-cli \
+ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
   -a ${REDIS_PASSWORD} cluster info
 
 echo ""
 echo ">>> Cluster节点信息"
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/local/redis/bin/redis-cli \
+ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
   -a ${REDIS_PASSWORD} cluster nodes
 
 echo ""
