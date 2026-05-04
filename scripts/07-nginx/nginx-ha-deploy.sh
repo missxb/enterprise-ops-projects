@@ -30,20 +30,20 @@ done
 echo ""
 echo ">>> Step 2: 生成Nginx负载均衡配置"
 
-# 生成upstream配置
-UPSTREAM_CONF="upstream app_backend {\n"
+# 生成upstream配置(使用printf确保换行正确)
+UPSTREAM_CONF=$(printf "upstream app_backend {\n")
 for backend in ${BACKENDS}; do
-  UPSTREAM_CONF="${UPSTREAM_CONF}    server ${backend}:8080 weight=5;\n"
+  UPSTREAM_CONF+=$(printf "    server %s:8080 weight=5;\n" "$backend")
 done
-UPSTREAM_CONF="${UPSTREAM_CONF}}"
+UPSTREAM_CONF+=$(printf "}")
 
 # 部署配置到所有节点
 for node in ${NODES}; do
   ssh root@${node} bash << NGINX_EOF
-cat > /etc/nginx/conf.d/app.conf << 'CONF'
+cat > /etc/nginx/conf.d/app.conf << CONF
 # === Nginx生产级负载均衡配置 ===
 
-${UPSTREAM_CONF}
+\${UPSTREAM_CONF}
 
 # === 限流配置 ===
 limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;

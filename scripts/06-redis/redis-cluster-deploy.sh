@@ -76,6 +76,23 @@ timeout 300
 tcp-keepalive 300
 REDISCONF
 
+    # 创建systemd service文件
+    cat > /etc/systemd/system/redis_${PORT}.service << SVCEOF
+[Unit]
+Description=Redis on port ${PORT}
+After=network.target
+[Service]
+User=redis
+Group=redis
+ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_${PORT}.conf
+ExecStop=/usr/local/redis/bin/redis-cli -p ${PORT} shutdown
+Restart=always
+LimitNOFILE=65535
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+    systemctl daemon-reload
+
     # 启动Redis
     systemctl enable redis_${PORT}
     systemctl start redis_${PORT}
@@ -93,7 +110,7 @@ for node in ${NODES}; do
 done
 
 ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/local/redis/bin/redis-cli \
-  -a ${REDIS_PASSWORD} --cluster create ${NODE_ARGS} \
+  REDISCLI_AUTH=${REDIS_PASSWORD} --cluster create ${NODE_ARGS} \
   --cluster-replicas 1 --cluster-yes
 
 # Step 3: 验证Cluster状态

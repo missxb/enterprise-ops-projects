@@ -175,8 +175,24 @@ spec:
               memory: 1Gi
       volumes:
         - name: grafana-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: grafana-pvc
 EOF
+
+# 创建Grafana PVC
+cat << PVCEOF | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: aliyun-disk-ssd
+PVCEOF
 
 echo ""
 echo "=== 监控栈部署完成 ==="

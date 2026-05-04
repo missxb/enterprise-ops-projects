@@ -119,7 +119,7 @@ subjects:
     namespace: ${NAMESPACE}
 EOF
 
-# 6. SonarQube
+# 6. SonarQube(需要先部署PostgreSQL: sonar-db)
 echo "部署SonarQube..."
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: apps/v1
