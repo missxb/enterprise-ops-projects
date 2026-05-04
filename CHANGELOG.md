@@ -39,7 +39,7 @@
 - 06: Redis互斥说明修正
 - 06: cluster-node-timeout拼写修正
 - Terraform: SSH限制为admin_cidr
-- Harbor: 版本统一2.10.1
+- Harbor: 版本统一2.12.0
 - 05: MySQL PITR密码不暴露命令行
 - 06: Redis备份IP改为变量
 

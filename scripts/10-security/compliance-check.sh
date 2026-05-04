@@ -1,6 +1,7 @@
 #!/bin/bash
 # 等保合规检查脚本(二级)
 set -euo pipefail
+umask 077
 
 PASS=0
 FAIL=0

@@ -1,5 +1,5 @@
 #!/bin/bash
-# etcd备份脚本 - 适用于K8s 1.28 (静态Pod模式)
+# etcd备份脚本 - 适用于K8s 1.31 (静态Pod模式)
 # 前置条件: kubectl可访问集群, /etc/kubernetes/pki/etcd/证书存在
 set -euo pipefail
 umask 077

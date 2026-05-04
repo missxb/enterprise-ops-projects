@@ -56,8 +56,8 @@ check "无only残留" "! grep -q 'only:' $REPO_DIR/02-*.md 2>/dev/null"
 check "Helm resources正确" "grep -q 'resources:' $REPO_DIR/configs/helm/app/templates/deployment.yaml && ! grep -A1 'resources:' $REPO_DIR/configs/helm/app/templates/deployment.yaml | grep -q 'readinessProbe'"
 
 echo "--- 6. 版本一致性 ---"
-check "K8s 1.28" "grep -q '1.28' $REPO_DIR/README.md"
-check "Harbor 2.10" "grep -q '2.10' $REPO_DIR/README.md"
+check "K8s 1.31" "grep -q '1.31' $REPO_DIR/README.md"
+check "Harbor 2.12" "grep -q '2.12' $REPO_DIR/README.md"
 check "Redis 7.2" "grep -q '7.2' $REPO_DIR/README.md"
 
 echo "--- 7. ShellCheck(如安装) ---"
