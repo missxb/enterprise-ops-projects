@@ -17,8 +17,10 @@ echo "版本: MySQL ${MYSQL_VERSION}"
 # Step 1: 配置所有节点
 echo ""
 echo ">>> Step 1: 配置MySQL环境"
+NODE_ID=0
 for node in ${NODES}; do
-  echo "  配置 ${node}..."
+  NODE_ID=$((NODE_ID+1))
+  echo "  配置 ${node} (server-id=${NODE_ID})..."
   ssh root@${node} bash << EOF
     # 安装MySQL
     rpm -ivh https://dev.mysql.com/get/mysql80-community-release-el7-11.noarch.rpm

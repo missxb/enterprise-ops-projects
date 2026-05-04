@@ -15,7 +15,7 @@
     {
       "title": "Node CPU使用率",
       "type": "timeseries",
-      "datasource": "Prometheus",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
           "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
@@ -41,7 +41,7 @@
     {
       "title": "Node 内存使用率",
       "type": "timeseries",
-      "datasource": "Prometheus",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
           "expr": "100 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100)",
@@ -67,7 +67,7 @@
     {
       "title": "Pod 重启次数",
       "type": "stat",
-      "datasource": "Prometheus",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
           "expr": "sum(kube_pod_container_status_restarts_total) by (namespace)",
@@ -90,7 +90,7 @@
     {
       "title": "MySQL MGR状态",
       "type": "stat",
-      "datasource": "Prometheus",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
           "expr": "mysql_group_replication_members{state=\"ONLINE\"}",
@@ -109,7 +109,7 @@
     {
       "title": "Redis Cluster节点状态",
       "type": "stat",
-      "datasource": "Prometheus",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
           "expr": "redis_cluster_slots_ok",
