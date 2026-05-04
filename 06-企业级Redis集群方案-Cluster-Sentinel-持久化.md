@@ -205,6 +205,7 @@ lazyfree-lazy-server-del yes
 lazyfree-lazy-user-del yes
 lazyfree-lazy-user-flush yes
 io-threads 4
+# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes
 
 # ===== 慢查询 =====
@@ -500,6 +501,7 @@ timeout 300                # 空闲连接超时
 
 # ===== 应用层调优 =====
 io-threads 4               # IO线程数(CPU核心数/2)
+# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes    # 读操作使用多线程
 lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
 lazyfree-lazy-expire yes   # 异步过期，减少阻塞
@@ -1049,6 +1051,7 @@ redis-cluster/
 ### 15.2 性能要点
 - **网络**: tcp-backlog 511, tcp-keepalive 300
 - **IO**: io-threads 4, io-threads-do-reads yes
+# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 - **内存**: lazyfree异步删除, maxmemory-samples 10
 - **持久化**: aof-use-rdb-preamble yes
 

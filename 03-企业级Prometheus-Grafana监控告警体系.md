@@ -543,7 +543,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           
           # 系统负载过高
           - alert: NodeHighLoad
-            expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+            expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 0.9  # 负载>90%核心数才告警
             for: 15m
             labels:
               severity: warning

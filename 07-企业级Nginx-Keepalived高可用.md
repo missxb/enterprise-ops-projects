@@ -117,6 +117,7 @@ http {
     # Upstream后端池
     upstream app_backend {
         ip_hash;  # 基于客户端IP哈希的会话保持
+# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
         keepalive 32;
 
         server 10.10.50.11:8080 max_fails=3 fail_timeout=30s;
@@ -127,6 +128,7 @@ http {
 
     upstream api_backend {
         ip_hash;                        # 会话保持
+# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
         server 10.10.50.21:8081 max_fails=3;
         server 10.10.50.22:8081 max_fails=3;
     }
@@ -372,6 +374,7 @@ upstream backend_weighted {
 # 最少连接
 upstream backend_leastconn {
     ip_hash;  # 加权轮询+会话保持
+# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
     server 10.10.50.11:8080;
     server 10.10.50.12:8080;
 }
@@ -379,6 +382,7 @@ upstream backend_leastconn {
 # IP Hash(会话保持)
 upstream backend_iphash {
     ip_hash;
+# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
     server 10.10.50.11:8080;
     server 10.10.50.12:8080;
 }

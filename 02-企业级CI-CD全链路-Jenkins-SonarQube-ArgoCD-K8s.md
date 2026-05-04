@@ -549,6 +549,7 @@ ENTRYPOINT ["java", \
 set -euo pipefail
 
 echo "安装PostgreSQL..."
+# [生产建议] 使用外部PostgreSQL(阿里云RDS或已有PG集群)，避免本地安装
 yum install -y postgresql-server postgresql
 postgresql-setup --initdb
 systemctl enable postgresql
