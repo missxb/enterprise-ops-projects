@@ -12,6 +12,7 @@ umask 077
 HARBOR_VERSION="2.10.1"
 HARBOR_HOST="${HARBOR_HOST:?请设置HARBOR_HOST}"
 HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:?请设置HARBOR_ADMIN_PASSWORD}"
+HARBOR_DB_PASSWORD="${HARBOR_DB_PASSWORD:?请设置HARBOR_DB_PASSWORD}"
 
 echo "=== Harbor单实例部署(学习验证用) ==="
 echo "⚠️ 生产环境请参考Harbor官方HA文档"
@@ -23,6 +24,7 @@ cd harbor
 cp harbor.yml.tmpl harbor.yml
 sed -i "s|hostname: reg.mydomain.com|hostname: ${HARBOR_HOST}|" harbor.yml
 sed -i "s|harbor_admin_password: Harbor12345|harbor_admin_password: ${HARBOR_ADMIN_PASSWORD}|" harbor.yml
+HARBOR_DB_PASSWORD="${HARBOR_DB_PASSWORD:?请设置HARBOR_DB_PASSWORD}"
 sed -i "s|  password: root123|  password: ${HARBOR_DB_PASSWORD}|" harbor.yml
 
 echo "⚠️ 请先配置外部数据库和Redis，然后执行: ./install.sh --with-trivy"

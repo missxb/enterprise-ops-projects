@@ -39,7 +39,7 @@ resource "alicloud_instance" "master" {
 }
 
 resource "alicloud_instance" "worker" {
-  count                = 3
+  count                = 5
   instance_name        = "${var.project}-worker-${count.index + 1}"
   image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
   instance_type        = "ecs.g6.xlarge"
