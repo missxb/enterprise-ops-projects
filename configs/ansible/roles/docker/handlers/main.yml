@@ -9,3 +9,8 @@
   systemd:
     name: docker
     state: restarted
+
+- name: 重新加载Docker配置
+  systemd:
+    name: docker
+    state: reloaded
