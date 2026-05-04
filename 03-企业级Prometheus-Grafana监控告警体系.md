@@ -100,7 +100,7 @@ metadata:
   name: thanos-query
   namespace: monitoring
 spec:
-  replicas: 2  # 多副本需配置外部数据库
+  replicas: 1  # Thanos HA通过Sidecar实现，无需多副本
   # 外部数据库配置(推荐): 使用RDS PostgreSQL或自建PG
   # external_labels:
   #   cluster: prod-cluster
@@ -859,7 +859,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceName: prometheus
-  replicas: 2  # 多副本需配置外部数据库
+  replicas: 1  # Thanos HA通过Sidecar实现，无需多副本
   selector:
     matchLabels:
       app: prometheus
@@ -973,7 +973,7 @@ metadata:
   name: grafana
   namespace: monitoring
 spec:
-  replicas: 2  # 多副本需配置外部数据库
+  replicas: 1  # Thanos HA通过Sidecar实现，无需多副本
   selector:
     matchLabels:
       app: grafana

@@ -128,3 +128,21 @@ done
 echo ""
 echo "=== 安全加固完成 ==="
 echo "  下一步: 运行 compliance-check.sh 验证等保合规"
+
+# 7.6 审计日志轮转(防止磁盘占满)
+echo "配置审计日志轮转..."
+cat > /etc/logrotate.d/audit << 'LOGROTATE'
+/var/log/audit/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+    postrotate
+        /sbin/service auditd restart 2>/dev/null || true
+    endscript
+}
+LOGROTATE
+echo "  ✅ 审计日志轮转已配置(保留30天)"

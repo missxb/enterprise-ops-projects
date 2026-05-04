@@ -540,7 +540,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-  - 10.10.10.200-10.10.10.240   # 41个可用IP
+  - 10.10.200.100-10.10.200.200   # 41个可用IP
 ---
 apiVersion: metallb.io/v1beta2
 kind: L2Advertisement
@@ -553,7 +553,7 @@ spec:
 EOF
 
 kubectl apply -f /tmp/metallb-config.yaml
-echo "✅ MetalLB配置完成，IP池: 10.10.10.200-10.10.10.240"
+echo "✅ MetalLB配置完成，IP池: 10.10.200.100-10.10.200.200"
 ```
 
 ---
@@ -1230,7 +1230,7 @@ echo "Grafana: http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
 set -euo pipefail
 
 echo "部署Elasticsearch..."
-helm install elasticsearch elastic/elasticsearch \
+helm install elasticsearch elastic/elasticsearch \\\n  --set nodes.hot.replicas=1 \\\n  --set nodes.warm.replicas=1 \\\n  --set nodes.cold.replicas=1 \\\n  --set data持久化storageClassName=aliyun-disk-ssd \
   --namespace logging --create-namespace \
   --set replicas=3 \
   --set resources.requests.cpu=1 \
@@ -1391,13 +1391,13 @@ done
 wait
 echo "所有节点初始化完成"
 
-echo "Step 2: 安装HAProxy+Keepalived..."
+echo "Step 2: 初始化K8s集群(kubeadm init)..."
 ssh root@10.10.10.11 'bash -s' < install_haproxy_keepalived.sh
 echo "负载均衡安装完成"
 
-echo "Step 3: 初始化K8s集群..."
-ssh root@10.10.10.11 'bash -s' < init_k8s_cluster.sh
-echo "K8s集群初始化完成"
+echo "Step 3: 安装HAProxy+Keepalived..."
+ssh root@10.10.10.11 'bash -s' < install_haproxy_keepalived.sh
+echo "负载均衡安装完成"
 
 echo "Step 4: 安装Calico网络..."
 ssh root@10.10.10.11 'bash -s' < install_calico.sh

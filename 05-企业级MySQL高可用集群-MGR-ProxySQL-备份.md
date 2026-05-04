@@ -212,7 +212,7 @@
    214|-- 配置监控用户
    215|UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username';
    216|-- 生产环境请替换为真实密码
-UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='mysql-monitor_password';
+UPDATE global_variables SET variable_value='${MONITOR_PASSWORD}' WHERE variable_name='mysql-monitor_password';
    217|UPDATE global_variables SET variable_value=2000 WHERE variable_name='mysql-monitor_ping_interval';
    218|UPDATE global_variables SET variable_value=500 WHERE variable_name='mysql-monitor_read_only_interval';
    219|

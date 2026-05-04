@@ -10,6 +10,8 @@ terraform {
     bucket = "terraform-state"
     key    = "enterprise-ops.tfstate"
     region = "cn-hangzhou"
+    encrypt = true
+    # 阿里云OSS支持原生锁，无需tablestore
   }
 }
 
