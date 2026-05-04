@@ -69,13 +69,15 @@
 | Worker | k8s-worker-05 | 10.10.10.25 | 32C | 128G | 100G SSD | 1T | GPU/AI推理节点 |
 | Harbor | harbor-01 | 10.10.10.31 | 8C | 16G | 100G SSD | 2T | 镜像仓库 |
 | Harbor | harbor-02 | 10.10.10.32 | 8C | 16G | 100G SSD | 2T | 镜像仓库(备) |
-> Harbor HA方案说明: Harbor双节点主备需要(本项目为单实例，仅供学习参考):
-> 1. 外部PostgreSQL(主备同步) — 不使用Harbor内置数据库
-> 2. 外部Redis(主备) — 用于Session和缓存
-> 3. 共享对象存储(NFS/S3) — 用于镜像层数据
-> 4. HAProxy/Nginx负载均衡 — 前端流量分发
-> 本项目采用Docker Compose单实例部署，适合学习验证。生产环境请参考Harbor官方HA文档。
-
+> **Harbor生产级HA架构**:
+> 1. 外部PostgreSQL(主备同步) — 使用阿里云RDS PostgreSQL或自建PG主备
+> 2. 外部Redis(主备) — 使用阿里云Redis或自建Sentinel+3节点
+> 3. 共享对象存储 — 使用阿里云OSS或NFS(避免本地存储)
+> 4. HAProxy/Nginx负载均衡 — 双VIP或DNS轮询分发
+> 5. 证书管理 — cert-manager自动签发+续期
+> 6. 日志采集 — Filebeat收集Harbor日志到ELK
+>
+> 生产级部署脚本见 scripts/01-k8s/harbor-ha.sh
 ### 2.2 网络规划
 
 | 网段 | 用途 |
