@@ -338,7 +338,7 @@ resource "alicloud_security_group" "k8s" {
 resource "alicloud_security_group_rule" "allow_http" {
   type              = "ingress"
   ip_protocol       = "tcp"
-  nic_type          = "intranet"
+  # nic_type在新版Provider中已废弃，默认为intranet
   policy            = "accept"
   port_range        = "80/80"
   security_group_id = alicloud_security_group.k8s.id
@@ -348,7 +348,7 @@ resource "alicloud_security_group_rule" "allow_http" {
 resource "alicloud_security_group_rule" "allow_https" {
   type              = "ingress"
   ip_protocol       = "tcp"
-  nic_type          = "intranet"
+  # nic_type在新版Provider中已废弃，默认为intranet
   policy            = "accept"
   port_range        = "443/443"
   security_group_id = alicloud_security_group.k8s.id
@@ -509,7 +509,7 @@ ansible-all:
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 切勿将真实密码硬编码在配置文件或脚本中。
 
-## 四、Ansible高级用法
+## 五、Ansible高级用法
 
 ### 4.1 Ansible Vault加密
 
@@ -573,14 +573,24 @@ collections:
 #!/usr/bin/env python3
 # dynamic_inventory.py - 从CMDB获取主机清单
 import json
+import sys
 import urllib.request
+import urllib.error
 
 CMDB_URL = "http://cmdb.internal.com/api/v1/hosts"
 
 def get_inventory():
-    req = urllib.request.Request(CMDB_URL)
-    resp = urllib.request.urlopen(req)
-    hosts = json.loads(resp.read().decode())
+    try:
+        req = urllib.request.Request(CMDB_URL)
+        req.add_header('Content-Type', 'application/json')
+        resp = urllib.request.urlopen(req, timeout=30)  # 30秒超时
+        hosts = json.loads(resp.read().decode())
+    except urllib.error.URLError as e:
+        print(json.dumps({"_error": f"CMDB连接失败: {e}"}), file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"_error": f"CMDB返回数据解析失败: {e}"}), file=sys.stderr)
+        sys.exit(1)
     
     inventory = {
         "all": {
@@ -823,20 +833,6 @@ terraform force-unlock <lock-id>
 
 ---
 
-## 七、成本估算
-
-| 项目 | 月成本 |
-|------|--------|
-| Ansible控制节点(4C/8G) | 400元 |
-| Terraform状态存储(OSS) | 10元 |
-| Jenkins(CI/CD) | 800元 |
-| GitLab(代码仓库) | 600元 |
-| **总计** | **1,810元/月** |
-
----
-
-
-
 ## 踩坑记录
 
 ### Q1: Ansible Playbook超时
@@ -863,9 +859,9 @@ terraform force-unlock <lock-id>
 
 ---
 
-## 八、真实故障案例
+## 八、真实故障案例(续)
 
-### 案例1: Playbook执行超时导致批量失败
+### 案例2: Playbook执行超时导致批量失败
 
 **故障现象**: 执行base.yml时，50台服务器中20台报"Timeout"错误
 
