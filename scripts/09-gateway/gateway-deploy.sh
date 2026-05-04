@@ -16,11 +16,14 @@ helm install kong kong/kong -n ${NAMESPACE} --create-namespace \
   --set proxy.type=LoadBalancer \
   --set ingressController.enabled=true
 
-# 2. 安装Istio
+# 2. 安装Istio(安全: 先下载校验再执行)
 echo "[2/5] 部署Istio..."
-curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
+ISTIO_URL="https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-linux-amd64.tar.gz"
+curl -L -o /tmp/istio.tar.gz "${ISTIO_URL}"
+cd /tmp && tar xzf istio.tar.gz
 cd istio-${ISTIO_VERSION}
 kubectl apply -f manifests/profiles/default.yaml
+cd -
 
 # 3. 安装Jaeger
 echo "[3/5] 部署Jaeger..."
