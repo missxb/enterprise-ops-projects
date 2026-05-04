@@ -3,7 +3,7 @@
 ## [1.3.0] - 2026-05-04
 
 ### Added
-- 4个检查脚本: elk-check/monitor-check/security-check/redis-check
+- 3个检查脚本: elk-check/monitor-check/security-check
 - 06-Redis: MariaDB兼容说明
 
 ### Fixed

@@ -50,9 +50,9 @@ warn "审计服务运行" "systemctl is-active auditd 2>/dev/null"
 warn "审计规则配置" "[ -f /etc/audit/rules.d/audit.rules ] && [ -s /etc/audit/rules.d/audit.rules ]"
 
 echo "--- 4. 网络安全 ---"
-check "防火墙状态" "systemctl is-active firewalld 2>/dev/null || iptables -L -n | grep -q 'DROP\\|REJECT'"
+warn "防火墙状态(K8s节点需关闭)" "systemctl is-active firewalld 2>/dev/null || iptables -L -n | grep -q 'DROP\\\\|REJECT'"
 warn "SSH端口非默认" "grep -q '^Port [^22]' /etc/ssh/sshd_config 2>/dev/null"
-check "IP转发关闭(非K8s)" "[ \$(sysctl -n net.ipv4.ip_forward) = '0' ] 2>/dev/null || echo 'K8s节点跳过'"
+check "IP转发关闭(非K8s)" "[ \$(sysctl -n net.ipv4.ip_forward 2>/dev/null) = '0' ]"
 
 echo "--- 5. 入侵防范 ---"
 warn "fail2ban运行" "systemctl is-active fail2ban 2>/dev/null"

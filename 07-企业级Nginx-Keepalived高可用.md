@@ -116,7 +116,7 @@ http {
 
     # Upstream后端池
     upstream app_backend {
-        ip_hash;  # 基于客户端IP哈希的会话保持(weight不生效)
+        ip_hash;  # 基于客户端IP哈希的会话保持
         keepalive 32;
 
         server 10.10.50.11:8080 max_fails=3 fail_timeout=30s;

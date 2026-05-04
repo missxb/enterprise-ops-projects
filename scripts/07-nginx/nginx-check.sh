@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-BACKENDS="${BACKENDS:-10.10.11.21 10.10.11.22 10.10.11.23}"
+BACKENDS="${BACKENDS:-10.10.50.11 10.10.50.12 10.10.50.13}"
 
 echo "=== Nginx配置检查 ==="
 

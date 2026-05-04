@@ -39,7 +39,7 @@ build-image:
   stage: image
   image: gcr.io/kaniko-project/executor:debug
   script:
-    - /kaniko/executor --dockerfile=Dockerfile --destination=${DOCKER_REGISTRY}/app:${CI_COMMIT_SHA}
+    - /kaniko/executor --context=${CI_PROJECT_DIR} --dockerfile=Dockerfile --destination=${DOCKER_REGISTRY}/app:${CI_COMMIT_SHA} --cache=true --snapshotMode=redo
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
