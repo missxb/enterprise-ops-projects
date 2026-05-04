@@ -185,7 +185,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceName: thanos-store-gateway
-  replicas: 1  # [关键] Compactor多实例会导致数据损坏且不可恢复
+  replicas: 1  # Store Gateway可多副本，此处单实例节省资源
   selector:
     matchLabels:
       app: thanos-store-gateway
@@ -1637,7 +1637,7 @@ kind: StatefulSet
 metadata:
   name: victoria-metrics
 spec:
-  replicas: 1  # [关键] Compactor多实例会导致数据损坏且不可恢复
+  replicas: 1  # Store Gateway可多副本，此处单实例节省资源
   template:
     spec:
       containers:

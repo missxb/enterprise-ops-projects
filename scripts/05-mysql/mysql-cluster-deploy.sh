@@ -28,7 +28,7 @@ for node in ${NODES}; do
     cat > /etc/my.cnf << MYCNF
 [mysqld]
 # === 基础配置 ===
-server-id=1
+server-id=${NODE_ID}
 datadir=/var/lib/mysql
 socket=/var/lib/mysql/mysql.sock
 log-error=/var/log/mysqld.log

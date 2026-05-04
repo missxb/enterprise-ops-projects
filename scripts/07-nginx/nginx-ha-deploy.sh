@@ -19,7 +19,7 @@ echo "后端: ${BACKENDS}"
 echo ""
 echo ">>> Step 1: 安装Nginx"
 for node in ${NODES}; do
-  ssh root@${node} bash << 'EOF'
+  ssh root@${node} bash << EOF
     yum install -y nginx
     systemctl enable nginx
 EOF

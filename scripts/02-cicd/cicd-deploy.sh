@@ -97,7 +97,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-admin
+  name: jenkins-role
 subjects:
   - kind: ServiceAccount
     name: jenkins
