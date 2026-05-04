@@ -106,15 +106,6 @@
    106|          command: ['sysctl', '-w', 'vm.max_map_count=262144']
           # [注意] 这只在Pod运行时生效。节点重启后需在初始化脚本中持久化:
           # echo "vm.max_map_count=262144" >> /etc/sysctl.d/99-elasticsearch.conf && sysctl -p
-   107|          securityContext:
-   108|            privileged: true
-   109|        # 设置文件描述符
-   110|        - name: ulimit
-          # [注意] initContainer中ulimit不会传递到主容器，需通过securityContext或节点级sysctl配置
-   111|          image: busybox
-   112|          command: ['sh', '-c', 'ulimit -n 65536']
-   113|          securityContext:
-   114|            privileged: true
    115|      containers:
    116|        - name: elasticsearch
    117|          image: elasticsearch:8.11.3

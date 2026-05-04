@@ -586,6 +586,8 @@ mkdir -p /opt/harbor/certs
 cd /opt/harbor/certs
 
 # CA根证书
+# [生产建议] 使用cert-manager自动管理证书，避免手动openssl操作:
+# helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
 openssl genrsa -out ca.key 4096
 openssl req -x509 -new -nodes -sha512 -days 3650 \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Harbor-CA" \

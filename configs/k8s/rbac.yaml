@@ -1,0 +1,60 @@
+# RBAC配置示例
+
+## 1. 应用ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-sa
+  namespace: production
+---
+## 2. 只读Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-readonly
+  namespace: production
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+## 3. RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-readonly-binding
+  namespace: production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: app-readonly
+subjects:
+  - kind: ServiceAccount
+    name: app-sa
+    namespace: production
+---
+## 4. Jenkins管理权限
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jenkins-admin
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins-admin
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: cicd
