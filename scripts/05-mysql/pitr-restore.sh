@@ -43,8 +43,11 @@ fi
 echo "Step 3: 清理数据目录..."
 rm -rf ${DATA_DIR}/*
 
-echo "Step 4: 恢复全量备份...(顺序: prepare→copy-back→binlog→start，不可颠倒)"
+echo "Step 4: 恢复全量备份..."
+# 正确顺序: prepare → copy-back → 应用binlog → 最终prepare → 启动
+echo "  Step 4.1: prepare全量备份..."
 xtrabackup --prepare --target-dir=${FULL_BACKUP}
+echo "  Step 4.2: copy-back到数据目录..."
 xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 
 echo "Step 5: 应用binlog到目标时间点..."

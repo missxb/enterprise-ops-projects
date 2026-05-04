@@ -16,10 +16,22 @@ echo "⚠️ 警告: 此操作将覆盖当前etcd数据!"
 read -p "确认恢复? (yes/no): " CONFIRM
 [ "$CONFIRM" != "yes" ] && { echo "已取消"; exit 0; }
 
-# 停止kube-apiserver
-echo "Step 1: 停止kube-apiserver..."
+# 停止所有etcd成员(3节点恢复需要先停止所有成员)
+echo "Step 1: 停止kube-apiserver和etcd..."
 mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/kube-apiserver.yaml.bak 2>/dev/null || true
-sleep 5
+# 停止etcd进程(如果是systemd管理)
+systemctl stop etcd 2>/dev/null || true
+# 或者通过静态Pod停止: 移动etcd manifest
+mv /etc/kubernetes/manifests/etcd.yaml /tmp/etcd.yaml.bak 2>/dev/null || true
+# 等待所有节点的etcd停止
+echo "  等待etcd停止..."
+sleep 10
+# 验证etcd已停止
+if pgrep etcd >/dev/null 2>&1; then
+  echo "  ⚠️ etcd仍在运行，强制停止..."
+  pkill -9 etcd || true
+  sleep 3
+fi
 
 # 恢复etcd数据
 echo "Step 2: 恢复etcd数据..."

@@ -191,7 +191,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: aliyun-disk-ssd
+  storageClassName: ${STORAGE_CLASS:-alicloud-disk-ssd}  # 可通过STORAGE_CLASS环境变量覆盖
 PVCEOF
 
 echo ""

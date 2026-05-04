@@ -236,7 +236,18 @@ spec:
               mountPath: /opt/sonarqube/data
       volumes:
         - name: sonar-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: sonarqube-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
 ---
 apiVersion: v1
 kind: Service

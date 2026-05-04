@@ -1,13 +1,13 @@
 #!/bin/bash
 # K8s集群初始化脚本 - 所有节点执行
 # 适用系统: CentOS 7.9 / Rocky Linux 8 / Ubuntu 22.04
-# 适用于K8s 1.28 + containerd
+# 适用于K8s 1.31 + containerd
 set -euo pipefail
 umask 077
 
 NODE_IP=$(hostname -I | awk '{print $1}')
-K8S_VERSION="${K8S_VERSION:-1.28}"
-K8S_PKG_VERSION="${K8S_PKG_VERSION:-1.28.4}"  # 具体patch版本
+K8S_VERSION="${K8S_VERSION:-1.31}"
+K8S_PKG_VERSION="${K8S_PKG_VERSION:-1.31.0}"  # 具体patch版本
 POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 SERVICE_CIDR="${SERVICE_CIDR:-10.96.0.0/12}"
 

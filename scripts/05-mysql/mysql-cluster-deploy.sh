@@ -10,6 +10,16 @@ MYSQL_APP_PASSWORD="${MYSQL_APP_PASSWORD:?请设置MYSQL_APP_PASSWORD}"
 NODES="${NODES:-10.10.30.11 10.10.30.12 10.10.30.13}"
 MYSQL_VERSION="${MYSQL_VERSION:-8.0.36}"
 
+# 创建临时密码文件(避免密码暴露在命令行和进程列表中)
+MYSQL_CNF=$(mktemp /tmp/mysql.cnf.XXXXXX)
+chmod 600 "${MYSQL_CNF}"
+cat > "${MYSQL_CNF}" << CNFEOF
+[client]
+user=root
+password=${MYSQL_ROOT_PASSWORD}
+CNFEOF
+trap 'rm -f "${MYSQL_CNF}"' EXIT
+
 echo "=== MySQL MGR集群生产级部署 ==="
 echo "节点: ${NODES}"
 echo "版本: MySQL ${MYSQL_VERSION}"
@@ -84,7 +94,7 @@ echo ">>> Step 2: 初始化MGR集群"
 
 # 在第一个节点执行
 FIRST_NODE=$(echo ${NODES} | awk '{print $1}')
-ssh root@${FIRST_NODE} mysql -uroot -p${MYSQL_ROOT_PASSWORD} << MGR_INIT
+ssh root@${FIRST_NODE} mysql --defaults-extra-file=${MYSQL_CNF} << MGR_INIT
   # 创建复制用户
   CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
   GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
@@ -106,7 +116,7 @@ MGR_INIT
 # 其他节点加入集群
 OTHER_NODES=$(echo ${NODES} | awk '{for(i=2;i<=NF;i++) print $i}')
 for node in ${OTHER_NODES}; do
-  ssh root@${node} mysql -uroot -p${MYSQL_ROOT_PASSWORD} << MGR_JOIN
+  ssh root@${node} mysql --defaults-extra-file=${MYSQL_CNF} << MGR_JOIN
     CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
     GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
     CHANGE REPLICATION SOURCE TO SOURCE_USER='repl', SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}'
@@ -119,7 +129,7 @@ done
 # Step 3: 验证集群状态
 echo ""
 echo ">>> Step 3: 验证MGR集群"
-ssh root@${FIRST_NODE} mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT * FROM performance_schema.replication_group_members;"
+ssh root@${FIRST_NODE} mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT * FROM performance_schema.replication_group_members;"
 
 # Step 4: 部署ProxySQL
 echo ""
