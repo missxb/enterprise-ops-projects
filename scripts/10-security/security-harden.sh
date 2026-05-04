@@ -106,8 +106,28 @@ for service in avahi-daemon cups bluetooth; do
   systemctl disable ${service} 2>/dev/null || true
 done
 
-# 8. 配置防火墙(非K8s节点)
-echo ">>> 7. 配置防火墙"
+# 8. 配置fail2ban(SSH暴力破解防护)
+echo ">>> 7. 配置fail2ban"
+yum install -y fail2ban 2>/dev/null || apt-get install -y fail2ban 2>/dev/null || true
+cat > /etc/fail2ban/jail.local << 'F2BEOF'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = ssh
+logpath = /var/log/secure
+maxretry = 3
+bantime = 86400
+F2BEOF
+systemctl enable fail2ban 2>/dev/null || true
+systemctl start fail2ban 2>/dev/null || true
+
+# 9. 配置防火墙(非K8s节点)
+echo ">>> 8. 配置防火墙"
 if ! systemctl is-active kubelet &>/dev/null; then
   systemctl enable firewalld
   systemctl start firewalld

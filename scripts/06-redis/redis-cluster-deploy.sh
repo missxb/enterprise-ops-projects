@@ -56,7 +56,7 @@ appendonly yes
 appendfsync everysec
 
 # === 内存策略 ===
-maxmemory 12gb
+maxmemory ${REDIS_MAXMEMORY:-12gb}  # 生产环境根据节点内存调整(推荐物理内存60-70%)
 maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru
 
 # === Cluster配置 ===
