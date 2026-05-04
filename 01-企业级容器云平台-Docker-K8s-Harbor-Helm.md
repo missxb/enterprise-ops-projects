@@ -573,7 +573,7 @@ HARBOR_DOMAIN="harbor.internal.com"
 HARBOR_IP="10.10.10.31"
 
 echo "安装Docker Compose..."
-curl -SL "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-linux-$(uname -m)" \
+yum install -y docker-compose-plugin  # 或: dnf install -y docker-compose-plugin
   -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
@@ -756,7 +756,7 @@ echo "✅ K8s节点已信任Harbor"
 set -euo pipefail
 
 echo "安装Helm..."
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+yum install -y helm  # 或: snap install helm --classic
 
 echo "添加常用仓库..."
 helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -1230,7 +1230,7 @@ echo "Grafana: http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
 set -euo pipefail
 
 echo "部署Elasticsearch..."
-helm install elasticsearch elastic/elasticsearch \\\n  --set nodes.hot.replicas=1 \\\n  --set nodes.warm.replicas=1 \\\n  --set nodes.cold.replicas=1 \\\n  --set data持久化storageClassName=aliyun-disk-ssd \
+helm install elasticsearch elastic/elasticsearch \\\n  --set nodes.hot.replicas=1 \\\n  --set nodes.warm.replicas=1 \\\n  --set nodes.cold.replicas=1 \\\n  --set persistence.storageClass=aliyun-disk-ssd \
   --namespace logging --create-namespace \
   --set replicas=3 \
   --set resources.requests.cpu=1 \

@@ -58,6 +58,9 @@ else
   done
 fi
 
+echo "Step 5.1: 最终prepare(数据一致性)..."
+xtrabackup --prepare --target-dir=${FULL_BACKUP}
+
 echo "Step 6: 修复权限并启动..."
 chown -R mysql:mysql ${DATA_DIR}
 systemctl start mysqld

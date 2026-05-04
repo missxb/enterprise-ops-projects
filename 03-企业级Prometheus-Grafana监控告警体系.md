@@ -826,7 +826,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
       - name: node-recording
         interval: 30s
         rules:
-          - record: instance:node_cpu_utilization:ratio
+          - record: node_cpu_utilization:ratio
             expr: 1 - avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m]))
           
           - record: instance:node_memory_utilization:ratio
