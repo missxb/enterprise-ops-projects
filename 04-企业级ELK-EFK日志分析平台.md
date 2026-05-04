@@ -442,10 +442,108 @@
    448|
    449|---
    450|
-   451|## 六、Kibana部署
+   451|## 六、Kafka缓冲层(可选但推荐)
    452|
-   453|```yaml
-   454|# kibana-deployment.yaml
+   453|> **[推荐]** 生产环境建议在Filebeat和Logstash之间部署Kafka作为缓冲层，
+   454|> 防止ES写入压力反压导致Filebeat日志丢失。
+   455|
+   456|```yaml
+   457|# kafka-statefulset.yaml
+   458|---
+   459|apiVersion: apps/v1
+   460|kind: StatefulSet
+   461|metadata:
+   462|  name: kafka
+   463|  namespace: logging
+   464|spec:
+   465|  serviceName: kafka
+   466|  replicas: 3
+   467|  selector:
+   468|    matchLabels:
+   469|      app: kafka
+   470|  template:
+   471|    metadata:
+   472|      labels:
+   473|        app: kafka
+   474|    spec:
+   475|      containers:
+   476|      - name: kafka
+   477|        image: bitnami/kafka:3.7
+   478|        env:
+   479|        - name: KAFKA_CFG_NODE_ID
+   480|          valueFrom:
+   481|            fieldRef:
+   482|              fieldPath: metadata.name
+   483|        - name: KAFKA_CFG_PROCESS_ROLES
+   484|          value: "broker,controller"
+   485|        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+   486|          value: "0@kafka-0.kafka:9093,1@kafka-1.kafka:9093,2@kafka-2.kafka:9093"
+   487|        - name: KAFKA_CFG_LISTENERS
+   488|          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+   489|        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+   490|          value: "PLAINTEXT://kafka-0.kafka:9092"
+   491|        - name: KAFKA_CFG_LOG_RETENTION_HOURS
+   492|          value: "168"  # 7天
+   493|        - name: KAFKA_CFG_LOG_RETENTION_BYTES
+   494|          value: "1073741824"  # 1GB
+   495|        ports:
+   496|        - containerPort: 9092
+   497|          name: plaintext
+   498|        - containerPort: 9093
+   499|          name: controller
+   500|        resources:
+   501|          requests:
+   502|            cpu: 500m
+   503|            memory: 1Gi
+   504|          limits:
+   505|            cpu: 2000m
+   506|            memory: 2Gi
+   507|        volumeMounts:
+   508|        - name: data
+   509|          mountPath: /bitnami/kafka
+   510|  volumeClaimTemplates:
+   511|  - metadata:
+   512|      name: data
+   513|    spec:
+   514|      accessModes: ["ReadWriteOnce"]
+   515|      resources:
+   516|        requests:
+   517|          storage: 50Gi
+   518|---
+   519|apiVersion: v1
+   520|kind: Service
+   521|metadata:
+   522|  name: kafka
+   523|  namespace: logging
+   524|spec:
+   525|  selector:
+   526|    app: kafka
+   527|  ports:
+   528|  - port: 9092
+   529|    name: plaintext
+   530|```
+   531|
+   532|> Filebeat配置中将output改为Kafka:
+   533|> ```yaml
+   534|> output.kafka:
+   535|>   hosts: ["kafka-0.kafka:9092", "kafka-1.kafka:9092", "kafka-2.kafka:9092"]
+   536|>   topic: "filebeat-logs"
+   537|> ```
+   538|> Logstash input改为Kafka:
+   539|> ```ruby
+   540|> input {
+   541|>   kafka {
+   542|>     bootstrap_servers => "kafka-0.kafka:9092"
+   543|>     topics => ["filebeat-logs"]
+   544|>     group_id => "logstash-consumers"
+   545|>   }
+   546|> }
+   547|> ```
+   548|
+   549|## 七、Kibana部署
+   550|
+   551|```yaml
+   552|# kibana-deployment.yaml
    455|---
    456|apiVersion: apps/v1
    457|kind: Deployment
