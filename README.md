@@ -47,11 +47,11 @@
 
 | 组件 | 版本 | 依赖 | 兼容说明 |
 |------|------|------|----------|
-| K8s | 1.28 | containerd 1.7+ | 需要CRI v1 |
-| Calico | 3.26 | K8s 1.28 | BGP模式需内核4.19+ |
+| K8s | 1.31 | containerd 2.0+ | LTS版本 |
+| Calico | 3.26 | K8s 1.31 | BGP模式需内核4.19+ |
 | MetalLB | 0.13 | K8s 1.24+ | L2模式需ARP |
-| Istio | 1.20 | K8s 1.28 | Sidecar兼容性 |
-| Harbor | 2.10 | K8s 1.28 | Helm安装 |
+| Istio | 1.20 | K8s 1.31 | Sidecar兼容性 |
+| Harbor | 2.12 | K8s 1.31 | Helm安装 |
 | Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
 | Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
 | MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |

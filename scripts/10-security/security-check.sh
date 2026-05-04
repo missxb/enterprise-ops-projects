@@ -2,6 +2,7 @@
 # 安全快速检查脚本(轻量级初筛)
 # 完整审计请使用 compliance-check.sh (等保二级)
 set -euo pipefail
+umask 077
 
 PASS=0
 FAIL=0

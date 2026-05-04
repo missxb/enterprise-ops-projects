@@ -84,11 +84,20 @@ yum install -y audit
 systemctl enable auditd
 systemctl start auditd
 
-# 添加审计规则
+# 添加审计规则(临时+持久化)
 auditctl -w /etc/passwd -p wa -k identity
 auditctl -w /etc/shadow -p wa -k identity
 auditctl -w /etc/sudoers -p wa -k sudoers
 auditctl -w /var/log/secure -p wa -k logins
+
+# 持久化审计规则(重启后仍生效)
+cat > /etc/audit/rules.d/99-custom.rules << 'AUDITEOF'
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sudoers -p wa -k sudoers
+-w /var/log/secure -p wa -k logins
+AUDITEOF
+augenrules --load 2>/dev/null || true
 
 # 7. 禁用不必要的服务
 echo ">>> 6. 禁用不必要的服务"
