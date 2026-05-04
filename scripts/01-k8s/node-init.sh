@@ -42,10 +42,12 @@ if systemctl is-active firewalld &>/dev/null; then
   echo "已关闭firewalld"
 fi
 
-# SELinux
+# SELinux(生产环境使用permissive而非disabled，便于审计)
 if [ -f /etc/selinux/config ]; then
-  sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+  sed -i 's/SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
   setenforce 0 2>/dev/null || true
+  # [注意] K8s节点建议permissive模式(记录违规但不阻止)
+  # 完全disabled会丢失安全审计日志
 fi
 
 echo "=== Step 2: 安装containerd ==="
