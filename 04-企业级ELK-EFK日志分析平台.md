@@ -180,7 +180,7 @@
    186|            - name: NODE_ROLES
    187|              value: "data_hot,ingest"
    188|            - name: ES_JAVA_OPTS
-   189|              value: "-Xms28g -Xmx28g"
+   189|              value: "-Xms16g -Xmx16g"
    190|          resources:
    191|            requests:
    192|              cpu: "8"

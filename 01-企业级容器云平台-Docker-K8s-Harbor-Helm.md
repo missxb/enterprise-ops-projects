@@ -69,7 +69,7 @@
 | Worker | k8s-worker-05 | 10.10.10.25 | 32C | 128G | 100G SSD | 1T | GPU/AI推理节点 |
 | Harbor | harbor-01 | 10.10.10.31 | 8C | 16G | 100G SSD | 2T | 镜像仓库 |
 | Harbor | harbor-02 | 10.10.10.32 | 8C | 16G | 100G SSD | 2T | 镜像仓库(备) |
-> Harbor HA方案说明: Harbor双节点主备需要:
+> Harbor HA方案说明: Harbor双节点主备需要(本项目为单实例，仅供学习参考):
 > 1. 外部PostgreSQL(主备同步) — 不使用Harbor内置数据库
 > 2. 外部Redis(主备) — 用于Session和缓存
 > 3. 共享对象存储(NFS/S3) — 用于镜像层数据
@@ -1365,6 +1365,11 @@ spec:
 
 ## 十六、完整部署流程
 
+# ===== 前置条件: SSH密钥分发 =====
+# ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+# for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id -i ~/.ssh/id_ed25519.pub root@${ip}; done
+# ===== 验证SSH连通性 =====
+# for ip in 10.10.10.{11..13,21..25}; do ssh root@${ip} "echo OK"; done
 ```bash
 #!/bin/bash
 # [前置条件] 需要先配置SSH密钥分发:

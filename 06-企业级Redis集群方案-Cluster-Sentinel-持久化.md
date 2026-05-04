@@ -174,7 +174,7 @@ tcp-user-timeout 60
 
 # ===== 内存配置 =====
 maxmemory 20gb
-maxmemory-policy allkeys-lru
+maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru(仅淘汰有TTL的key)
 maxmemory-samples 10
 
 # ===== RDB持久化 =====
@@ -218,6 +218,8 @@ client-output-buffer-limit replica 256mb 64mb 60
 client-output-buffer-limit pubsub 32mb 8mb 60
 
 # ===== 安全配置 =====
+# [生产建议] Redis 6.0+推荐使用ACL替代rename-command:
+# acl setuser app_user on >password ~* +get +set +del -flushdb -flushall -debug
 requirepass ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 masterauth ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 rename-command FLUSHDB ""
@@ -504,7 +506,7 @@ lazyfree-lazy-expire yes   # 异步过期，减少阻塞
 
 # ===== 内存层调优 =====
 maxmemory 20gb
-maxmemory-policy allkeys-lru
+maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru(仅淘汰有TTL的key)
 maxmemory-samples 10       # LRU采样数，越大越精确
 
 # ===== 持久化调优 =====

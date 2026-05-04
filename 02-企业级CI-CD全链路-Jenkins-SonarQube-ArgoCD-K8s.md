@@ -293,6 +293,12 @@ build-image:
   before_script:
     - echo "${HARBOR_PASSWORD}" | docker login -u ${HARBOR_USER} --password-stdin ${HARBOR_REGISTRY}
   script:
+# [Kaniko替代方案] 无需privileged权限:
+# build-image-kaniko:
+#   stage: image
+#   image: gcr.io/kaniko-project/executor:debug
+#   script:
+#     - /kaniko/executor --context=${CI_PROJECT_DIR} --dockerfile=Dockerfile --destination=${HARBOR_REGISTRY}/app:${CI_COMMIT_SHA} --cache=true
     - |
       # 多标签策略
       export TAG_LATEST="${IMAGE_NAME}:latest"

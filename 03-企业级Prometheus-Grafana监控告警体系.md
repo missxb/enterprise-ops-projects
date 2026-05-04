@@ -101,6 +101,11 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 2  # 多副本需配置外部数据库
+  # 外部数据库配置(推荐): 使用RDS PostgreSQL或自建PG
+  # external_labels:
+  #   cluster: prod-cluster
+  # remote_write:
+  #   - url: http://thanos-receive:19291/api/v1/receive
   selector:
     matchLabels:
       app: thanos-query

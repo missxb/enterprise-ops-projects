@@ -225,7 +225,7 @@ UPDATE global_variables SET variable_value='Monitor@2024' WHERE variable_name='m
    226|
    227|-- 添加用户
    228|INSERT INTO mysql_users(username, password, default_hostgroup, max_connections)
-   229|VALUES ('app_user', ${APP_USER_PASSWORD}, 10, 2000);
+   229|VALUES ('app_user', '${APP_USER_PASSWORD}', 10, 2000);
    230|
    231|-- 加载配置
    232|LOAD MYSQL SERVERS TO RUNTIME;
