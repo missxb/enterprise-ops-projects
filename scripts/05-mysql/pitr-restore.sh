@@ -6,6 +6,7 @@ umask 077
 MYSQL_PASS="${MYSQL_PASS:?请设置MYSQL_PASS}"
 FULL_BACKUP="${1:?用法: $0 <全量备份目录> <目标时间>}"
 TARGET_TIME="${2:?用法: $0 <全量备份目录> <目标时间>}"
+BINLOG_DIR="${3:-/data/mysql-backup/binlog}"
 DATA_DIR="/var/lib/mysql"
 
 # 创建临时配置文件避免命令行密码暴露
@@ -32,9 +33,16 @@ xtrabackup --prepare --target-dir=${FULL_BACKUP}
 xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 
 echo "Step 4: 应用binlog到目标时间点..."
-mysqlbinlog --stop-datetime="${TARGET_TIME}" \
-  --defaults-extra-file=${MYSQL_CNF} \
-  /data/mysql-backup/binlog/mysql-bin.000001
+# 动态获取binlog文件列表
+BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort)
+if [ -z "$BINLOG_FILES" ]; then
+  echo "⚠️ 无binlog文件，跳过binlog恢复"
+else
+  for f in $BINLOG_FILES; do
+    echo "  应用: $f"
+    mysqlbinlog --stop-datetime="${TARGET_TIME}" "$f" | mysql --defaults-extra-file=${MYSQL_CNF}
+  done
+fi
 
 echo "Step 5: 修复权限并启动..."
 chown -R mysql:mysql ${DATA_DIR}

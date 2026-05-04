@@ -1,7 +1,7 @@
 # 企业级Redis集群方案 - Cluster + Sentinel + 持久化
 
 > 完整实现Redis高可用方案，覆盖Cluster 6节点集群、Sentinel哨兵、持久化策略、内存优化、分布式锁
-> [注意] Cluster和Sentinel是两种互斥的高可用方案，实际部署时选择其中一种即可:
+> [注意] Cluster和Sentinel是两种不同的高可用方案，通常不混合使用。Redis 7.0+ Sentinel可以监控Cluster节点，但不推荐混用。实际部署时选择其中一种即可:
 > - Cluster: 适合大数据量、高并发场景，数据自动分片
 > - Sentinel: 适合小数据量、简单高可用场景，数据不分片
 > 适用于: 电商、社交、游戏等高并发场景
@@ -227,7 +227,7 @@ rename-command CONFIG "CONFIG_b2c0a7e1"
 # ===== Cluster核心配置 =====
 cluster-enabled yes
 cluster-config-file nodes_6379.conf
-cluster-node-timeval 15000
+cluster-node-timeout 15000
 cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
 cluster-allow-reads-when-down no  # 默认关闭，故障时可临时开启
 cluster-allow-pubsub-shard-down no
