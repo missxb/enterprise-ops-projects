@@ -21,9 +21,16 @@ for node in ${REDIS_NODES}; do
     BEFORE=$(ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} LASTSAVE" 2>/dev/null)
     # 触发BGSAVE
     ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} BGSAVE" 2>/dev/null
-    # 等待LASTSAVE变化
+    # 等待LASTSAVE变化(最多5分钟)
+    MAX_WAIT=300
+    WAITED=0
     while [ "$(ssh ${REDIS_USER}@${node} "sudo redis-cli -p ${port} -a ${REDIS_PASSWORD} LASTSAVE" 2>/dev/null)" = "$BEFORE" ]; do
       sleep 1
+      WAITED=$((WAITED+1))
+      if [ $WAITED -ge $MAX_WAIT ]; then
+        echo "  ❌ BGSAVE超时(${MAX_WAIT}s)"
+        exit 1
+      fi
     done
     # 拷贝dump文件
     ssh ${REDIS_USER}@${node} "sudo cp /var/lib/redis/dump.rdb ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb" 2>/dev/null

@@ -17,7 +17,7 @@
 | 03 | [Prometheus监控](03-企业级Prometheus-Grafana监控告警体系.md) | Prometheus 2.50 + Thanos 0.34 + Grafana | 53KB |
 | 04 | [ELK日志平台](04-企业级ELK-EFK日志分析平台.md) | ES 8.x + Filebeat + Kafka + Kibana | 56KB |
 | 05 | [MySQL高可用](05-企业级MySQL高可用集群-MGR-ProxySQL-备份.md) | MySQL 8.0 MGR + ProxySQL + Xtrabackup | 50KB |
-| 06 | [Redis集群](06-企业级Redis集群方案-Cluster-Sentinel-持久化.md) | Redis 7.0 Cluster + Sentinel | 30KB |
+| 06 | [Redis集群](06-企业级Redis集群方案-Cluster-Sentinel-持久化.md) | Redis 7.2 Cluster + Sentinel | 30KB |
 | 07 | [Nginx高可用](07-企业级Nginx-Keepalived高可用.md) | Nginx + Keepalived + SSL + WAF | 59KB |
 | 08 | [Ansible+Terraform](08-企业级Ansible-Terraform自动化运维.md) | Ansible + Terraform(阿里云) | 47KB |
 | 09 | [K8s微服务网关](09-企业级K8s微服务网关-服务治理.md) | Kong 3.5 + Istio 1.20 + Jaeger | 55KB |

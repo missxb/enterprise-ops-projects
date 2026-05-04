@@ -37,7 +37,7 @@ echo "========================================"
 echo "--- 1. 身份鉴别 ---"
 check "密码复杂度" "grep -q 'minlen.*8\\|pam_pwquality' /etc/pam.d/system-auth 2>/dev/null || grep -q 'minlen' /etc/security/pwquality.conf 2>/dev/null"
 check "登录失败锁定" "grep -q 'pam_faillock\\|pam_tally2' /etc/pam.d/system-auth 2>/dev/null"
-check "SSH密钥认证" "grep -q 'PubkeyAuthentication yes' /etc/ssh/sshd_config"
+warn "SSH密钥认证(默认开启)" "grep -v 'PubkeyAuthentication no' /etc/ssh/sshd_config | grep -q 'PubkeyAuthentication'"
 warn "SSH密码认证关闭" "grep -q 'PasswordAuthentication no' /etc/ssh/sshd_config"
 
 echo "--- 2. 访问控制 ---"

@@ -531,7 +531,7 @@ kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
 
 echo "配置IP地址池..."
 cat > /tmp/metallb-config.yaml << EOF
-apiVersion: metallb.io/v1beta1
+apiVersion: metallb.io/v1beta2
 kind: IPAddressPool
 metadata:
   name: production-pool
@@ -540,7 +540,7 @@ spec:
   addresses:
   - 10.10.10.200-10.10.10.240   # 41个可用IP
 ---
-apiVersion: metallb.io/v1beta1
+apiVersion: metallb.io/v1beta2
 kind: L2Advertisement
 metadata:
   name: default
