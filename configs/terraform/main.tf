@@ -1,3 +1,22 @@
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    alicloud = {
+      source  = "aliyun/alicloud"
+      version = "~> 2.0"
+    }
+  }
+  backend "oss" {
+    bucket = "terraform-state"
+    key    = "enterprise-ops.tfstate"
+    region = "cn-hangzhou"
+  }
+}
+
+provider "alicloud" {
+  region = var.region
+}
+
 resource "alicloud_vpc" "main" {
   vpc_name   = "${var.project}-vpc"
   cidr_block = "10.10.0.0/12"

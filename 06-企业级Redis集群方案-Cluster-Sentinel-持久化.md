@@ -2,7 +2,7 @@
 
 > 完整实现Redis高可用方案，覆盖Cluster 6节点集群、Sentinel哨兵、持久化策略、内存优化、分布式锁
 > **方案说明**: 本文档同时展示Cluster和Sentinel两种方案，供读者根据实际场景二选一参考。Cluster适合大数据量分片场景，Sentinel适合中小规模简单高可用场景。
-> [注意] Cluster和Sentinel是两种不同的高可用方案，通常不混合使用。Redis 7.0+ Sentinel可以监控Cluster节点，但不推荐混用。实际部署时选择其中一种即可:
+> [注意] Redis 7.0+起Sentinel支持监控Cluster节点(本项目使用Redis 7.2)。两种方案通常不混合使用，实际部署时选择其中一种即可:
 > - Cluster: 适合大数据量、高并发场景，数据自动分片
 > - Sentinel: 适合小数据量、简单高可用场景，数据不分片
 > 适用于: 电商、社交、游戏等高并发场景
