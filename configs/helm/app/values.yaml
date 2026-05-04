@@ -24,3 +24,12 @@ autoscaling:
 pdb:
   enabled: true
   maxUnavailable: 1
+
+# ConfigMap
+configMap:
+  enabled: true
+  data: {}
+# Secret
+secret:
+  enabled: true
+  data: {}

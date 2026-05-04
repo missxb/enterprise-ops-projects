@@ -1,3 +1,4 @@
+# CI/CD示例应用 - 非生产代码
 # 多阶段构建示例
 FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /app
