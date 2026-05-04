@@ -185,7 +185,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceName: thanos-store-gateway
-  replicas: 1  # Store Gateway可多副本，此处单实例节省资源
+  replicas: 2  # 双副本实现高可用，避免单点故障
   selector:
     matchLabels:
       app: thanos-store-gateway
@@ -233,6 +233,153 @@ spec:
       resources:
         requests:
           storage: 50Gi
+```
+
+### MinIO对象存储(Thanos后端)
+
+Thanos Store Gateway依赖MinIO/S3存储长期数据。如已有对象存储可跳过此节。
+
+```yaml
+# minio-statefulset.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+  MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-changeme}"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: monitoring
+spec:
+  serviceName: minio
+  replicas: 1  # 单节点开发环境；生产使用MinIO分布式模式或阿里云OSS
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:RELEASE.2024-01-18T00-31-37Z
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /data/thanos
+          minio server /data --console-address ":9001"
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_PASSWORD
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: local-ssd
+      resources:
+        requests:
+          storage: 2Ti
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: monitoring
+spec:
+  selector:
+    app: minio
+  ports:
+  - port: 9000
+    name: api
+  - port: 9001
+    name: console
+
+---
+# 初始化Thanos bucket
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init-bucket
+  namespace: monitoring
+spec:
+  template:
+    spec:
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+          mc mb myminio/thanos --ignore-existing
+          mc mb myminio/thanos-metrics --ignore-existing
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_PASSWORD
+      restartPolicy: OnFailure
+```
+
+Thanos配置中的MinIO地址:
+
+```yaml
+# objstore.yml (在thanos-objstore-config ConfigMap中)
+type: S3
+config:
+  bucket: thanos-metrics
+  endpoint: minio.monitoring:9000  # 使用K8s Service名称
+  access_key: ${MINIO_ACCESS_KEY}
+  secret_key: ${MINIO_SECRET_KEY}
+  insecure: true  # MinIO自签证书
 ```
 
 ### Thanos Compactor (数据压缩)
@@ -543,13 +690,15 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           
           # 系统负载过高
           - alert: NodeHighLoad
-            expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 0.9  # 负载>90%核心数才告警
+            # 15分钟平均负载超过CPU核心数的2倍才告警
+            # count by(instance) (node_cpu_seconds_total{mode="idle"}) = 每个节点的CPU核心数
+            expr: node_load15 > on(instance) count by(instance) (node_cpu_seconds_total{mode="idle"}) * 2
             for: 15m
             labels:
               severity: warning
             annotations:
               summary: "系统负载过高: {{ $labels.instance }}"
-              description: "15分钟平均负载超过CPU核心数的2倍"
+              description: "15分钟平均负载为核心数的 {{ $value | printf \"%.1f\" }} 倍"
 
   k8s-alerts.yml: |
     groups:
@@ -879,7 +1028,9 @@ spec:
             - '--storage.tsdb.retention.size=200GB'
             - '--web.enable-lifecycle'
             - '--web.enable-admin-api'
-            - '--web.enable-remote-write-receiver'
+            # [注意] --web.enable-remote-write-receiver在Prometheus 2.47+已废弃
+            # Sidecar模式直接读取本地TSDB，不需要remote-write-receiver
+            # 如需remote-write请使用Thanos Receive组件
           ports:
             - containerPort: 9090
           volumeMounts:
@@ -1086,7 +1237,10 @@ data:
       smtp_smarthost: 'smtp.feishu.cn:465'  # 465=SMTPS隐式TLS
       smtp_auth_username: 'alertmanager@company.com'
       smtp_auth_password: 'smtp-password'
-      smtp_require_tls: false  # 465端口不需要STARTTLS
+      smtp_require_tls: false  # 465端口是隐式TLS，不需要STARTTLS
+      # [备选] 使用587端口(显式TLS):
+      # smtp_smarthost: 'smtp.feishu.cn:587'
+      # smtp_require_tls: true  # 587端口使用STARTTLS
     
     # 告警模板
     templates:
@@ -1187,6 +1341,118 @@ data:
     - {{ .Name }}: {{ .Value }}
     {{ end }}
     {{ end }}
+```
+
+### 6.2 钉钉Webhook适配器部署
+
+> **[重要]** AlertManager的webhook格式与钉钉API不兼容，需要部署prometheus-webhook-dingtalk适配器。
+
+```yaml
+# dingtalk-webhook-deployment.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dingtalk-webhook-config
+  namespace: monitoring
+data:
+  config.yml: |
+    templates:
+      - /etc/config/template.tmpl
+    targets:
+      ops-critical:
+        url: https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN
+        secret: SEC_YOUR_SECRET
+        message:
+          title: '{{ template "ding.link.title" . }}'
+          text: '{{ template "ding.link.content" . }}'
+      ops-warning:
+        url: https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN_2
+        secret: SEC_YOUR_SECRET_2
+        message:
+          title: '{{ template "ding.link.title" . }}'
+          text: '{{ template "ding.link.content" . }}'
+      dba:
+        url: https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN_3
+        secret: SEC_YOUR_SECRET_3
+        message:
+          title: '{{ template "ding.link.title" . }}'
+          text: '{{ template "ding.link.content" . }}'
+      platform:
+        url: https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN_4
+        secret: SEC_YOUR_SECRET_4
+        message:
+          title: '{{ template "ding.link.title" . }}'
+          text: '{{ template "ding.link.content" . }}'
+  template.tmpl: |
+    {{ define "ding.link.title" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ end }}
+    {{ define "ding.link.content" }}
+    ## {{ .CommonLabels.alertname }}
+
+    **状态**: {{ .Status }}
+    **级别**: {{ .CommonLabels.severity }}
+    **实例**: {{ .CommonLabels.instance }}
+    **描述**: {{ .CommonAnnotations.description }}
+    **触发时间**: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+
+    {{ range .Alerts }}
+    ---
+    - **告警**: {{ .Annotations.summary }}
+    - **当前值**: {{ .Annotations.value }}
+    {{ end }}
+    {{ end }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dingtalk-webhook
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dingtalk-webhook
+  template:
+    metadata:
+      labels:
+        app: dingtalk-webhook
+    spec:
+      containers:
+      - name: dingtalk-webhook
+        image: timonwong/prometheus-webhook-dingtalk:v1.4.0
+        args:
+        - --config.file=/etc/config/config.yml
+        ports:
+        - containerPort: 8060
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/config
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      volumes:
+      - name: config
+        configMap:
+          name: dingtalk-webhook-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dingtalk-webhook
+  namespace: monitoring
+spec:
+  selector:
+    app: dingtalk-webhook
+  ports:
+  - port: 8060
+    name: http
 ```
 
 ---
@@ -1637,7 +1903,7 @@ kind: StatefulSet
 metadata:
   name: victoria-metrics
 spec:
-  replicas: 1  # Store Gateway可多副本，此处单实例节省资源
+  replicas: 2  # 双副本实现高可用，避免单点故障
   template:
     spec:
       containers:
