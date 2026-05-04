@@ -82,7 +82,7 @@ if command -v python3 >/dev/null 2>&1; then
   YAML_FAIL=0
   for f in "$REPO_DIR"/configs/*.yml "$REPO_DIR"/configs/**/*.yml "$REPO_DIR"/configs/**/*.yaml; do
     [ -f "$f" ] || continue
-    if ! python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
+    if ! python3 -c "import yaml; list(yaml.safe_load_all(open('$f')))" 2>/dev/null; then
       echo "  ⚠️ yaml: $(basename $f)"
       YAML_FAIL=$((YAML_FAIL+1))
     fi
