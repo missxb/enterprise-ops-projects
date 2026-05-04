@@ -2080,9 +2080,11 @@ kubectl top pods -A --sort-by=cpu | head -20
 
 ### etcd备份SOP
 
+> **完整脚本见第十一节** (etcd_backup.sh)，此处仅展示crontab配置。
+
 ```bash
 # 每日自动备份 (crontab: 0 2 * * *)
-ETCDCTL_API=3 etcdctl snapshot save /data/etcd-backup/snapshot-$(date +%Y%m%d).db   --endpoints=https://127.0.0.1:2379   --cacert=/etc/kubernetes/pki/etcd/ca.crt   --cert=/etc/kubernetes/pki/etcd/server.crt   --key=/etc/kubernetes/pki/etcd/server.key
+# 0 2 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
 
 ### 版本升级SOP
@@ -2125,32 +2127,7 @@ ETCDCTL_API=3 etcdctl snapshot save /data/etcd-backup/snapshot-$(date +%Y%m%d).d
 
 ## etcd备份与恢复
 
-### 自动备份脚本
-
-```bash
-#!/bin/bash
-# etcd-backup.sh - 每日自动备份etcd
-BACKUP_DIR="/data/etcd-backup"
-DATE=$(date +%Y%m%d)
-KEEP_DAYS=7
-
-mkdir -p ${BACKUP_DIR}
-
-# 执行备份
-ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/snapshot-${DATE}.db \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key
-
-# 验证备份
-ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-out=table
-
-# 清理过期备份
-find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +${KEEP_DAYS} -delete
-
-echo "etcd备份完成: snapshot-${DATE}.db"
-```
+> **etcd备份脚本见第十一节** (etcd_backup.sh)，此处仅展示恢复流程。
 
 ### crontab配置
 
@@ -2166,7 +2143,7 @@ echo "etcd备份完成: snapshot-${DATE}.db"
 systemctl stop etcd
 
 # 2. 恢复etcd数据
-ETCDCTL_API=3 etcdctl snapshot restore /data/etcd-backup/snapshot-20240115.db \
+ETCDCTL_API=3 etcdctl snapshot restore /opt/etcd-backup/etcd-snapshot-YYYYMMDD_HHMMSS.db \
   --data-dir=/var/lib/etcd-restore \
   --name=<etcd-member-name> \
   --initial-cluster=<etcd-cluster> \
