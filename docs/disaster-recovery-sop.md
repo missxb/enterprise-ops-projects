@@ -90,7 +90,80 @@
 | Chaos Mesh | K8s Pod/网络/IO故障 | Helm install |
 | Litmus Chaos | K8s原生混沌工程 | Helm install |
 | tc/netem | 网络延迟/丢包 | Linux自带 |
-| stress-ng | CPU/内存压力 | yum install |
+|| stress-ng | CPU/内存压力 | yum install ||
+
+### Litmus Chaos平台部署
+
+```bash
+# 安装Litmus Chaos Center
+helm repo add litmuschaos https://litmuschaos.github.io/litmus-helm
+helm install litmus litmuschaos/litmus \
+  --namespace litmus --create-namespace \
+  --set portal.frontend.service.type=LoadBalancer
+
+# 安装ChaosHub(预置实验)
+kubectl apply -f https://litmuschaos.github.io/litmus/chaoscenter.yaml
+```
+
+### Litmus ChaosEngine示例
+
+```yaml
+# chaosengine-pod-delete.yaml
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: pod-delete-chaos
+  namespace: production
+spec:
+  appinfo:
+    appns: production
+    applabel: app=user-service
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: FORCE
+              value: "false"
+```
+
+```yaml
+# chaosengine-network-latency.yaml
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: network-latency-chaos
+  namespace: production
+spec:
+  appinfo:
+    appns: production
+    applabel: app=order-service
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-network-latency
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: NETWORK_LATENCY
+              value: "200"  # 200ms延迟
+            - name: JITTER
+              value: "50"   # 50ms抖动
+            - name: DESTINATION_IPS
+              value: "10.96.0.0/12"  # K8s Service CIDR
+```
+
+> **生产建议**: 先在staging环境运行所有混沌实验，确认无误后再在production执行
+> **自动化**: 结合CI/CD pipeline，在每次部署后自动运行混沌实验
+
 
 ### 故障注入清单
 

@@ -771,13 +771,78 @@ output.elasticsearch:
 
 ## 十一、容量规划
 
-| 指标 | 估算公式 | 示例 |
-|------|---------|------|
-| 索引大小 | 原始日志 × 1.1(压缩) | 100GB原始 → 110GB索引 |
-| 分片大小 | 单分片20-50GB | 110GB → 3-5个分片 |
-| 热节点存储 | 7天日志 × 副本 | 100GB/天 × 7 × 2 = 1.4TB |
-| JVM堆内存 | 分片数 × 1GB | 5分片 → 5GB堆 |
-| 数据节点数 | 总存储 / 单节点存储 | 1.4TB / 2TB = 1节点(最少3) |
+### 11.1 数据量与节点规划
+
+| 日数据量 | 热节点(30天) | 温节点(90天) | 冷节点(365天) | Master | 总节点 | JVM堆 | 月成本(阿里云) |
+|----------|-------------|-------------|--------------|--------|--------|-------|---------------|
+| 100GB/天 | 3×2TB SSD | 2×4TB HDD | 1×10TB HDD | 3 | 9 | 16G | ~15,000元 |
+| 500GB/天 | 5×4TB SSD | 3×8TB HDD | 2×16TB HDD | 3 | 13 | 16G | ~35,000元 |
+| 1TB/天 | 8×4TB SSD | 5×10TB HDD | 3×20TB HDD | 3 | 19 | 16G | ~65,000元 |
+
+> **JVM堆规则**: 堆内存 ≤ 物理内存的50%，且不超过32GB(压缩指针阈值)
+> **分片规则**: 单分片20-50GB，分片数=节点数×1~3
+
+### 11.2 ILM热温冷架构
+
+```json
+// PUT _ilm/policy/enterprise-logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "50gb",
+            "max_age": "1d"
+          },
+          "set_priority": { "priority": 100 }
+        }
+      },
+      "warm": {
+        "min_age": "7d",
+        "actions": {
+          "shrink": { "number_of_shards": 1 },
+          "forcemerge": { "max_num_segments": 1 },
+          "set_priority": { "priority": 50 }
+        }
+      },
+      "cold": {
+        "min_age": "30d",
+        "actions": {
+          "freeze": {},
+          "set_priority": { "priority": 0 }
+        }
+      },
+      "delete": {
+        "min_age": "365d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+```
+
+### 11.3 节点角色分配
+
+| 角色 | 节点标签 | 存储类型 | JVM堆 | 用途 |
+|------|---------|---------|-------|------|
+| Master | node-role: master | SSD 100G | 4G | 集群管理、元数据 |
+| Hot | node-role: hot | NVMe/SSD 2-4TB | 16G | 最近30天数据，高IO |
+| Warm | node-role: warm | HDD 4-10TB | 16G | 30-90天数据，读多写少 |
+| Cold | node-role: cold | HDD 10-20TB | 8G | 90-365天数据，偶尔查询 |
+
+```bash
+# 为节点打标签
+kubectl label node es-hot-01 node-role.kubernetes.io/es-hot: ""
+kubectl label node es-warm-01 node-role.kubernetes.io/es-warm: ""
+kubectl label node es-cold-01 node-role.kubernetes.io/es-cold: ""
+```
+
+> **成本优化**: 冷节点使用HDD+freeze索引，存储成本降低70%
+> **查询优化**: 日常查询只走热节点，历史查询走温节点，极少查询走冷节点
 
 ---
 
