@@ -68,6 +68,10 @@ spec:
               value: "-Xms16g -Xmx16g"
             - name: xpack.security.enabled
               value: "true"
+            - name: xpack.security.transport.ssl.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
+              value: "true"
             - name: ELASTIC_PASSWORD
               valueFrom:
                 secretKeyRef:
