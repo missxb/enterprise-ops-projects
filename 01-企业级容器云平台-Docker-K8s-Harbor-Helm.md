@@ -2,7 +2,7 @@
 
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
-> 技术栈: Kubernetes 1.28 + Docker 24 + Harbor 2.10 + Helm 3 + Calico 3.26 + MetalLB
+> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.26 + MetalLB
 
 ---
 
@@ -49,6 +49,22 @@
           │W-01 ││W-02 ││W-03 ││W-04 ││W-05 │
           │worker││worker││worker││worker││worker│
           └─────┘└─────┘└─────┘└─────┘└─────┘
+```
+
+### Pod Security Admission (PSA)
+
+K8s 1.25+使用Pod Security Admission替代已废弃的PodSecurityPolicy:
+
+```yaml
+# 为命名空间启用PSA
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
 ```
 
 ---
@@ -186,14 +202,14 @@ echo "========== [7/8] 安装kubeadm/kubelet/kubectl =========="
 cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
 
-yum install -y kubelet-1.28.4 kubeadm-1.28.4 kubectl-1.28.4 --disableexcludes=kubernetes
+yum install -y kubelet-1.31.0 kubeadm-1.31.0 kubectl-1.31.0 --disableexcludes=kubernetes
 systemctl enable kubelet
 echo "kubeadm/kubelet/kubectl已安装"
 
@@ -362,7 +378,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: v1.28.4
+kubernetesVersion: v1.31.0
 controlPlaneEndpoint: "${VIP}:6443"
 imageRepository: registry.aliyuncs.com/google_containers  # [阿里云镜像加速]
 networking:
@@ -568,7 +584,7 @@ echo "✅ MetalLB配置完成，IP池: 10.10.200.100-10.10.200.200"
 
 set -euo pipefail
 
-HARBOR_VERSION="2.10.1"
+HARBOR_VERSION="2.12.0"
 HARBOR_DOMAIN="harbor.internal.com"
 HARBOR_IP="10.10.10.31"
 

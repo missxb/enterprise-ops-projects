@@ -35,6 +35,12 @@
 数据量 > 100GB → Redis Cluster + 集群代理(Twemproxy/Codis)
 ```
 
+**选型决策树**:
+- 数据量 < 10GB，简单高可用 → Sentinel (3节点Sentinel + 1主1从)
+- 数据量 > 10GB，需要分片 → Cluster (6+节点，3主3从)
+- 需要多key事务(MULTI/EXEC) → Sentinel (Cluster不支持跨slot事务)
+- 需要Pub/Sub大规模广播 → Cluster (广播到所有节点)
+
 ### 1.3 我们的选择: Redis Cluster
 
 理由:

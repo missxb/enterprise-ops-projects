@@ -287,9 +287,9 @@ sonarqube-analysis:
 build-image:
   stage: image
   # [注意] docker:dind需privileged:true，有安全风险。生产环境建议改用Kaniko或Buildah构建镜像
-  image: docker:24-dind
+  image: docker:26-dind
   services:
-    - docker:24-dind
+    - docker:26-dind
   before_script:
     - echo "${HARBOR_PASSWORD}" | docker login -u ${HARBOR_USER} --password-stdin ${HARBOR_REGISTRY}
   script:
@@ -767,7 +767,7 @@ spec:
   - name: jnlp
     image: jenkins/inbound-agent:latest
   - name: docker
-    image: docker:24-dind
+    image: docker:26-dind
     securityContext:
       privileged: true
     env:
