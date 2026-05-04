@@ -498,14 +498,15 @@ COPY src/ src/
 RUN mvn clean package -DskipTests -B
 
 # Stage 2: 运行
-FROM eclipse-temurin:17-jre-jammy AS runtime  # Ubuntu替代Alpine，避免musl libc兼容问题
+FROM eclipse-temurin:17-jre-jammy AS runtime  # Ubuntu(jammy)
 
-# 安全: 创建非root用户
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# 安全: 创建非root用户(Ubuntu语法)
+RUN groupadd -r appgroup && useradd -r -g appgroup -s /bin/false appuser
 
-# 安装时区
-RUN apk add --no-cache tzdata && \
-    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+# 安装时区(Ubuntu用apt-get)
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone
 
 WORKDIR /app

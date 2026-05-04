@@ -556,7 +556,10 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-  - 10.10.200.100-10.10.200.200   # 101个可用IP (需与节点同一二层/VLAN)
+  - 10.10.200.100-10.10.200.200   # 101个可用IP
+  # [重要] L2模式要求: MetalLB IP池必须与节点在同一二层网络(同一VLAN)
+  # 如果节点在10.10.10.0/24，IP池应在同一子网或已路由的子网
+  # 生产建议: 使用BGP模式或云厂商LB替代MetalLB
 ---
 apiVersion: metallb.io/v1beta2
 kind: L2Advertisement
