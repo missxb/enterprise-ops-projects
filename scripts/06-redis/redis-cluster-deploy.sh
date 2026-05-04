@@ -33,7 +33,7 @@ for node in ${NODES}; do
     chown redis:redis /var/lib/redis /var/log/redis
 
     # 配置Redis
-    cat > /etc/redis/redis.conf << REDISCONF
+    cat > /etc/redis/redis_${PORT}.conf << REDISCONF
 # === 基础配置 ===
 port ${PORT}
 bind 0.0.0.0

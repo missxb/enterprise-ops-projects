@@ -1,130 +1,29 @@
 {
   "annotations": { "list": [] },
   "editable": true,
-  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": null,
-  "links": [],
-  "liveNow": false,
   "panels": [
-    {
-      "title": "K8s集群概览",
-      "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
-    },
-    {
-      "title": "Node CPU使用率",
-      "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": "{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "thresholds": {
-            "steps": [
-              { "value": 0, "color": "green" },
-              { "value": 70, "color": "yellow" },
-              { "value": 90, "color": "red" }
-            ]
-          }
-        }
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 }
-    },
-    {
-      "title": "Node 内存使用率",
-      "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "expr": "100 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100)",
-          "legendFormat": "{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "thresholds": {
-            "steps": [
-              { "value": 0, "color": "green" },
-              { "value": 80, "color": "yellow" },
-              { "value": 95, "color": "red" }
-            ]
-          }
-        }
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 }
-    },
-    {
-      "title": "Pod 重启次数",
-      "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "expr": "sum(kube_pod_container_status_restarts_total) by (namespace)",
-          "legendFormat": "{{namespace}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "steps": [
-              { "value": 0, "color": "green" },
-              { "value": 5, "color": "yellow" },
-              { "value": 20, "color": "red" }
-            ]
-          }
-        }
-      },
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 9 }
-    },
-    {
-      "title": "MySQL MGR状态",
-      "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "expr": "mysql_group_replication_members{state=\"ONLINE\"}",
-          "legendFormat": "{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "1": { "text": "ONLINE", "color": "green" }, "0": { "text": "OFFLINE", "color": "red" } } }
-          ]
-        }
-      },
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 9 }
-    },
-    {
-      "title": "Redis Cluster节点状态",
-      "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "expr": "redis_cluster_slots_ok",
-          "legendFormat": "{{instance}}"
-        }
-      ],
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 9 }
-    }
+    { "title": "K8s集群概览", "type": "stat", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 } },
+    { "title": "Node CPU使用率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 } },
+    { "title": "Node 内存使用率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 } },
+    { "title": "K8s Pod CPU使用率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 } },
+    { "title": "K8s Pod 内存使用率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 } },
+    { "title": "Pod 重启次数", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 } },
+    { "title": "Nginx请求速率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 } },
+    { "title": "MySQL QPS", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 } },
+    { "title": "MySQL MGR状态", "type": "stat", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 28 } },
+    { "title": "MySQL慢查询", "type": "timeseries", "gridPos": { "h": 8, "w": 6, "x": 18, "y": 28 } },
+    { "title": "Redis Cluster节点状态", "type": "stat", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 } },
+    { "title": "Redis内存使用率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 6, "y": 36 } },
+    { "title": "Redis连接数", "type": "timeseries", "gridPos": { "h": 8, "w": 6, "x": 18, "y": 36 } },
+    { "title": "ES集群状态", "type": "stat", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 } },
+    { "title": "ES索引速率", "type": "timeseries", "gridPos": { "h": 8, "w": 12, "x": 6, "y": 44 } },
+    { "title": "ES JVM堆使用", "type": "timeseries", "gridPos": { "h": 8, "w": 6, "x": 18, "y": 44 } }
   ],
-  "schemaVersion": 38,
-  "style": "dark",
-  "tags": ["kubernetes", "production"],
+  "schemaVersion": 39,
+  "tags": ["production", "kubernetes"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "title": "企业级运维监控仪表盘",
-  "uid": "enterprise-ops",
-  "version": 1
+  "uid": "enterprise-ops"
 }
