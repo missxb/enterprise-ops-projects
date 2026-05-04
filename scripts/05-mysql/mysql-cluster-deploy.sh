@@ -14,10 +14,15 @@ echo "=== MySQL MGR集群生产级部署 ==="
 echo "节点: ${NODES}"
 echo "版本: MySQL ${MYSQL_VERSION}"
 
+# 动态生成MGR集群UUID(避免多集群复用导致脑裂)
+MGR_CLUSTER_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+echo "MGR Cluster UUID: ${MGR_CLUSTER_UUID}"
+
 # Step 1: 配置所有节点
 echo ""
 echo ">>> Step 1: 配置MySQL环境"
 NODE_ID=0
+INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-48G}"  # 推荐物理内存的75%, 64G服务器→48G
 for node in ${NODES}; do
   NODE_ID=$((NODE_ID+1))
   echo "  配置 ${node} (server-id=${NODE_ID})..."
@@ -40,14 +45,14 @@ gtid_mode=ON
 enforce_gtid_consistency=ON
 master_info_repository=TABLE
 relay_log_info_repository=TABLE
-binlog_checksum=NONE
+binlog_checksum=CRC32  # MySQL 8.0.20+ MGR支持CRC32
 log_slave_updates=ON
 log_bin=mysql-bin
 binlog_format=ROW
 
 # === 组复制 ===
 plugin_load_add='group_replication.so'
-group_replication_group_name="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+group_replication_group_name="${MGR_CLUSTER_UUID}"
 group_replication_start_on_boot=OFF
 group_replication_local_address="${node}:33061"
 group_replication_group_seeds="${NODES// /:33061,}:33061"
@@ -58,7 +63,7 @@ group_replication_bootstrap_group=OFF
 # rpl_semi_sync_slave_enabled=1
 
 # === 性能优化 ===
-innodb_buffer_pool_size=12G
+innodb_buffer_pool_size=${INNODB_BUFFER_POOL}
 innodb_log_file_size=2G
 innodb_flush_log_at_trx_commit=1
 sync_binlog=1

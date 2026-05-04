@@ -19,9 +19,8 @@ for node in ${NODES}; do
 
 # 1. 禁用root远程登录(保留sudo)
 echo ">>> 1. 配置SSH安全"
-sed -i 's/^#PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -i 's/^PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -E -i 's/^#?PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -E -i 's/^#?PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 
 # 2. 配置SSH端口和白名单(生产环境修改默认端口)
 # sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config
@@ -129,8 +128,11 @@ echo ""
 echo "=== 安全加固完成 ==="
 echo "  下一步: 运行 compliance-check.sh 验证等保合规"
 
-# 7.6 审计日志轮转(防止磁盘占满)
-echo "配置审计日志轮转..."
+# Step 3: 审计日志轮转(在远程节点配置，防止磁盘占满)
+echo ""
+echo ">>> Step 3: 配置审计日志轮转"
+for node in ${NODES}; do
+  ssh root@${node} bash << 'LOGROTATE_EOF'
 cat > /etc/logrotate.d/audit << 'LOGROTATE'
 /var/log/audit/*.log {
     daily
@@ -145,4 +147,6 @@ cat > /etc/logrotate.d/audit << 'LOGROTATE'
     endscript
 }
 LOGROTATE
-echo "  ✅ 审计日志轮转已配置(保留30天)"
+LOGROTATE_EOF
+  echo "  ✅ ${node} 审计日志轮转已配置(保留30天)"
+done

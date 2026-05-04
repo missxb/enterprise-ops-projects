@@ -36,17 +36,12 @@ PG_PORT="${PG_PORT:-5432}"
 PG_ADMIN_USER="${PG_ADMIN_USER:?请设置PG_ADMIN_USER}"
 PG_ADMIN_PASS="${PG_ADMIN_PASS:?请设置PG_ADMIN_PASS}"
 
-PGPASS_FILE=$(mktemp)
-chmod 600 "${PGPASS_FILE}"
-echo "${PG_HOST}:${PG_PORT}:harbor_registry:${PG_ADMIN_USER}:${PG_ADMIN_PASS}" > "${PGPASS_FILE}"
-
 PGPASSWORD="${PG_ADMIN_PASS}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_ADMIN_USER}" -d postgres <<-PGEOSQL
   CREATE DATABASE harbor_registry;
   CREATE USER harbor WITH PASSWORD '${HARBOR_DB_PASSWORD}';
   GRANT ALL PRIVILEGES ON DATABASE harbor_registry TO harbor;
   ALTER DATABASE harbor_registry OWNER TO harbor;
 PGEOSQL
-rm -f "${PGPASS_FILE}"
 echo "  ✅ PostgreSQL数据库harbor_registry已创建"
 
 # Step 2: 部署外部Redis(使用阿里云Redis或自建Sentinel)
@@ -88,8 +83,8 @@ hostname: ${HARBOR_HOSTNAME}
 database:
   type: postgresql
   postgresql:
-    host: rds-xxx.pg.rds.aliyuncs.com
-    port: 5432
+    host: ${PG_HOST}
+    port: ${PG_PORT}
     username: harbor
     password: ${HARBOR_DB_PASSWORD}
     core_database: registry
@@ -98,8 +93,8 @@ database:
 
 # === 外部Redis(不使用内置Redis) ===
 redis:
-  host: r-xxx.redis.rds.aliyuncs.com
-  port: 6379
+  host: ${REDIS_HOST}
+  port: ${REDIS_PORT}
   password: ${REDIS_PASSWORD}
   db_index: 0
   namespace: "harbor:"

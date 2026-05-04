@@ -51,7 +51,7 @@ warn "审计规则配置" "[ -f /etc/audit/rules.d/audit.rules ] && [ -s /etc/au
 
 echo "--- 4. 网络安全 ---"
 warn "防火墙状态(K8s节点需关闭)" "systemctl is-active firewalld 2>/dev/null || iptables -L -n | grep -q 'DROP\\\\|REJECT'"
-warn "SSH端口非默认" "grep -q '^Port [^22]' /etc/ssh/sshd_config 2>/dev/null"
+warn "SSH端口非默认" "grep -E '^Port [0-9]+' /etc/ssh/sshd_config 2>/dev/null | grep -qv 'Port 22'"
 # K8s节点需开启IP转发，非K8s节点需关闭
 if systemctl is-active kubelet >/dev/null 2>&1; then
   warn "IP转发(K8s节点应开启)" "[ \$(sysctl -n net.ipv4.ip_forward) = '1' ]"
