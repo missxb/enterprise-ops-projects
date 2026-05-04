@@ -498,7 +498,7 @@ COPY src/ src/
 RUN mvn clean package -DskipTests -B
 
 # Stage 2: 运行
-FROM eclipse-temurin:17-jre-alpine AS runtime
+FROM eclipse-temurin:17-jre-jammy AS runtime  # Ubuntu替代Alpine，避免musl libc兼容问题
 
 # 安全: 创建非root用户
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -574,6 +574,8 @@ cat > /opt/sonarqube/conf/sonar.properties << EOF
 sonar.jdbc.username=sonarqube
 sonar.jdbc.password=${SONARQUBE_DB_PASSWORD}
 sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube?currentSchema=public
+# [生产建议] 使用独立PostgreSQL: jdbc:postgresql://sonar-db-host:5432/sonarqube
+# 或使用阿里云RDS PostgreSQL，避免同机部署导致资源竞争
 sonar.web.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
 sonar.ce.javaAdditionalOpts=-server -Xms1g -Xmx4g -XX:+UseG1GC
 sonar.search.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
@@ -688,7 +690,8 @@ set -euo pipefail
 
 echo "安装Jenkins..."
 wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
-rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2024.key
+# [注意] GPG key每年更新，如安装失败请检查 https://www.jenkins.io/download/ 获取最新key
 
 # 安装JDK
 yum install -y java-17-openjdk java-17-openjdk-devel
@@ -711,6 +714,27 @@ cat /var/lib/jenkins/secrets/initialAdminPassword
 ```
 
 ### 6.1 Jenkins Pipeline共享库
+
+> **Shared Library仓库结构**:
+> ```
+> enterprise-pipeline-lib/
+> ├── vars/                    # 全局变量/函数(在Pipeline中直接调用)
+> │   ├── enterprisePipeline.groovy   # 主Pipeline模板
+> │   ├── buildJava.groovy            # Java构建步骤
+> │   └── deployK8s.groovy            # K8s部署步骤
+> ├── src/                     # Groovy源码(可选)
+> │   └── com/
+> │       └── enterprise/
+> │           └── pipeline/
+> │               └── Utils.groovy
+> ├── resources/               # 非Groovy资源文件
+> │   └── templates/
+> └── README.md
+> ```
+> 在Jenkins中配置: Manage Jenkins → Configure System → Global Pipeline Libraries
+> - Name: enterprise-lib
+> - Default version: main
+> - Source: Git, URL: https://gitlab.internal.com/platform/enterprise-pipeline-lib.git
 
 ```groovy
 // vars/enterprisePipeline.groovy - 共享Pipeline库
@@ -859,6 +883,9 @@ kubectl -n argocd patch svc argocd-server -p '{"spec": {"type": "LoadBalancer", 
 echo "✅ ArgoCD安装完成"
 echo "URL: http://10.10.10.212"
 echo "用户名: admin / 密码: ${ARGOCD_PWD}"
+# [生产建议] 配置Ingress+TLS替代HTTP LoadBalancer:
+# kubectl apply -f argocd-ingress.yaml  # 含cert-manager TLS注解
+# 生产环境禁止通过HTTP暴露ArgoCD管理界面
 ```
 
 ### 7.1 ArgoCD Application配置
@@ -888,10 +915,11 @@ spec:
     namespace: production
   
   syncPolicy:
-      # [注意] selfHeal+prune在生产中可能导致意外删除，建议先在staging验证
+      # [注意] selfHeal在生产中可能导致意外回滚，建议先在staging验证
+      # 如需自动回滚，将selfHeal改为true
     automated:
       prune: true
-      selfHeal: false  # 生产中建议关闭，避免Git误改导致资源被删
+      selfHeal: true  # 自动修复偏离Git状态的资源(自动回滚)
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
@@ -1099,6 +1127,13 @@ patches:
 
 ## 八、灰度发布与金丝雀发布
 
+> **前置依赖**: 金丝雀发布需要Istio服务网格。部署Istio:
+> ```bash
+> istioctl install --set profile=default -y
+> kubectl label namespace production istio-injection=enabled
+> ```
+> 如不使用Istio，可改用Nginx Ingress的canary annotation实现简单灰度。
+
 ```yaml
 # canary-deployment.yaml - Istio金丝雀发布
 ---
@@ -1143,6 +1178,7 @@ spec:
 SERVICE="user-service"
 NAMESPACE="production"
 CANARY_VERSION="v2"
+CANARY_WAIT="${CANARY_WAIT:-300}"  # 金丝雀观察时间(秒)，可通过环境变量覆盖
 
 echo "Phase 1: 10% -> 30%"
 kubectl apply -f - << EOF
@@ -1165,7 +1201,7 @@ spec:
           weight: 30
 EOF
 
-sleep 300  # 观察5分钟
+sleep ${CANARY_WAIT}  # 观察期，基于CANARY_WAIT变量
 
 echo "Phase 2: 30% -> 50%"
 kubectl apply -f - << EOF
@@ -1188,7 +1224,7 @@ spec:
           weight: 50
 EOF
 
-sleep 300
+sleep ${CANARY_WAIT}
 
 echo "Phase 3: 50% -> 100% (全量切换)"
 kubectl apply -f - << EOF
@@ -1741,8 +1777,14 @@ JENKINS_HOME="/var/jenkins_home"
 BACKUP_DIR="/data/jenkins-backup"
 DATE=$(date +%Y%m%d)
 
-# 备份关键目录
-tar czf ${BACKUP_DIR}/jenkins-${DATE}.tar.gz   ${JENKINS_HOME}/config.xml   ${JENKINS_HOME}/jobs/*/config.xml   ${JENKINS_HOME}/secrets   ${JENKINS_HOME}/credentials.xml   ${JENKINS_HOME}/plugins/*.jpi   --exclude='*.log'
+# 备份关键目录(排除敏感数据或加密)
+# [注意] secrets/目录包含master.key等敏感文件，备份后必须加密
+tar czf ${BACKUP_DIR}/jenkins-${DATE}.tar.gz \
+  ${JENKINS_HOME}/config.xml \
+  ${JENKINS_HOME}/jobs/*/config.xml \
+  ${JENKINS_HOME}/plugins/*.jpi \
+  --exclude='*.log' \
+  --exclude='secrets/'
 
 # 上传到S3
 aws s3 cp ${BACKUP_DIR}/jenkins-${DATE}.tar.gz s3://jenkins-backup/

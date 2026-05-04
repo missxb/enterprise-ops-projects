@@ -45,10 +45,10 @@
           │                    Calico BGP 网络                     │
           └──┬──────┬──────┬──────┬──────┬──────┬──────┬────┬────┘
              │      │      │      │      │      │      │    │
-          ┌──┴──┐┌──┴──┐┌──┴──┐┌──┴──┐┌──┴──┐┌──┴──┐┌──┴─┐┌┴────┐
-          │W-01 ││W-02 ││W-03 ││W-04 ││W-05 ││W-06 ││W-07││W-N  │
-          │worker││worker││worker││worker││worker││worker││worke││worke│
-          └─────┘└─────┘└─────┘└─────┘└─────┘└─────┘└────┘└─────┘
+          ┌──┴──┐┌──┴──┐┌──┴──┐┌──┴──┐┌──┴──┐
+          │W-01 ││W-02 ││W-03 ││W-04 ││W-05 │
+          │worker││worker││worker││worker││worker│
+          └─────┘└─────┘└─────┘└─────┘└─────┘
 ```
 
 ---
@@ -540,7 +540,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-  - 10.10.200.100-10.10.200.200   # 41个可用IP
+  - 10.10.200.100-10.10.200.200   # 101个可用IP (需与节点同一二层/VLAN)
 ---
 apiVersion: metallb.io/v1beta2
 kind: L2Advertisement
@@ -574,8 +574,10 @@ HARBOR_IP="10.10.10.31"
 
 echo "安装Docker Compose..."
 yum install -y docker-compose-plugin  # 或: dnf install -y docker-compose-plugin
-  -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+# [注意] docker-compose-plugin安装后提供docker compose(无连字符)命令
+# 如需独立docker-compose(连字符)二进制，可手动下载:
+# curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+#   -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
 
 echo "下载Harbor..."
 cd /opt
@@ -591,7 +593,7 @@ cd /opt/harbor/certs
 # [生产建议] 使用cert-manager自动管理证书，避免手动openssl操作:
 # helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
 openssl genrsa -out ca.key 4096
-openssl req -x509 -new -nodes -sha512 -days 3650 \
+openssl req -x509 -new -nodes -sha512 -days 365 \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Harbor-CA" \
   -key ca.key -out ca.crt
 
@@ -614,7 +616,7 @@ DNS.2=harbor-01
 IP.1=${HARBOR_IP}
 EOF
 
-openssl x509 -req -sha512 -days 3650 \
+openssl x509 -req -sha512 -days 365 \
   -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial \
   -in harbor.csr -out harbor.crt
 
@@ -1230,7 +1232,11 @@ echo "Grafana: http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
 set -euo pipefail
 
 echo "部署Elasticsearch..."
-helm install elasticsearch elastic/elasticsearch \\\n  --set nodes.hot.replicas=1 \\\n  --set nodes.warm.replicas=1 \\\n  --set nodes.cold.replicas=1 \\\n  --set persistence.storageClass=aliyun-disk-ssd \
+helm install elasticsearch elastic/elasticsearch \
+  --set nodes.hot.replicas=1 \
+  --set nodes.warm.replicas=1 \
+  --set nodes.cold.replicas=1 \
+  --set persistence.storageClass=aliyun-disk-ssd \
   --namespace logging --create-namespace \
   --set replicas=3 \
   --set resources.requests.cpu=1 \
@@ -1391,13 +1397,13 @@ done
 wait
 echo "所有节点初始化完成"
 
-echo "Step 2: 初始化K8s集群(kubeadm init)..."
+echo "Step 2: 安装HAProxy+Keepalived..."
 ssh root@10.10.10.11 'bash -s' < install_haproxy_keepalived.sh
 echo "负载均衡安装完成"
 
-echo "Step 3: 安装HAProxy+Keepalived..."
-ssh root@10.10.10.11 'bash -s' < install_haproxy_keepalived.sh
-echo "负载均衡安装完成"
+echo "Step 3: 初始化K8s集群(kubeadm init)..."
+ssh root@10.10.10.11 'bash -s' < kubeadm_init.sh
+echo "K8s集群初始化完成"
 
 echo "Step 4: 安装Calico网络..."
 ssh root@10.10.10.11 'bash -s' < install_calico.sh
@@ -1951,25 +1957,11 @@ DNS: app.example.com → 机房A优先，机房B备用
 
 ### etcd备份恢复
 
+> **etcd备份脚本见第十一节** (etcd_backup.sh)，此处仅展示恢复流程。
+
 ```bash
 #!/bin/bash
-# etcd_backup.sh - etcd自动备份
-
-BACKUP_DIR="/data/etcd-backup"
-DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS=7
-
-# 执行备份
-ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/snapshot-${DATE}.db   --endpoints=https://127.0.0.1:2379   --cacert=/etc/kubernetes/pki/etcd/ca.crt   --cert=/etc/kubernetes/pki/etcd/server.crt   --key=/etc/kubernetes/pki/etcd/server.key
-
-# 验证备份
-ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/snapshot-${DATE}.db --write-out=table
-
-# 清理过期备份
-find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +${KEEP_DAYS} -delete
-
-# 上传到远程存储
-aws s3 cp ${BACKUP_DIR}/snapshot-${DATE}.db s3://k8s-etcd-backup/
+# etcd_restore.sh - etcd恢复(从备份快照恢复)
 ```
 
 ### 故障切换SOP
@@ -1988,8 +1980,20 @@ if [ $? -eq 0 ]; then
     exit 1
 fi
 
-# 2. 提升机房B为只读模式
-kubectl --context=dc-b patch deployment kube-apiserver -n kube-system   --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/args/-","value":"--authorization-mode=RBAC,AlwaysAllow"}]'
+# 2. 在机房B的Master节点上修改apiserver启动参数(Static Pod)
+# [注意] kube-apiserver是Static Pod，不是Deployment，不能用kubectl patch
+# 需要修改 /etc/kubernetes/manifests/kube-apiserver.yaml
+# 在机房B的所有Master节点上执行:
+for master in dc-b-master-01 dc-b-master-02 dc-b-master-03; do
+  ssh root@${master} bash << 'PATCH_EOF'
+    # 备份原配置
+    cp /etc/kubernetes/manifests/kube-apiserver.yaml /etc/kubernetes/manifests/kube-apiserver.yaml.bak
+    # 修改authorization-mode为RBAC (移除AlwaysAllow)
+    sed -i 's/--authorization-mode=Node,RBAC,AlwaysAllow/--authorization-mode=Node,RBAC/' \
+      /etc/kubernetes/manifests/kube-apiserver.yaml
+    echo "已修改 ${master} apiserver authorization-mode"
+PATCH_EOF
+done
 
 # 3. 更新DNS指向机房B
 # aws route53 change-resource-record-sets ...
