@@ -333,7 +333,7 @@ vrrp_instance K8S_VIP {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGEME  # 生产环境替换: openssl rand -hex 4 (8字符)
+        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
     }
     virtual_ipaddress {
         ${VIP}/24 dev eth0

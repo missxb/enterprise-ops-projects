@@ -272,7 +272,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGEME  # 生产环境替换: openssl rand -hex 4 (8字符)
+        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -421,7 +421,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGEME  # 生产环境替换: openssl rand -hex 4 (8字符)
+        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -446,7 +446,7 @@ vrrp_instance VI_2 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGEME  # 生产环境替换: openssl rand -hex 4 (8字符)
+        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {

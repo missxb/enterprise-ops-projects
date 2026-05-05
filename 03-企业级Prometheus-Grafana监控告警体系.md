@@ -94,9 +94,9 @@ data:
     
     ```
 
-    # Thanos Sidecar配置(独立 Deployment)
-    # 注意: Thanos Sidecar应作为sidecar容器嵌入Prometheus StatefulSet,
-    # 或作为独立Deployment部署,而非放在scrape_configs YAML块内
+    ```yaml
+    # Thanos Sidecar配置(独立Deployment)
+    # 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
     apiVersion: apps/v1
     kind: Deployment
     metadata:

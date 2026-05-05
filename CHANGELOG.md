@@ -1,5 +1,75 @@
 # CHANGELOG
 
+## [1.4.0] - 2026-05-05
+
+### Fixed
+- PITR脚本重写: binlog预生成SQL文件→MySQL启动后SOURCE应用(支持MGR+GTID)
+- PITR脚本: 添加GTID冲突处理说明
+- Prometheus YAML: Thanos Sidecar拆分为独立代码块
+- Prometheus版本: v2.48.0→v2.50.0对齐README
+- Prometheus: Helm chart锁定65.1.0版本
+- Prometheus: replica标签添加唯一性说明
+- MetalLB: API版本v1beta2→v1beta1, IP池10.10.200→10.10.10.200同子网
+- SELinux: Doc01 disabled→permissive(与node-init.sh对齐)
+- etcd备份路径: /opt/→/data/(与脚本统一)
+- Harbor: systemd docker-compose→docker compose(适配2.12)
+- Harbor: ExecStop同步修正
+- Harbor: 域名硬编码→${HARBOR_DOMAIN}变量
+- Harbor: cert-manager自动续期集成
+- containerd: 注释已停用镜像站(tuna/daocloud/noohub)
+- K8s防火墙: 补10257/10259/4789端口
+- K8s防火墙: 10255标注K8s 1.16+已废弃
+- K8s: kubeadm API v1beta3→v1beta4
+- Ansible: apt_key→get_url+signed-by(Ubuntu 22.04+)
+- Ansible: fail2ban ignoreip白名单
+- Redis备份: 动态RDB路径(CONFIG GET替代硬编码)
+- Redis: sudo环境变量修复+sudoers说明
+- Redis: io-threads注释去重
+- MySQL: MGR heredoc变量展开修复
+- MySQL: MGR数据一致性校验(pt-table-checksum)
+- MySQL: binlog-do_db注释柔化
+- mysql-backup.sh: xtrabackup安装检查
+- MySQL: ProxySQL密码变量文档化
+- validate.sh: Helm模板YAML解析跳过
+- validate.sh: root123误报修复
+- Helm: 新增serviceaccount.yaml
+- Helm: 新增networkpolicy.yaml
+- Helm: deployment添加PodAntiAffinity+envFrom
+- Helm: 添加failureThreshold
+- ES: ILM freeze→searchable_snapshot(ES 8.x)
+- ES: node.roles环境变量化
+- Kafka: ADVERTISED_LISTENERS改用Downward API
+- Kafka: resources 1Gi/2Gi→4Gi/8Gi
+- Thanos: store地址改为Headless Service FQDN
+- Thanos: Grafana端口10902→9090
+- AlertManager: SMTP 465+587备选方案文档
+- Istio: 移除fault injection(生产风险)
+- Kong: DB-less模式注释redis_host
+- Kong: KongIngress废弃标注
+- 等保合规: 对齐GB/T 22239-2019标准10大类
+- Terraform: image_id改为data source动态查询
+- NodeDown告警for时间统一3m
+- 混沌表格||语法修复
+- 混沌工程: 补充Litmus Chaos+ChaosBlade方案
+
+### Added
+- demo-app/: Go HTTP服务+Dockerfile(可运行Demo)
+- docs/dr-drill-record-template.md: 灾备演练记录模板
+- docs/performance-benchmarks.md: MySQL/Redis/K8s性能基准
+- docs/gitops-workflow.md: ArgoCD Application+ApplicationSet完整示例
+- docs/change-management.md: 金丝雀发布+DDL审核流程
+- docs/capacity-planning.md: 自动化容量巡检脚本
+- docs/disaster-recovery-sop.md: 跨机房etcd灾备配置
+- .env.example: 扩展至158行,覆盖所有变量
+- scripts/05-mysql/pitr-restore.sh: 重写(MGR+GTID安全)
+- scripts/01-k8s/harbor-deploy.sh: cert-manager集成说明
+
+### Changed
+- Prometheus ConfigMap: Thanos Sidecar拆分为独立Deployment
+- Keepalived auth_pass: CHANGEME→${KEEPALIVED_AUTH_PASS}环境变量
+- containerd镜像源: 已停用站点注释掉
+- K8s防火墙: 所有节点均启用(含K8s集群端口)
+
 ## [1.3.0] - 2026-05-04
 
 ### Added
