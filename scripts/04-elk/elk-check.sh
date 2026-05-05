@@ -11,13 +11,13 @@ ES_HOST="${ES_HOST:-localhost:9200}"
 echo "=== ELK健康检查 ==="
 
 echo "1. Elasticsearch状态..."
-ES_HEALTH=$(curl -s "http://${ES_HOST}/_cluster/health")
+ES_HEALTH=$(curl -sk "https://${ES_HOST}/_cluster/health")
 echo "  status: $(echo $ES_HEALTH | jq -r '.status')"
 echo "  nodes: $(echo $ES_HEALTH | jq -r '.number_of_nodes')"
 echo "  shards: $(echo $ES_HEALTH | jq -r '.active_shards')"
 
 echo "2. 索引状态..."
-curl -s "http://${ES_HOST}/_cat/indices?v&s=index" | head -10
+curl -sk "https://${ES_HOST}/_cat/indices?v&s=index" | head -10
 
 echo "3. Logstash状态..."
 curl -s "http://localhost:9600/_node/stats" | jq '.status' 2>/dev/null && echo "  ✅ Logstash运行" || echo "  ⚠️ Logstash未运行"

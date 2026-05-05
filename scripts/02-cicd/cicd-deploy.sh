@@ -53,7 +53,45 @@ spec:
     app: jenkins
 EOF
 
-# 4. Jenkins Deployment
+# 4. Jenkins RBAC (ServiceAccount/Role/RoleBinding)
+kubectl apply -n ${NAMESPACE} -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-role
+  namespace: ${NAMESPACE}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-role
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: ${NAMESPACE}
+EOF
+
+# 5. Jenkins Deployment
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -90,44 +128,6 @@ spec:
         - name: jenkins-data
           persistentVolumeClaim:
             claimName: jenkins-pvc
-EOF
-
-# 5. Jenkins RBAC
-kubectl apply -n ${NAMESPACE} -f - <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: jenkins
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: jenkins-role
-  namespace: ${NAMESPACE}
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "configmaps"]
-    verbs: ["get", "list", "watch", "create", "update"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: jenkins
-  namespace: ${NAMESPACE}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: jenkins-role
-subjects:
-  - kind: ServiceAccount
-    name: jenkins
-    namespace: ${NAMESPACE}
 EOF
 
 # 6. SonarQube PostgreSQL(必须先部署)

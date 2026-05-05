@@ -87,7 +87,7 @@ After=network.target
 User=redis
 Group=redis
 ExecStart=/usr/bin/redis-server /etc/redis/redis_${PORT}.conf
-ExecStop=/usr/bin/redis-cli -p ${PORT} shutdown
+ExecStop=/usr/bin/redis-cli -a ${REDIS_PASSWORD} -p ${PORT} shutdown
 Restart=always
 LimitNOFILE=65535
 [Install]

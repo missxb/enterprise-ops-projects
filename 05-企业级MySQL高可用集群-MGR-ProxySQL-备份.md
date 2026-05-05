@@ -786,7 +786,7 @@ SHOW PROCESSLIST;
 
 -- 2. 临时跳过该事务(危险操作，需确认数据一致性)
 STOP SLAVE;
-SET GLOBAL sql_replica_skip_counter = 1;
+SET GLOBAL replica_skip_counter = 1;
 START SLAVE;
 
 -- 3. 验证复制状态

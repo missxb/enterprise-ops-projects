@@ -95,10 +95,9 @@ log-error=/var/log/mysqld.log
 # === MGR配置 ===
 gtid_mode=ON
 enforce_gtid_consistency=ON
-master_info_repository=TABLE
-relay_log_info_repository=TABLE
+
 binlog_checksum=CRC32  # MySQL 8.0.20+ MGR支持CRC32
-log_slave_updates=ON
+log_replica_updates=ON
 log_bin=mysql-bin
 binlog_format=ROW
 
