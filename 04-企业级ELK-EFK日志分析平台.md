@@ -48,7 +48,7 @@
     48|  elasticsearch.yml: |
     49|    cluster.name: enterprise-logs
     50|    node.name: ${NODE_NAME}
-    51|    node.roles: [master]
+    51|    node.roles: ${NODE_ROLES:master}  # 通过环境变量NODE_ROLES注入
     52|    path.data: /usr/share/elasticsearch/data
     53|    path.logs: /usr/share/elasticsearch/logs
     54|    network.host: 0.0.0.0

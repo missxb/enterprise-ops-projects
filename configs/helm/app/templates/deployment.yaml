@@ -55,6 +55,7 @@ spec:
             port: {{ .Values.service.port }}
           initialDelaySeconds: 15
           periodSeconds: 10
+          failureThreshold: 3
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
