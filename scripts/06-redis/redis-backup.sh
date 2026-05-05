@@ -33,7 +33,10 @@ for node in ${REDIS_NODES}; do
       fi
     done
     # 拷贝dump文件
-    ssh ${REDIS_USER}@${node} "sudo cp /var/lib/redis/dump.rdb ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb" 2>/dev/null
+    # 动态获取RDB文件路径
+    RDB_DIR=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dir 2>/dev/null | tail -1" 2>/dev/null || echo "/var/lib/redis")
+    RDB_FILE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dbfilename 2>/dev/null | tail -1" 2>/dev/null || echo "dump.rdb")
+    ssh ${REDIS_USER}@${node} "sudo cp ${RDB_DIR}/${RDB_FILE} ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb" 2>/dev/null
     echo "  ✅ ${node}:${port} 备份完成"
   done
 done

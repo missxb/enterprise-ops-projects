@@ -45,7 +45,7 @@ dir /var/lib/redis
 # === 安全配置 ===
 requirepass ${REDIS_PASSWORD}
 masterauth ${REDIS_PASSWORD}
-# [生产建议] Redis 6.0+推荐使用ACL:
+# [生产建议] Redis 6.0+推荐使用ACL(替代requirepass):
 # acl setuser app_user on >password ~* +get +set +del -flushdb -flushall -debug
 
 # === 持久化(RDB+AOF) ===

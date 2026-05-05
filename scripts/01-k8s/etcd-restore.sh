@@ -44,7 +44,11 @@ ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
 
 # 替换数据目录
 echo "Step 3: 替换数据目录..."
-rm -rf /var/lib/etcd.bak
+# 安全备份: 先检查是否已有.bak，避免覆盖之前的备份
+if [ -d /var/lib/etcd.bak ]; then
+  echo "⚠️  发现已有备份 /var/lib/etcd.bak，使用时间戳重命名"
+  mv /var/lib/etcd.bak /var/lib/etcd.bak.$(date +%Y%m%d%H%M%S)
+fi
 mv /var/lib/etcd /var/lib/etcd.bak
 mv /var/lib/etcd-restore /var/lib/etcd
 

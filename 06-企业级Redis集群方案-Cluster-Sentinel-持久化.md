@@ -373,7 +373,32 @@ sentinel notification-script mymaster /opt/scripts/redis-notify.sh
 sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
 ```
 
-### 4.2 故障切换通知脚本
+### 4.2 Sentinel常用命令
+
+```bash
+# 查看Sentinel状态
+redis-cli -p 26379 sentinel master mymaster
+redis-cli -p 26379 sentinel slaves mymaster
+redis-cli -p 26379 sentinel sentinels mymaster
+
+# 手动故障切换(计划维护时使用)
+redis-cli -p 26379 sentinel failover mymaster
+
+# 重置Sentinel状态(故障恢复后)
+redis-cli -p 26379 sentinel reset mymaster
+
+# 检查Sentinel leader选举
+redis-cli -p 26379 sentinel get-master-addr-by-name mymaster
+
+# Sentinel故障切换流程:
+# 1. subjective-down (SDOWN): 单个Sentinel认为Master不可达
+# 2. objective-down (ODOWN): quorum个Sentinel都认为Master不可达
+# 3. leader选举: Sentinel之间选举leader执行failover
+# 4. 选择新Master: 优先级→offset→runid
+# 5. 通知客户端: 更新拓扑信息
+```
+
+### 4.3 故障切换通知脚本
 
 ```bash
 #!/bin/bash

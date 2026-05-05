@@ -20,6 +20,21 @@ EOF
 
 mkdir -p ${BACKUP_DIR}/full ${BACKUP_DIR}/binlog
 
+# 检查xtrabackup是否安装
+if ! command -v xtrabackup &>/dev/null; then
+  echo "⚠️  xtrabackup未安装，正在安装..."
+  if command -v yum &>/dev/null; then
+    yum install -y https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+    percona-release enable-only tools
+    yum install -y percona-xtrabackup-80
+  elif command -v apt-get &>/dev/null; then
+    apt-get install -y percona-xtrabackup-80
+  else
+    echo "❌ 无法自动安装xtrabackup，请手动安装"
+    exit 1
+  fi
+fi
+
 echo "=== MySQL全量备份(xtrabackup) ==="
 xtrabackup --backup --defaults-extra-file=${MYSQL_CNF} \
   --target-dir=${BACKUP_DIR}/full/${DATE}
