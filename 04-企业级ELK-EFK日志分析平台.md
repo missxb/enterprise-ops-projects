@@ -1,600 +1,600 @@
-1|# 企业级ELK/EFK日志分析平台
-     2|
-     3|> 完整实现企业级日志收集、存储、检索、可视化全链路
-     4|> 覆盖: Elasticsearch集群 + Filebeat + Kibana + ILM生命周期 + 安全加固
-     5|
-     6|---
-     7|
-     8|## 一、架构总览
-     9|
-    10|```
-    11|应用Pod ──▶ Filebeat(DaemonSet) ──▶ Kafka(可选缓冲) ──▶ Logstash ──▶ Elasticsearch ──▶ Kibana
-    12|                                      │                                      │
-    13|                                      │              ┌────────────────────────┘
-    14|                                      │              ▼
-    15|                                      │    ILM生命周期管理
-    16|                                      │    热节点(SSD) → 温节点(HDD) → 冷节点(归档)
-    17|                                      │
-    18|                                      └──▶ 直连ES(轻量方案,跳过Logstash)
-    19|```
-    20|
-    21|---
-    22|
-    23|## 二、服务器规划
-    24|
-    25|| 服务 | 数量 | 配置 | 用途 |
-    26||------|------|------|------|
-    27|| Elasticsearch Master | 3 | 8C/32G/200G SSD | 集群管理+协调 |
-    28|| Elasticsearch Data-Hot | 3 | 16C/64G/2T NVMe | 热数据(7天) |
-    29|| Elasticsearch Data-Warm | 2 | 8C/32G/4T HDD | 温数据(30天) |
-    30|| Elasticsearch Data-Cold | 1 | 4C/16G/10T HDD | 冷数据(90天) |
-    31|| Kibana | 2 | 4C/8G/50G | 可视化 |
-    32|| Logstash | 3 | 8C/16G/100G | 日志转换 |
-    33|| Filebeat | DaemonSet | - | 日志采集 |
-    34|
-    35|---
-    36|
-    37|## 三、Elasticsearch集群部署
-    38|
-    39|```yaml
-    40|# elasticsearch-statefulset.yaml
-    41|---
-    42|apiVersion: v1
-    43|kind: ConfigMap
-    44|metadata:
-    45|  name: elasticsearch-config
-    46|  namespace: logging
-    47|data:
-    48|  elasticsearch.yml: |
-    49|    cluster.name: enterprise-logs
-    50|    node.name: ${NODE_NAME}
-    51|    node.roles: ${NODE_ROLES:master}  # 通过环境变量NODE_ROLES注入
-    52|    path.data: /usr/share/elasticsearch/data
-    53|    path.logs: /usr/share/elasticsearch/logs
-    54|    network.host: 0.0.0.0
-    55|    discovery.seed_hosts:
-    56|      - es-master-0.es-master.logging.svc.cluster.local
-    57|      - es-master-1.es-master.logging.svc.cluster.local
-    58|      - es-master-2.es-master.logging.svc.cluster.local
-    59|    cluster.initial_master_nodes:
-    60|      - es-master-0
-    61|      - es-master-1
-    62|      - es-master-2
-    63|    xpack.security.enabled: true
-    64|    xpack.security.transport.ssl.enabled: true
-    65|    xpack.security.transport.ssl.verification_mode: certificate
-    66|    xpack.security.transport.ssl.keystore.path: /usr/share/elasticsearch/config/certs/transport.p12
-    67|    xpack.security.transport.ssl.truststore.path: /usr/share/elasticsearch/config/certs/transport.p12
-    68|    xpack.security.http.ssl.enabled: true
-    69|    xpack.security.http.ssl.keystore.path: /usr/share/elasticsearch/config/certs/http.p12
-    70|
-    71|  jvm.options: |
-    72|    -Xms16g
-    73|    -Xmx16g
-    74|    -XX:+UseG1GC
-    75|    -XX:G1HeapRegionSize=4m
-    76|    -XX:InitiatingHeapOccupancyPercent=30
-    77|    -XX:G1ReservePercent=15
-    78|    -XX:MaxGCPauseMillis=200
-    79|    -Djava.io.tmpdir=/tmp
-    80|    -XX:+HeapDumpOnOutOfMemoryError
-    81|    -XX:HeapDumpPath=/tmp/heapdump.hprof
-    82|
-    83|---
-    84|apiVersion: apps/v1
-    85|kind: StatefulSet
-    86|metadata:
-    87|  name: es-master
-    88|  namespace: logging
-    89|spec:
-    90|  serviceName: es-master
-    91|  replicas: 3
-    92|  selector:
-    93|    matchLabels:
-    94|      app: elasticsearch
-    95|      role: master
-    96|  template:
-    97|    metadata:
-    98|      labels:
-    99|        app: elasticsearch
-   100|        role: master
-   101|    spec:
-   102|      initContainers:
-   103|        # 设置vm.max_map_count
-   104|        - name: sysctl
-   105|          image: busybox
-   106|          command: ['sysctl', '-w', 'vm.max_map_count=262144']
+# 企业级ELK/EFK日志分析平台
+
+> 完整实现企业级日志收集、存储、检索、可视化全链路
+> 覆盖: Elasticsearch集群 + Filebeat + Kibana + ILM生命周期 + 安全加固
+
+---
+
+## 一、架构总览
+
+```
+应用Pod ──▶ Filebeat(DaemonSet) ──▶ Kafka(可选缓冲) ──▶ Logstash ──▶ Elasticsearch ──▶ Kibana
+                                      │                                      │
+                                      │              ┌────────────────────────┘
+                                      │              ▼
+                                      │    ILM生命周期管理
+                                      │    热节点(SSD) → 温节点(HDD) → 冷节点(归档)
+                                      │
+                                      └──▶ 直连ES(轻量方案,跳过Logstash)
+```
+
+---
+
+## 二、服务器规划
+
+| 服务 | 数量 | 配置 | 用途 |
+|------|------|------|------|
+| Elasticsearch Master | 3 | 8C/32G/200G SSD | 集群管理+协调 |
+| Elasticsearch Data-Hot | 3 | 16C/64G/2T NVMe | 热数据(7天) |
+| Elasticsearch Data-Warm | 2 | 8C/32G/4T HDD | 温数据(30天) |
+| Elasticsearch Data-Cold | 1 | 4C/16G/10T HDD | 冷数据(90天) |
+| Kibana | 2 | 4C/8G/50G | 可视化 |
+| Logstash | 3 | 8C/16G/100G | 日志转换 |
+| Filebeat | DaemonSet | - | 日志采集 |
+
+---
+
+## 三、Elasticsearch集群部署
+
+```yaml
+# elasticsearch-statefulset.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: logging
+data:
+  elasticsearch.yml: |
+    cluster.name: enterprise-logs
+    node.name: ${NODE_NAME}
+    node.roles: ${NODE_ROLES:master}  # 通过环境变量NODE_ROLES注入
+    path.data: /usr/share/elasticsearch/data
+    path.logs: /usr/share/elasticsearch/logs
+    network.host: 0.0.0.0
+    discovery.seed_hosts:
+      - es-master-0.es-master.logging.svc.cluster.local
+      - es-master-1.es-master.logging.svc.cluster.local
+      - es-master-2.es-master.logging.svc.cluster.local
+    cluster.initial_master_nodes:
+      - es-master-0
+      - es-master-1
+      - es-master-2
+    xpack.security.enabled: true
+    xpack.security.transport.ssl.enabled: true
+    xpack.security.transport.ssl.verification_mode: certificate
+    xpack.security.transport.ssl.keystore.path: /usr/share/elasticsearch/config/certs/transport.p12
+    xpack.security.transport.ssl.truststore.path: /usr/share/elasticsearch/config/certs/transport.p12
+    xpack.security.http.ssl.enabled: true
+    xpack.security.http.ssl.keystore.path: /usr/share/elasticsearch/config/certs/http.p12
+
+  jvm.options: |
+    -Xms16g
+    -Xmx16g
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=4m
+    -XX:InitiatingHeapOccupancyPercent=30
+    -XX:G1ReservePercent=15
+    -XX:MaxGCPauseMillis=200
+    -Djava.io.tmpdir=/tmp
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:HeapDumpPath=/tmp/heapdump.hprof
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: es-master
+  namespace: logging
+spec:
+  serviceName: es-master
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch
+      role: master
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        role: master
+    spec:
+      initContainers:
+        # 设置vm.max_map_count
+        - name: sysctl
+          image: busybox
+          command: ['sysctl', '-w', 'vm.max_map_count=262144']
           # [注意] 这只在Pod运行时生效。节点重启后需在初始化脚本中持久化:
           # echo "vm.max_map_count=262144" >> /etc/sysctl.d/99-elasticsearch.conf && sysctl -p
-   115|      containers:
-   116|        - name: elasticsearch
-   117|          image: elasticsearch:8.11.3
-   118|          ports:
-   119|            - containerPort: 9200  # ES端口
-   120|              name: http
-   121|            - containerPort: 9300
-   122|              name: transport
-   123|          env:
-   124|            - name: NODE_NAME
-   125|              valueFrom:
-   126|                fieldRef:
-   127|                  fieldPath: metadata.name
-   128|            - name: ES_JAVA_OPTS
-   129|              value: "-Xms16g -Xmx16g"
-   130|            - name: ELASTIC_PASSWORD
-   131|              valueFrom:
-   132|                secretKeyRef:
-   133|                  name: elasticsearch-credentials
-   134|                  key: elastic
-   135|          resources:
-   136|            requests:
-   137|              cpu: "4"
-   138|              memory: 32Gi
-   139|            limits:
-   140|              cpu: "8"
-   141|              memory: 32Gi
-   142|          volumeMounts:
-   143|            - name: elasticsearch-data
-   144|              mountPath: /usr/share/elasticsearch/data
-   145|            - name: config
-   146|              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
-   147|              subPath: elasticsearch.yml
-   148|          readinessProbe:
-   149|            httpGet:
-   150|              path: /_cluster/health?local=true
-   151|              port: 9200  # ES端口
-   152|              scheme: https
-   153|            initialDelaySeconds: 30
-   154|            periodSeconds: 10
-   155|  
-   156|  volumeClaimTemplates:
-   157|    - metadata:
-   158|        name: elasticsearch-data
-   159|      spec:
-   160|        accessModes: ["ReadWriteOnce"]
-   161|        storageClassName: local-ssd
-   162|        resources:
-   163|          requests:
-   164|            storage: 200Gi
-   165|
-   166|---
-   167|# Data Hot节点 (NVMe SSD)
-   168|apiVersion: apps/v1
-   169|kind: StatefulSet
-   170|metadata:
-   171|  name: es-data-hot
-   172|  namespace: logging
-   173|spec:
-   174|  serviceName: es-data-hot
-   175|  replicas: 3
-   176|  selector:
-   177|    matchLabels:
-   178|      app: elasticsearch
-   179|      role: data-hot
-   180|  template:
-   181|    spec:
-   182|      containers:
-   183|        - name: elasticsearch
-   184|          image: elasticsearch:8.11.3
-   185|          env:
-   186|            - name: NODE_ROLES
-   187|              value: "data_hot,ingest"
-   188|            - name: ES_JAVA_OPTS
-   189|              value: "-Xms16g -Xmx16g"
-   190|          resources:
-   191|            requests:
-   192|              cpu: "8"
-   193|              memory: 40Gi
-   194|            limits:
-   195|              cpu: "16"
-   196|              memory: 64Gi
-   197|  
-   198|  volumeClaimTemplates:
-   199|    - metadata:
-   200|        name: elasticsearch-data
-   201|      spec:
-   202|        storageClassName: local-nvme
-   203|        resources:
-   204|          requests:
-   205|            storage: 2Ti
-   206|```
-   207|
-   208|---
-   209|
-   210|## 四、ILM生命周期管理
-   211|
-   212|```json
-   213|// PUT _ilm/policy/enterprise-logs-policy
-   214|{
-   215|  "policy": {
-   216|    "phases": {
-   217|      "hot": {
-   218|        "min_age": "0ms",
-   219|        "actions": {
-   220|          "rollover": {
-   221|            "max_primary_shard_size": "50gb",
-   222|            "max_age": "1d"
-   223|          },
-   224|          "set_priority": {
-   225|            "priority": 100
-   226|          }
-   227|        }
-   228|      },
-   229|      "warm": {
-   230|        "min_age": "7d",
-   231|        "actions": {
-   232|          "shrink": {
-   233|            "number_of_shards": 1
-   234|          },
-   235|          "forcemerge": {
-   236|            "max_num_segments": 1
-   237|          },
-   238|          "set_priority": {
-   239|            "priority": 50
-   240|          },
-   241|          "migrate": {
-   242|            "enabled": true
-   243|          }
-   244|        }
-   245|      },
-   246|      "cold": {
-   247|        "min_age": "30d",
-   248|        "actions": {
-   249|          "set_priority": {
-   250|            "priority": 0
-   251|          },
-   252|          "searchable_snapshot": { "snapshot_repository": "cold-backup" }  # [已修复] freeze在ES 8.x已废弃
-   253|        }
-   254|      },
-   255|      "delete": {
-   256|        "min_age": "90d",
-   257|        "actions": {
-   258|          "delete": {}
-   259|        }
-   260|      }
-   261|    }
-   262|  }
-   263|}
-   264|```
-   265|
-   266|```bash
-   267|# 创建Index Template
-   268|curl -X PUT "http://es-master-0:9200/_index_template/enterprise-logs" -H 'Content-Type: application/json' -d'
-   269|{
-   270|  "index_patterns": ["enterprise-logs-*"],
-   271|  "template": {
-   272|    "settings": {
-   273|      "number_of_shards": 3,
-   274|      "number_of_replicas": 1,
-   275|      "index.lifecycle.name": "enterprise-logs-policy",
-   276|      "index.lifecycle.rollover_alias": "enterprise-logs",
-   277|      "index.routing.allocation.require.node_role": "data_hot"
-   278|    },
-   279|    "mappings": {
-   280|      "properties": {
-   281|        "@timestamp": { "type": "date" },
-   282|        "message": { "type": "text" },
-   283|        "level": { "type": "keyword" },
-   284|        "service": { "type": "keyword" },
-   285|        "namespace": { "type": "keyword" },
-   286|        "pod": { "type": "keyword" },
-   287|        "container": { "type": "keyword" },
-   288|        "host": { "type": "keyword" },
-   289|        "trace_id": { "type": "keyword" },
-   290|        "method": { "type": "keyword" },
-   291|        "path": { "type": "keyword" },
-   292|        "status_code": { "type": "integer" },
-   293|        "response_time": { "type": "float" },
-   294|        "client_ip": { "type": "ip" },
-   295|        "user_agent": { "type": "text" }
-   296|      }
-   297|    }
-   298|  },
-   299|  "priority": 200
-   300|}'
-   301|```
-   302|
-   303|---
-   304|
-   305|## 五、Filebeat DaemonSet
-   306|
-   307|```yaml
-   308|# filebeat-daemonset.yaml
-   309|---
-   310|apiVersion: apps/v1
-   311|kind: DaemonSet
-   312|metadata:
-   313|  name: filebeat
-   314|  namespace: logging
-   315|spec:
-   316|  selector:
-   317|    matchLabels:
-   318|      app: filebeat
-   319|  template:
-   320|    metadata:
-   321|      labels:
-   322|        app: filebeat
-   323|    spec:
-   324|      serviceAccountName: filebeat
-   325|      terminationGracePeriodSeconds: 30
-   326|      containers:
-   327|        - name: filebeat
-   328|          image: elastic/filebeat:8.11.3
-   329|          args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
-   330|          securityContext:
-   331|            runAsUser: 0  # 需要root访问日志目录。生产替代方案: 1)挂载hostPath并设置fsGroup 2)使用Filebeat提供的非root镜像
-   332|          resources:
-   333|            requests:
-   334|              cpu: 100m
-   335|              memory: 200Mi
-   336|            limits:
-   337|              cpu: 500m
-   338|              memory: 500Mi
-   339|          volumeMounts:
-   340|            - name: config
-   341|              mountPath: /etc/filebeat/filebeat.yml
-   342|              subPath: filebeat.yml
-   343|            - name: varlog
-   344|              mountPath: /var/log
-   345|              readOnly: true
-   346|            - name: containers
-   347|              mountPath: /var/log/pods  # [已修复] containerd环境请改为/var/log/pods/
-   348|              readOnly: true
-   349|            - name: data
-   350|              mountPath: /usr/share/filebeat/data
-   351|          env:
-   352|            - name: NODE_NAME
-   353|              valueFrom:
-   354|                fieldRef:
-   355|                  fieldPath: spec.nodeName
-   356|      
-   357|      volumes:
-   358|        - name: config
-   359|          configMap:
-   360|            name: filebeat-config
-   361|        - name: varlog
-   362|          hostPath:
-   363|            path: /var/log
-   364|        - name: containers
-   365|          hostPath:
-   366|            path: /var/log/pods
-   367|        - name: data
-   368|          emptyDir: {}
-   369|
-   370|---
-   371|apiVersion: v1
-   372|kind: ConfigMap
-   373|metadata:
-   374|  name: filebeat-config
-   375|  namespace: logging
-   376|data:
-   377|  filebeat.yml: |
-   378|    filebeat.inputs:
-   379|      # K8s容器日志
-   380|      - type: container
-   381|        enabled: true
-   382|        paths:
-   383|          - /var/log/containers/*.log
-   384|        processors:
-   385|          - add_kubernetes_metadata:
-   386|              host: ${NODE_NAME}
-   387|              matchers:
-   388|                - logs_path:
-   389|                    logs_path: "/var/log/containers/"
-   390|          - decode_json_fields:
-   391|              fields: ["message"]
-   392|              target: ""
-   393|              overwrite_keys: true
-   394|              add_error_key: true
-   395|      
-   396|      # Nginx日志
-   397|      - type: container
-   398|        enabled: true
-   399|        paths:
-   400|          - /var/log/containers/*nginx*.log
-   401|        processors:
-   402|          - add_kubernetes_metadata:
-   403|              host: ${NODE_NAME}
-   404|          - dissect:
-   405|              tokenizer: '%{client_ip} - %{remote_user} [%{timestamp}] "%{method} %{path} HTTP/%{http_version}" %{status_code} %{body_bytes_sent} "%{referrer}" "%{user_agent}" %{response_time}'
-   406|              field: "message"
-   407|              target_prefix: "nginx"
-   408|      
-   409|      # Java应用日志（多行合并）
-   410|      - type: container
-   411|        enabled: true
-   412|        paths:
-   413|          - /var/log/containers/*java*.log
-   414|        multiline.type: pattern
-   415|        multiline.pattern: '^\d{4}-\d{2}-\d{2}'
-   416|        multiline.negate: true
-   417|        multiline.match: after
-   418|        multiline.max_lines: 500
-   419|        processors:
-   420|          - add_kubernetes_metadata:
-   421|              host: ${NODE_NAME}
-   422|    
-   423|    # 输出到Elasticsearch
-   424|    output.elasticsearch:
-   425|      hosts: ["https://es-data-hot-0.es-data-hot.logging:9200"]
-   426|      username: "elastic"
-   427|      password: "${ELASTIC_PASSWORD}"
-   428|      ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
-   429|      index: "enterprise-logs-%{+yyyy.MM.dd}"
-   430|      bulk_max_size: 5000
-   431|      worker: 4
-   432|      loadbalance: true
-   433|    
-   434|    # 处理器
-   435|    processors:
-   436|      - add_host_metadata:
-   437|          when.not.contains.tags: forwarded
-   438|      - add_cloud_metadata: ~
-   439|      - add_docker_metadata: ~
-   440|      - drop_fields:
-   441|          fields: ["agent.ephemeral_id", "agent.id"]
-   442|      
-   443|    # 监控
-   444|    monitoring.enabled: true
-   445|    monitoring.elasticsearch:
-   446|      hosts: ["https://es-master-0:9200"]
-   447|```
-   448|
-   449|---
-   450|
-   451|## 六、Kafka缓冲层(可选但推荐)
-   452|
-   453|> **[推荐]** 生产环境建议在Filebeat和Logstash之间部署Kafka作为缓冲层，
-   454|> 防止ES写入压力反压导致Filebeat日志丢失。
-   455|
-   456|```yaml
-   457|# kafka-statefulset.yaml
-   458|---
-   459|apiVersion: apps/v1
-   460|kind: StatefulSet
-   461|metadata:
-   462|  name: kafka
-   463|  namespace: logging
-   464|spec:
-   465|  serviceName: kafka
-   466|  replicas: 3
-   467|  selector:
-   468|    matchLabels:
-   469|      app: kafka
-   470|  template:
-   471|    metadata:
-   472|      labels:
-   473|        app: kafka
-   474|    spec:
-   475|      containers:
-   476|      - name: kafka
-   477|        image: bitnami/kafka:3.7
-   478|        env:
-   479|        - name: KAFKA_CFG_NODE_ID
-   480|          valueFrom:
-   481|            fieldRef:
-   482|              fieldPath: metadata.name
-   483|        - name: KAFKA_CFG_PROCESS_ROLES
-   484|          value: "broker,controller"
-   485|        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-   486|          value: "0@kafka-0.kafka:9093,1@kafka-1.kafka:9093,2@kafka-2.kafka:9093"
-   487|        - name: KAFKA_CFG_LISTENERS
-   488|          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-   489|        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:8.11.3
+          ports:
+            - containerPort: 9200  # ES端口
+              name: http
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ES_JAVA_OPTS
+              value: "-Xms16g -Xmx16g"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: elastic
+          resources:
+            requests:
+              cpu: "4"
+              memory: 32Gi
+            limits:
+              cpu: "8"
+              memory: 32Gi
+          volumeMounts:
+            - name: elasticsearch-data
+              mountPath: /usr/share/elasticsearch/data
+            - name: config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200  # ES端口
+              scheme: https
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  
+  volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-ssd
+        resources:
+          requests:
+            storage: 200Gi
+
+---
+# Data Hot节点 (NVMe SSD)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: es-data-hot
+  namespace: logging
+spec:
+  serviceName: es-data-hot
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch
+      role: data-hot
+  template:
+    spec:
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:8.11.3
+          env:
+            - name: NODE_ROLES
+              value: "data_hot,ingest"
+            - name: ES_JAVA_OPTS
+              value: "-Xms16g -Xmx16g"
+          resources:
+            requests:
+              cpu: "8"
+              memory: 40Gi
+            limits:
+              cpu: "16"
+              memory: 64Gi
+  
+  volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        storageClassName: local-nvme
+        resources:
+          requests:
+            storage: 2Ti
+```
+
+---
+
+## 四、ILM生命周期管理
+
+```json
+// PUT _ilm/policy/enterprise-logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "50gb",
+            "max_age": "1d"
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "warm": {
+        "min_age": "7d",
+        "actions": {
+          "shrink": {
+            "number_of_shards": 1
+          },
+          "forcemerge": {
+            "max_num_segments": 1
+          },
+          "set_priority": {
+            "priority": 50
+          },
+          "migrate": {
+            "enabled": true
+          }
+        }
+      },
+      "cold": {
+        "min_age": "30d",
+        "actions": {
+          "set_priority": {
+            "priority": 0
+          },
+          "searchable_snapshot": { "snapshot_repository": "cold-backup" }  # [已修复] freeze在ES 8.x已废弃
+        }
+      },
+      "delete": {
+        "min_age": "90d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+```
+
+```bash
+# 创建Index Template
+curl -X PUT "http://es-master-0:9200/_index_template/enterprise-logs" -H 'Content-Type: application/json' -d'
+{
+  "index_patterns": ["enterprise-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 3,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "enterprise-logs-policy",
+      "index.lifecycle.rollover_alias": "enterprise-logs",
+      "index.routing.allocation.require.node_role": "data_hot"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "message": { "type": "text" },
+        "level": { "type": "keyword" },
+        "service": { "type": "keyword" },
+        "namespace": { "type": "keyword" },
+        "pod": { "type": "keyword" },
+        "container": { "type": "keyword" },
+        "host": { "type": "keyword" },
+        "trace_id": { "type": "keyword" },
+        "method": { "type": "keyword" },
+        "path": { "type": "keyword" },
+        "status_code": { "type": "integer" },
+        "response_time": { "type": "float" },
+        "client_ip": { "type": "ip" },
+        "user_agent": { "type": "text" }
+      }
+    }
+  },
+  "priority": 200
+}'
+```
+
+---
+
+## 五、Filebeat DaemonSet
+
+```yaml
+# filebeat-daemonset.yaml
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: logging
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: filebeat
+          image: elastic/filebeat:8.11.3
+          args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
+          securityContext:
+            runAsUser: 0  # 需要root访问日志目录。生产替代方案: 1)挂载hostPath并设置fsGroup 2)使用Filebeat提供的非root镜像
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/filebeat/filebeat.yml
+              subPath: filebeat.yml
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/pods  # [已修复] containerd环境请改为/var/log/pods/
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/filebeat/data
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+      
+      volumes:
+        - name: config
+          configMap:
+            name: filebeat-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: containers
+          hostPath:
+            path: /var/log/pods
+        - name: data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: logging
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      # K8s容器日志
+      - type: container
+        enabled: true
+        paths:
+          - /var/log/containers/*.log
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+              matchers:
+                - logs_path:
+                    logs_path: "/var/log/containers/"
+          - decode_json_fields:
+              fields: ["message"]
+              target: ""
+              overwrite_keys: true
+              add_error_key: true
+      
+      # Nginx日志
+      - type: container
+        enabled: true
+        paths:
+          - /var/log/containers/*nginx*.log
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+          - dissect:
+              tokenizer: '%{client_ip} - %{remote_user} [%{timestamp}] "%{method} %{path} HTTP/%{http_version}" %{status_code} %{body_bytes_sent} "%{referrer}" "%{user_agent}" %{response_time}'
+              field: "message"
+              target_prefix: "nginx"
+      
+      # Java应用日志（多行合并）
+      - type: container
+        enabled: true
+        paths:
+          - /var/log/containers/*java*.log
+        multiline.type: pattern
+        multiline.pattern: '^\d{4}-\d{2}-\d{2}'
+        multiline.negate: true
+        multiline.match: after
+        multiline.max_lines: 500
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+    
+    # 输出到Elasticsearch
+    output.elasticsearch:
+      hosts: ["https://es-data-hot-0.es-data-hot.logging:9200"]
+      username: "elastic"
+      password: "${ELASTIC_PASSWORD}"
+      ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
+      index: "enterprise-logs-%{+yyyy.MM.dd}"
+      bulk_max_size: 5000
+      worker: 4
+      loadbalance: true
+    
+    # 处理器
+    processors:
+      - add_host_metadata:
+          when.not.contains.tags: forwarded
+      - add_cloud_metadata: ~
+      - add_docker_metadata: ~
+      - drop_fields:
+          fields: ["agent.ephemeral_id", "agent.id"]
+      
+    # 监控
+    monitoring.enabled: true
+    monitoring.elasticsearch:
+      hosts: ["https://es-master-0:9200"]
+```
+
+---
+
+## 六、Kafka缓冲层(可选但推荐)
+
+> **[推荐]** 生产环境建议在Filebeat和Logstash之间部署Kafka作为缓冲层，
+> 防止ES写入压力反压导致Filebeat日志丢失。
+
+```yaml
+# kafka-statefulset.yaml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: logging
+spec:
+  serviceName: kafka
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: bitnami/kafka:3.7
+        env:
+        - name: KAFKA_CFG_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KAFKA_CFG_PROCESS_ROLES
+          value: "broker,controller"
+        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+          value: "0@kafka-0.kafka:9093,1@kafka-1.kafka:9093,2@kafka-2.kafka:9093"
+        - name: KAFKA_CFG_LISTENERS
+          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+        - name: KAFKA_CFG_ADVERTISED_LISTENERS
           value: "PLAINTEXT://$(POD_NAME).kafka:9092,CONTROLLER://$(POD_NAME).kafka:9093"
         - name: POD_NAME
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
         - name: KAFKA_CFG_LOG_RETENTION_HOURS
-   492|          value: "168"  # 7天
-   493|        - name: KAFKA_CFG_LOG_RETENTION_BYTES
-   494|          value: "1073741824"  # 1GB
-   495|        ports:
-   496|        - containerPort: 9092
-   497|          name: plaintext
-   498|        - containerPort: 9093
-   499|          name: controller
-   500|        resources:
-   501|          requests:
-   502|            cpu: 500m
-   503|            memory: 1Gi
-   504|          limits:
-   505|            cpu: 2000m
-   506|            memory: 2Gi
-   507|        volumeMounts:
-   508|        - name: data
-   509|          mountPath: /bitnami/kafka
-   510|  volumeClaimTemplates:
-   511|  - metadata:
-   512|      name: data
-   513|    spec:
-   514|      accessModes: ["ReadWriteOnce"]
-   515|      resources:
-   516|        requests:
-   517|          storage: 50Gi
-   518|---
-   519|apiVersion: v1
-   520|kind: Service
-   521|metadata:
-   522|  name: kafka
-   523|  namespace: logging
-   524|spec:
-   525|  selector:
-   526|    app: kafka
-   527|  ports:
-   528|  - port: 9092
-   529|    name: plaintext
-   530|```
-   531|
-   532|> Filebeat配置中将output改为Kafka:
-   533|> ```yaml
-   534|> output.kafka:
-   535|>   hosts: ["kafka-0.kafka:9092", "kafka-1.kafka:9092", "kafka-2.kafka:9092"]
-   536|>   topic: "filebeat-logs"
-   537|> ```
-   538|> Logstash input改为Kafka:
-   539|> ```ruby
-   540|> input {
-   541|>   kafka {
-   542|>     bootstrap_servers => "kafka-0.kafka:9092"
-   543|>     topics => ["filebeat-logs"]
-   544|>     group_id => "logstash-consumers"
-   545|>   }
-   546|> }
-   547|> ```
-   548|
-   549|## 七、Kibana部署
-   550|
-   551|```yaml
-   552|# kibana-deployment.yaml
-   455|---
-   456|apiVersion: apps/v1
-   457|kind: Deployment
-   458|metadata:
-   459|  name: kibana
-   460|  namespace: logging
-   461|spec:
-   462|  replicas: 2
-   463|  selector:
-   464|    matchLabels:
-   465|      app: kibana
-   466|  template:
-   467|    spec:
-   468|      containers:
-   469|        - name: kibana
-   470|          image: kibana:8.11.3
-   471|          env:
-   472|            - name: ELASTICSEARCH_HOSTS
-   473|              value: '["https://es-master-0:9200","https://es-master-1:9200","https://es-master-2:9200"]'
-   474|            - name: ELASTICSEARCH_USERNAME
-   475|              value: "kibana_system"
-   476|            - name: ELASTICSEARCH_PASSWORD
-   477|              valueFrom:
-   478|                secretKeyRef:
-   479|                  name: elasticsearch-credentials
-   480|                  key: kibana_system
-   481|            - name: SERVER_NAME
-   482|              value: "kibana.internal.com"
-   483|          ports:
-   484|            - containerPort: 5601
-   485|          resources:
-   486|            requests:
-   487|              cpu: "1"
-   488|              memory: 2Gi
-   489|            limits:
-   490|              cpu: "2"
-   491|              memory: 4Gi
-   492|          readinessProbe:
-   493|            httpGet:
-   494|              path: /api/status
-   495|              port: 5601
-   496|            initialDelaySeconds: 30
-   497|            periodSeconds: 10
-   498|
-   499|---
-   500|apiVersion: v1
-   501|
+          value: "168"  # 7天
+        - name: KAFKA_CFG_LOG_RETENTION_BYTES
+          value: "1073741824"  # 1GB
+        ports:
+        - containerPort: 9092
+          name: plaintext
+        - containerPort: 9093
+          name: controller
+        resources:
+          requests:
+            cpu: 500m
+            memory: 4Gi   # Kafka生产环境建议4-8GB
+          limits:
+            cpu: 2000m
+            memory: 8Gi
+        volumeMounts:
+        - name: data
+          mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: logging
+spec:
+  selector:
+    app: kafka
+  ports:
+  - port: 9092
+    name: plaintext
+```
+
+> Filebeat配置中将output改为Kafka:
+> ```yaml
+> output.kafka:
+>   hosts: ["kafka-0.kafka:9092", "kafka-1.kafka:9092", "kafka-2.kafka:9092"]
+>   topic: "filebeat-logs"
+> ```
+> Logstash input改为Kafka:
+> ```ruby
+> input {
+>   kafka {
+>     bootstrap_servers => "kafka-0.kafka:9092"
+>     topics => ["filebeat-logs"]
+>     group_id => "logstash-consumers"
+>   }
+> }
+> ```
+
+## 七、Kibana部署
+
+```yaml
+# kibana-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: logging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    spec:
+      containers:
+        - name: kibana
+          image: kibana:8.11.3
+          env:
+            - name: ELASTICSEARCH_HOSTS
+              value: '["https://es-master-0:9200","https://es-master-1:9200","https://es-master-2:9200"]'
+            - name: ELASTICSEARCH_USERNAME
+              value: "kibana_system"
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: kibana_system
+            - name: SERVER_NAME
+              value: "kibana.internal.com"
+          ports:
+            - containerPort: 5601
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+
 
 ---
 
