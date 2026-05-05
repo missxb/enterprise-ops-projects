@@ -123,7 +123,7 @@ echo "Swap已关闭"
 
 echo "========== [2/8] 关闭SELinux =========="
 setenforce 0 2>/dev/null || true
-sed -i 's/^SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 echo "SELinux已关闭"
 
 echo "========== [3/8] 关闭防火墙 =========="
@@ -175,6 +175,10 @@ containerd config default > /etc/containerd/config.toml
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
 # 配置镜像加速(用户指定)
+# [注意] 部分镜像站已停用或限流(2024+):
+#   - tuna.tsinghua.edu.cn: Docker Hub代理已停用
+#   - daocloud.io: 已限流
+#   建议使用内网Harbor作为pull-through cache，或使用云厂商镜像加速
 mkdir -p /etc/containerd/certs.d/docker.io
 cat > /etc/containerd/certs.d/docker.io/hosts.toml << EOF
 server = "https://docker.io"
@@ -554,8 +558,10 @@ kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
 
 echo "配置IP地址池..."
 cat > /tmp/metallb-config.yaml << EOF
-apiVersion: metallb.io/v1beta2
+apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
+# [注意] MetalLB 0.13.x使用v1beta1，0.14+可能使用v1beta2
+# 请根据实际安装版本选择API版本
 metadata:
   name: production-pool
   namespace: metallb-system
@@ -566,7 +572,7 @@ spec:
   # 当前节点在10.10.10.0/24，IP池已配置在同一子网内
   # 生产建议: 大规模集群建议使用BGP模式或云厂商LoadBalancer替代MetalLB
 ---
-apiVersion: metallb.io/v1beta2
+apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: default
@@ -720,7 +726,7 @@ Requires=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/harbor
-ExecStart=/usr/local/bin/docker-compose -f /opt/harbor/docker-compose.yml up -d
+ExecStart=/usr/bin/docker compose -f /opt/harbor/docker-compose.yml up -d
 ExecStop=/usr/local/bin/docker-compose -f /opt/harbor/docker-compose.yml down
 TimeoutStartSec=0
 
@@ -1181,7 +1187,7 @@ kubectl get nodes --show-labels
 
 set -euo pipefail
 
-BACKUP_DIR="/opt/etcd-backup"
+BACKUP_DIR="/data/etcd-backup"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
 
@@ -2167,7 +2173,7 @@ kubectl top pods -A --sort-by=cpu | head -20
 systemctl stop etcd
 
 # 2. 恢复etcd数据
-ETCDCTL_API=3 etcdctl snapshot restore /opt/etcd-backup/etcd-snapshot-YYYYMMDD_HHMMSS.db \
+ETCDCTL_API=3 etcdctl snapshot restore /data/etcd-backup/etcd-snapshot-YYYYMMDD_HHMMSS.db \
   --data-dir=/var/lib/etcd-restore \
   --name=<etcd-member-name> \
   --initial-cluster=<etcd-cluster> \
