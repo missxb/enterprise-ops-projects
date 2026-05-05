@@ -19,6 +19,11 @@ provider "alicloud" {
   region = var.region
 }
 
+variable "key_name" {
+  description = "SSH密钥对名称"
+  type        = string
+}
+
 resource "alicloud_vpc" "main" {
   vpc_name   = "${var.project}-vpc"
   cidr_block = "10.10.0.0/12"
@@ -26,7 +31,7 @@ resource "alicloud_vpc" "main" {
 
 resource "alicloud_vswitch" "main" {
   vpc_id     = alicloud_vpc.main.id
-  cidr_block = "10.10.0.0/24"
+  cidr_block = "10.10.0.0/16"
   zone_id    = var.zone_id
 }
 
@@ -56,6 +61,7 @@ resource "alicloud_instance" "master" {
   instance_name        = "${var.project}-master-${count.index + 1}"
   image_id             = data.alicloud_images.default.images[0].id
   instance_type        = "ecs.g7.2xlarge"  # 8C16G, 文档要求8C16G
+  key_name             = var.key_name
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"
@@ -71,6 +77,7 @@ resource "alicloud_instance" "worker" {
   instance_name        = "${var.project}-worker-${count.index + 1}"
   image_id             = data.alicloud_images.default.images[0].id
   instance_type        = "ecs.g7.4xlarge"  # 16C64G, 文档要求16C64G或32C128G
+  key_name             = var.key_name
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"

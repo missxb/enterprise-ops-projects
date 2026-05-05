@@ -1,4 +1,6 @@
 # AlertManager配置
+# 注意: 此文件使用envsubst进行变量替换，部署前需执行:
+#   envsubst '${SMTP_PASSWORD} ${DINGTALK_TOKEN}' < alertmanager.yml > alertmanager-rendered.yml
 global:
   resolve_timeout: 5m
   smtp_smarthost: 'smtp.example.com:587'

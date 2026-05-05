@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-config
+  name: {{ include "app.fullname" . }}-config
   labels:
     {{- include "app.labels" . | nindent 4 }}
 data:

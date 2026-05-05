@@ -9,7 +9,7 @@ kind: Application
 metadata:
   name: user-service
   namespace: argocd
-  # 生产环境禁止自动同步，需手动审批
+  # 生产环境开启自动同步和自愈
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:

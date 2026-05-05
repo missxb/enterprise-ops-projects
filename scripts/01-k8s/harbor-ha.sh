@@ -53,7 +53,7 @@ echo "  [自建方案] 3主3从 + Sentinel监控"
 # 验证Redis连接
 REDIS_HOST="${REDIS_HOST:?请设置REDIS_HOST}"
 REDIS_PORT="${REDIS_PORT:-6379}"
-redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/dev/null | grep -q PING && \
+redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/dev/null | grep -q PONG && \
   echo "  ✅ Redis连接正常" || \
   echo "  ⚠️  Redis连接失败，请检查 ${REDIS_HOST}:${REDIS_PORT}"
 
@@ -201,7 +201,6 @@ upstream harbor_backend {
 $(echo -e "${HARBOR_BACKENDS}")
     # [生产注意] 后端使用自签证书时需关闭SSL验证
     # 如使用正式证书建议保持ssl_verify on
-    ssl_verify off;
 }
 
 server {
@@ -214,6 +213,7 @@ server {
 
     location / {
         proxy_pass https://harbor_backend;
+        proxy_ssl_verify off;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
