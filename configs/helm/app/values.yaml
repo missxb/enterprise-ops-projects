@@ -31,6 +31,9 @@ pdb:
 configMap:
   enabled: true
   data: {}
+  # 示例: data:
+  #   APP_ENV: production
+  #   LOG_LEVEL: info
 # Secret
 secret:
   enabled: true

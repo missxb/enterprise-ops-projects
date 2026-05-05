@@ -1203,7 +1203,7 @@ kubectl get nodes --show-labels
 
 set -euo pipefail
 
-BACKUP_DIR="/data/etcd-backup"
+# [已修复] 备份频率统一为每6小时(crontab: 0 */6 * * *)
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
 

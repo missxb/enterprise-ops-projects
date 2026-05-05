@@ -22,7 +22,7 @@ echo "=== 企业级运维项目集 验证测试 v5 ==="
 echo "仓库路径: $REPO_DIR"
 
 echo "--- 1. 文档完整性 ---"
-for f in "$REPO_DIR"/0*.md; do
+for f in "$REPO_DIR"/0*.md "$REPO_DIR"/1*.md; do
   check "$(basename $f .md)" "test -s $f"
 done
 
