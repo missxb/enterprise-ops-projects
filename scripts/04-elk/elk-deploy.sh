@@ -251,7 +251,7 @@ spec:
           image: kibana:${ES_VERSION}
           env:
             - name: ELASTICSEARCH_HOSTS
-              value: "http://elasticsearch-0.elasticsearch:9200"
+              value: "https://elasticsearch-0.elasticsearch:9200"
             - name: ELASTICSEARCH_USERNAME
               value: "elastic"
             - name: ELASTICSEARCH_PASSWORD
@@ -259,8 +259,14 @@ spec:
                 secretKeyRef:
                   name: es-secret
                   key: password
+            - name: ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES
+              value: "/usr/share/kibana/config/certs/ca.crt"
           ports:
             - containerPort: 5601
+          volumeMounts:
+            - name: es-certs
+              mountPath: /usr/share/kibana/config/certs
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -268,6 +274,11 @@ spec:
             limits:
               cpu: 2000m
               memory: 4Gi
+      volumes:
+        - name: es-certs
+          secret:
+            secretName: es-certs
+            defaultMode: 0400
 EOF
 
 echo ""

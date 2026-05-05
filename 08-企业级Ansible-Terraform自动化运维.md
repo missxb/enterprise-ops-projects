@@ -688,7 +688,7 @@ ssh_timeout = 30
 
 ---
 
-## 五、Terraform高级用法
+## 六、Terraform高级用法
 
 ### 5.1 Module化
 
@@ -762,7 +762,7 @@ terraform import alicloud_vpc.existing vpc-xxxxxxxxxxxx
 
 ---
 
-## 六、真实故障案例
+## 七、真实故障案例
 
 ### 案例1: Ansible并发导致目标机SSH被封
 

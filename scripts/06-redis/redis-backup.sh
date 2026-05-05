@@ -37,11 +37,38 @@ for node in ${REDIS_NODES}; do
     RDB_DIR=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dir 2>/dev/null | tail -1" 2>/dev/null || echo "/var/lib/redis")
     RDB_FILE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dbfilename 2>/dev/null | tail -1" 2>/dev/null || echo "dump.rdb")
     ssh ${REDIS_USER}@${node} "sudo cp ${RDB_DIR}/${RDB_FILE} ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb" 2>/dev/null
-    echo "  ✅ ${node}:${port} 备份完成"
+    echo "  ✅ ${node}:${port} RDB备份完成"
+
+    # 备份AOF文件(如果存在)
+    AOF_FILE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET appendfilename 2>/dev/null | tail -1" 2>/dev/null || echo "appendonly.aof")
+    if ssh ${REDIS_USER}@${node} "sudo test -f ${RDB_DIR}/${AOF_FILE}" 2>/dev/null; then
+      # BGREWRITEAOF确保AOF是最新的,再拷贝
+      ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} BGREWRITEAOF" 2>/dev/null
+      # 等待AOF重写完成
+      MAX_AOF_WAIT=300
+      AOF_WAITED=0
+      while ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} LASTSAVE" 2>/dev/null | grep -q .; do
+        # 检查bgrewriteaof是否还在运行
+        if ! ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} INFO persistence 2>/dev/null" | grep -q "aof_rewrite_in_progress:1"; then
+          break
+        fi
+        sleep 1
+        AOF_WAITED=$((AOF_WAITED+1))
+        if [ $AOF_WAITED -ge $MAX_AOF_WAIT ]; then
+          echo "  ⚠️ AOF重写超时(${MAX_AOF_WAIT}s),跳过AOF备份"
+          break
+        fi
+      done
+      ssh ${REDIS_USER}@${node} "sudo cp ${RDB_DIR}/${AOF_FILE} ${BACKUP_DIR}/appendonly_${node}_${port}_${DATE}.aof" 2>/dev/null
+      echo "  ✅ ${node}:${port} AOF备份完成"
+    else
+      echo "  ℹ️ ${node}:${port} 未启用AOF,跳过"
+    fi
   done
 done
 
 # 清理旧备份
 find ${BACKUP_DIR} -name "dump_*.rdb" -mtime +${KEEP_DAYS} -delete
+find ${BACKUP_DIR} -name "appendonly_*.aof" -mtime +${KEEP_DAYS} -delete
 
 echo "✅ Redis集群备份完成: ${DATE}"

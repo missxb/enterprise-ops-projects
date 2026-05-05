@@ -2,7 +2,7 @@
 
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
-> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.26 + MetalLB
+> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28 + MetalLB
 
 ---
 
@@ -310,6 +310,12 @@ yum install -y keepalived
 
 cat > /etc/keepalived/keepalived.conf << KVCFG
 ! Keepalived for K8s API Server HA
+! [注意] auth_pass和VIP使用shell变量(${KEEPALIVED_AUTH_PASS:-CHANGEME})，
+! heredoc必须不加引号(<< KVCFG 而非 << 'KVCFG')才能展开变量。
+! 如果直接复制配置文件而非执行脚本，需先用sed替换占位符：
+!   sed -i 's/\${KEEPALIVED_AUTH_PASS:-CHANGEME}/实际密码/' /etc/keepalived/keepalived.conf
+!   sed -i 's|\${VIP}/24 dev \${KEEPALIVED_IFACE:-eth0}|实际VIP/24 dev 实际网卡|' /etc/keepalived/keepalived.conf
+! auth_pass限制: 最多8个字符(Keepalived硬编码限制),超出会被截断
 global_defs {
     router_id LVS_K8S_MASTER
     script_user root
@@ -326,7 +332,9 @@ vrrp_script check_haproxy {
 
 vrrp_instance K8S_VIP {
     state MASTER          # 其他节点改为BACKUP
-    # interface eth0  # 自动检测：Keepalived >= 1.3.7 会自动选择默认网卡，无需硬编码
+    # [接口说明] Keepalived >= 1.3.7 自动选择默认网卡，无需指定interface字段
+    # 如需强制绑定指定网卡(多网卡场景)，取消注释并修改:
+    # interface eth0  # 替换为实际网卡名(ip route show default查看)
     virtual_router_id 51
     priority 101          # MASTER=101, BACKUP=100
     advert_int 1
@@ -335,7 +343,7 @@ vrrp_instance K8S_VIP {
         auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
     }
     virtual_ipaddress {
-        ${VIP}/24 dev eth0
+        ${VIP}/24 dev ${KEEPALIVED_IFACE:-eth0}  # 通过KEEPALIVED_IFACE环境变量指定，默认eth0
     }
     track_script {
         check_haproxy
@@ -505,7 +513,9 @@ set -euo pipefail
 
 echo "安装Calico..."
 # 使用operator方式安装
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml
+# Calico v3.28 支持 K8s 1.31，修复了 3.26 中多个已知的 BGP 路由泄漏问题
+# 变更: 3.26→3.28 升级了 Felix 的 conntrack 回收逻辑，提升了大规模集群下的稳定性
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
 
 cat > /tmp/custom-resources.yaml << EOF
 apiVersion: operator.tigera.io/v1
@@ -611,6 +621,12 @@ yum install -y docker-compose-plugin  # 或: dnf install -y docker-compose-plugi
 
 echo "下载Harbor..."
 cd /opt
+# [安装方式选择]
+# - offline版: harbor-offline-installer-v${HARBOR_VERSION}.tgz (~800MB，含所有镜像)
+#   适用于: 无公网环境、生产环境、批量部署
+# - online版:  harbor-online-installer-v${HARBOR_VERSION}.tgz (~20MB，运行时拉取镜像)
+#   适用于: 有公网环境、快速验证、测试环境
+# 生产环境推荐使用offline版，避免部署期间因网络问题导致镜像拉取失败
 wget https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-offline-installer-v${HARBOR_VERSION}.tgz
 tar xzf harbor-offline-installer-v${HARBOR_VERSION}.tgz
 cd harbor

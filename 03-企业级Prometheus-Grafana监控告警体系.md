@@ -1042,12 +1042,12 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-metadata:
-  name: prometheus
-  namespace: monitoring
-spec:
-  serviceName: prometheus
-  replicas: 1  # Thanos HA通过Sidecar实现，无需多副本
+  metadata:
+    name: prometheus
+    namespace: monitoring
+  spec:
+    serviceName: prometheus
+    replicas: 2  # 双副本HA，与架构图(Prometheus-01/02)一致; Thanos Sidecar去重聚合
   selector:
     matchLabels:
       app: prometheus

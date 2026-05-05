@@ -48,7 +48,15 @@ data:
   elasticsearch.yml: |
     cluster.name: enterprise-logs
     node.name: ${NODE_NAME}
-    node.roles: ${NODE_ROLES:master}  # 通过环境变量NODE_ROLES注入
+    # [重要] node.roles不能在ConfigMap中静态定义，因为不同节点角色需要不同值(master/data/coordinating)
+    # 必须通过Pod spec的env字段注入环境变量，在StatefulSet/Deployment中按角色分别配置:
+    #   master角色:  env: [{name: NODE_ROLES, value: "master"}]
+    #   data角色:    env: [{name: NODE_ROLES, value: "data"}]
+    #   hot角色:     env: [{name: NODE_ROLES, value: "data_hot"}]
+    #   warm角色:    env: [{name: NODE_ROLES, value: "data_warm"}]
+    #   cold角色:    env: [{name: NODE_ROLES, value: "data_cold"}]
+    #   coordinating: env: [{name: NODE_ROLES, value: ""}]
+    node.roles: ${NODE_ROLES:master}  # 通过env注入，ConfigMap本身无法区分节点角色
     path.data: /usr/share/elasticsearch/data
     path.logs: /usr/share/elasticsearch/logs
     network.host: 0.0.0.0
@@ -255,6 +263,38 @@ spec:
     }
   }
 }
+```
+
+> **[前置步骤] 创建Snapshot仓库**: ILM的searchable_snapshot需要先注册snapshot仓库。
+> 如果不先创建仓库,ILM在cold阶段会因找不到`cold-backup`仓库而失败。
+
+```bash
+# [必须] 在ILM策略生效前创建snapshot仓库
+# 1. 注册S3/OSS仓库(与section 16.2中使用的仓库同名)
+curl -X PUT 'http://es-master:9200/_snapshot/cold-backup' \
+  -H 'Content-Type: application/json' -d '{
+  "type": "s3",
+  "settings": {
+    "bucket": "enterprise-es-snapshots",
+    "region": "cn-north-1",
+    "base_path": "enterprise-logs/cold",
+    "compress": true,
+    "server_side_encryption": true
+  }
+}'
+
+# 2. 验证仓库连通性
+curl -X POST 'http://es-master:9200/_snapshot/cold-backup/_verify'
+
+# 3. [可选] 如果使用共享文件系统(NFS)代替S3
+# curl -X PUT 'http://es-master:9200/_snapshot/cold-backup' \
+#   -H 'Content-Type: application/json' -d '{
+#   "type": "fs",
+#   "settings": {
+#     "location": "/mnt/nfs/es-snapshots",
+#     "compress": true
+#   }
+# }'
 ```
 
 ```bash

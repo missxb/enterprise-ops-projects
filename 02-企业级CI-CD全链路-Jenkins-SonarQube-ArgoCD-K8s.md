@@ -880,15 +880,47 @@ echo "获取初始密码..."
 ARGOCD_PWD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
 echo "ArgoCD密码: ${ARGOCD_PWD}"
 
-echo "暴露服务..."
-kubectl -n argocd patch svc argocd-server -p '{"spec": {"type": "LoadBalancer", "loadBalancerIP": "10.10.10.212"}}'
+echo "暴露服务(HTTPS)..."
+# [生产必须] ArgoCD管理界面必须通过HTTPS暴露，禁止HTTP明文传输
+# 方案1: Ingress + cert-manager自动签发TLS证书(推荐)
+cat << INGRESS | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: argocd.internal.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argocd-server
+            port:
+              name: https
+  tls:
+  - hosts:
+    - argocd.internal.com
+    secretName: argocd-tls
+INGRESS
+
+# 方案2: 如无cert-manager，可用自签证书+LoadBalancer(仅内网)
+# kubectl -n argocd patch svc argocd-server -p '{"spec": {"type": "LoadBalancer", "loadBalancerIP": "10.10.10.212"}}'
+
+# ArgoCD初始密码获取
+ARGOCD_PWD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
 
 echo "✅ ArgoCD安装完成"
-echo "URL: http://10.10.10.212"
+echo "URL: https://argocd.internal.com"
 echo "用户名: admin / 密码: ${ARGOCD_PWD}"
-# [生产建议] 配置Ingress+TLS替代HTTP LoadBalancer:
-# kubectl apply -f argocd-ingress.yaml  # 含cert-manager TLS注解
-# 生产环境禁止通过HTTP暴露ArgoCD管理界面
 ```
 
 ### 7.1 ArgoCD Application配置

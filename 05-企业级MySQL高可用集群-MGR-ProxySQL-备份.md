@@ -206,6 +206,18 @@ VALUES
   (20, '10.10.30.12', 3306, 500, 2000, 0),     -- 读组
   (20, '10.10.30.13', 3306, 500, 2000, 0);     -- 读组
 
+-- 配置MGR主机组(自动感知MGR拓扑变化)
+-- group_replication_hostgroups让ProxySQL自动检测MGR成员角色,
+-- 当Primary切换时自动更新mysql_servers中的hostgroup,无需手动干预
+INSERT INTO mysql_group_replication_hostgroups
+  (writer_hostgroup, reader_hostgroup, active, max_writers, writer_is_also_reader, max_transactions_behind, check_type)
+VALUES
+  (10, 20, 1, 1, 0, 100, 'read_only');
+-- writer_hostgroup=10: Primary节点自动分配到写组
+-- reader_hostgroup=20: Secondary节点自动分配到读组
+-- check_type='read_only': 通过read_only变量判断角色(推荐)
+-- check_type也可用'server_status'或'group_replication',但read_only最可靠
+
 -- 配置监控用户
 UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username';
 -- 生产环境请替换为真实密码
