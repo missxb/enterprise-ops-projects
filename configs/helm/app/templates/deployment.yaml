@@ -14,12 +14,33 @@ spec:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ include "app.name" . }}
+                topologyKey: kubernetes.io/hostname
       containers:
       - name: {{ .Release.Name }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - containerPort: {{ .Values.service.port }}
+        envFrom:
+          {{- if .Values.configMap.enabled }}
+          - configMapRef:
+              name: {{ include "app.fullname" . }}
+          {{- end }}
+          {{- if .Values.secret.enabled }}
+          - secretRef:
+              name: {{ include "app.fullname" . }}
+          {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         readinessProbe:

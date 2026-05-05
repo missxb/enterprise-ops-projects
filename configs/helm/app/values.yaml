@@ -21,6 +21,8 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 10
   targetCPU: 65
+networkPolicy:
+  enabled: false  # 生产环境建议开启
 pdb:
   enabled: true
   maxUnavailable: 1

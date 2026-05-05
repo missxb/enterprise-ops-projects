@@ -608,7 +608,8 @@ LimitNPROC=4096
 WantedBy=multi-user.target
 EOF
 
-useradd -r -s /bin/false sonar
+# [已修复] 先创建用户再解压，避免目录权限问题
+useradd -r -s /bin/false sonar 2>/dev/null || true
 chown -R sonar:sonar /opt/sonarqube
 
 systemctl daemon-reload
