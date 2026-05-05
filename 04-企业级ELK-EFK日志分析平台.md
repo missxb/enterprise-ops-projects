@@ -868,16 +868,16 @@ curl -
 
 e: KAFKA_HEAP_OPTS
               value: "-Xmx4g -Xms4g"
-          resources:
-            requests:
-              cpu: "2"
-              memory: 6Gi
-            limits:
-              cpu: "4"
-              memory: 8Gi
-          volumeMounts:
-            - name: data
-              mountPath: /bitnami/kafka
+        resources:
+          requests:
+            cpu: 500m
+            memory: 4Gi   # Kafka生产环境建议4-8GB
+          limits:
+            cpu: 2000m
+            memory: 8Gi
+        volumeMounts:
+        - name: data
+          mountPath: /bitnami/kafka
   volumeClaimTemplates:
     - metadata:
         name: data
