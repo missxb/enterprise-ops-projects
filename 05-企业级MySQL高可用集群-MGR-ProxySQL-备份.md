@@ -121,13 +121,13 @@
    126|
    127|MYSQL_CMD="mysql -uroot -p${MYSQL_ROOT_PASSWORD}"
    128|
-   129|echo "Step 1: 配置复制用户..."
-   130|${MYSQL_CMD} << 'SQL'
-   131|SET GLOBAL super_read_only=OFF;
-   132|CREATE USER IF NOT EXISTS 'repl_user'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
-   133|GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
-   134|FLUSH PRIVILEGES;
-   135|SQL
+echo "Step 1: 配置复制用户..."
+${MYSQL_CMD} << SQL
+SET GLOBAL super_read_only=OFF;
+CREATE USER IF NOT EXISTS 'repl_user'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
+FLUSH PRIVILEGES;
+SQL
    136|
    137|echo "Step 2: 配置MGR引导..."
    138|${MYSQL_CMD} << 'SQL'

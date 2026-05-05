@@ -37,9 +37,11 @@
   when: ansible_os_family == "Debian"
 
 - name: 添加Docker GPG密钥(Ubuntu/Debian)
-  apt_key:
+  ansible.builtin.get_url:
     url: https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg
-    state: present
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  # [已修复] apt_key在Ubuntu 22.04+已废弃，改用signed-by方式
   when: ansible_os_family == "Debian"
 
 - name: 添加Docker仓库(Ubuntu/Debian)

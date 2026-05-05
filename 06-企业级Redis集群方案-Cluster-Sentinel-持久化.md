@@ -543,7 +543,6 @@ timeout 300                # 空闲连接超时
 
 # ===== 应用层调优 =====
 io-threads 2               # IO线程数(8C服务器建议2，不宜超过核心数一半)
-# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes    # 读操作使用多线程
 lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
 lazyfree-lazy-expire yes   # 异步过期，减少阻塞
@@ -1236,7 +1235,6 @@ redis-cluster/
 ### 17.2 性能要点
 - **网络**: tcp-backlog 511, tcp-keepalive 300
 - **IO**: io-threads 2, io-threads-do-reads yes
-# [说明] io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 - **内存**: lazyfree异步删除, maxmemory-samples 10
 - **持久化**: aof-use-rdb-preamble yes
 

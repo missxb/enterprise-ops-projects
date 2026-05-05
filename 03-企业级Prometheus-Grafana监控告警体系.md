@@ -71,7 +71,10 @@ data:
       scrape_timeout: 10s
       external_labels:
         cluster: 'production'
-        replica: '$(HOSTNAME)'
+        # [注意] $(HOSTNAME)需要通过Downward API注入:
+        # env: [{name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}]
+        # 然后在启动参数中使用 --label replica="$(POD_NAME)"
+        replica: 'prometheus'
     
     # 告警规则文件
     rule_files:
@@ -86,8 +89,24 @@ data:
                 - alertmanager-02:9093
     
     # Thanos Sidecar配置
+    - name: thanos-sidecar
+      image: quay.io/thanos/thanos:v0.34.0
+      args:
+      - sidecar
+      - --log.level=info
+      - --prometheus.url=http://localhost:9090
+      - --tsdb.path=/prometheus
+      - --objstore.config-file=/etc/thanos/bucket.yml
+      ports:
+      - name: grpc-sidecar
+        containerPort: 10901
+      - name: http-sidecar
+        containerPort: 10902
+      volumeMounts:
+      - name: prometheus-config
+        mountPath: /etc/thanos
+    ```
     
-
 ### Thanos Query (全局查询入口)
 
 Thanos Query是Thanos架构的查询层，提供全局统一查询视图。
@@ -122,9 +141,9 @@ spec:
         - --log.level=info
         - --grpc-address=0.0.0.0:10901
         - --http-address=0.0.0.0:10902
-        - --store=thanos-sidecar-0.monitoring:10901
-        - --store=thanos-sidecar-1.monitoring:10901
-        - --store=thanos-store-gateway.monitoring:10901
+        - --store=prometheus-0.prometheus.monitoring.svc.cluster.local:10901
+        - --store=prometheus-1.prometheus.monitoring.svc.cluster.local:10901
+        - --store=thanos-store-gateway.monitoring.svc.cluster.local:10901
         - --query.replica-label=prometheus_replica
         ports:
         - name: grpc
@@ -1020,7 +1039,7 @@ spec:
       containers:
         # Prometheus主容器
         - name: prometheus
-          image: prom/prometheus:v2.48.0
+          image: prom/prometheus:v2.50.0
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
@@ -1179,7 +1198,7 @@ data:
       - name: Thanos
         type: prometheus
         access: proxy
-        url: http://thanos-query:10902
+        url: http://thanos-query:9090
         jsonData:
           timeInterval: '15s'
 

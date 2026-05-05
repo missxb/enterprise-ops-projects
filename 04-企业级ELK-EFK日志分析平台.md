@@ -481,8 +481,12 @@
    487|        - name: KAFKA_CFG_LISTENERS
    488|          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
    489|        - name: KAFKA_CFG_ADVERTISED_LISTENERS
-   490|          value: "PLAINTEXT://kafka-0.kafka:9092"
-   491|        - name: KAFKA_CFG_LOG_RETENTION_HOURS
+          value: "PLAINTEXT://$(POD_NAME).kafka:9092,CONTROLLER://$(POD_NAME).kafka:9093"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KAFKA_CFG_LOG_RETENTION_HOURS
    492|          value: "168"  # 7天
    493|        - name: KAFKA_CFG_LOG_RETENTION_BYTES
    494|          value: "1073741824"  # 1GB
@@ -810,7 +814,7 @@ output.elasticsearch:
       "cold": {
         "min_age": "30d",
         "actions": {
-          "freeze": {},
+          "searchable_snapshot": { "snapshot_repository": "cold-backup" },
           "set_priority": { "priority": 0 }
         }
       },
@@ -841,7 +845,7 @@ kubectl label node es-warm-01 node-role.kubernetes.io/es-warm: ""
 kubectl label node es-cold-01 node-role.kubernetes.io/es-cold: ""
 ```
 
-> **成本优化**: 冷节点使用HDD+freeze索引，存储成本降低70%
+> **成本优化**: 冷节点使用HDD+searchable_snapshot，存储成本降低70%
 > **查询优化**: 日常查询只走热节点，历史查询走温节点，极少查询走冷节点
 
 ---
