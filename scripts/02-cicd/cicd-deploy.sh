@@ -11,6 +11,15 @@ echo "=== CI/CD完整部署 ==="
 
 # 1. 创建命名空间
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+# 1.1 检查节点sysctl设置(SonarQube需要vm.max_map_count>=524288)
+echo "检查节点vm.max_map_count..."
+for node in $(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null); do
+  current=$(ssh -o ConnectTimeout=3 root@${node} "sysctl -n vm.max_map_count" 2>/dev/null || echo "0")
+  if [ "${current:-0}" -lt 524288 ]; then
+    echo "  警告: 节点 ${node} vm.max_map_count=${current}，SonarQube要求>=524288"
+    echo "  请在节点上执行: echo 'vm.max_map_count=524288' >> /etc/sysctl.d/99-sonarqube.conf && sysctl -p"
+  fi
+done
 
 # 2. Jenkins PVC
 kubectl apply -n ${NAMESPACE} -f - <<EOF
@@ -91,27 +100,29 @@ metadata:
   name: jenkins
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: jenkins-role
+  namespace: ${NAMESPACE}
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "update"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: jenkins
+  namespace: ${NAMESPACE}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: jenkins-role
 subjects:
   - kind: ServiceAccount
@@ -210,12 +221,6 @@ spec:
       labels:
         app: sonarqube
     spec:
-      initContainers:
-        - name: sysctl
-          image: busybox
-          command: ["sysctl", "-w", "vm.max_map_count=524288"]
-          securityContext:
-            privileged: true
       containers:
         - name: sonarqube
           image: sonarqube:10-community

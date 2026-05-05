@@ -20,13 +20,42 @@ password=${MYSQL_ROOT_PASSWORD}
 CNFEOF
 trap 'rm -f "${MYSQL_CNF}"' EXIT
 
-# 回滚函数(部署失败时调用)
+# 部署步骤跟踪(用于精准回滚)
+CURRENT_STEP=0
+STEP_TOTAL=4
+
+# 回滚函数(只清理失败步骤的资源，不盲目rm -rf)
 rollback() {
-  echo "⚠️ 部署失败，开始回滚..."
-  for node in ${NODES}; do
-    ssh root@${node} "systemctl stop mysqld 2>/dev/null; rm -rf /var/lib/mysql/*" 2>/dev/null || true
-  done
-  echo "✅ 回滚完成(数据已清除，需重新部署)"
+  local failed_step=$CURRENT_STEP
+  local failed_node="${FAILED_NODE:-unknown}"
+  echo "⚠️ 部署失败 (Step ${failed_step}, Node: ${failed_node})，开始精准回滚..."
+
+  # Step 4: ProxySQL - 如果部署了ProxySQL则停止
+  if [ $failed_step -ge 4 ]; then
+    echo "  回滚 Step 4: 停止ProxySQL..."
+    docker stop proxysql 2>/dev/null && docker rm proxysql 2>/dev/null || true
+  fi
+
+  # Step 3: 验证阶段 - 无需回滚操作
+
+  # Step 2: MGR初始化 - 如果集群已初始化则停止MGR
+  if [ $failed_step -ge 2 ]; then
+    echo "  回滚 Step 2: 停止MGR复制..."
+    for node in ${NODES}; do
+      ssh root@${node} "mysql -e \"STOP GROUP_REPLICATION;\" 2>/dev/null" || true
+    done
+  fi
+
+  # Step 1: 节点配置 - 只停止mysqld，不删除数据目录
+  if [ $failed_step -ge 1 ]; then
+    echo "  回滚 Step 1: 停止mysqld服务(保留数据)..."
+    for node in ${NODES}; do
+      ssh root@${node} "systemctl stop mysqld 2>/dev/null" || true
+    done
+  fi
+
+  echo "✅ 回滚完成(已清理失败步骤资源，数据目录已保留供排查)"
+  echo "   如需完全清除，请手动执行: for n in ${NODES}; do ssh root@\$n 'rm -rf /var/lib/mysql/*'; done"
   exit 1
 }
 trap rollback ERR
@@ -35,15 +64,17 @@ echo "=== MySQL MGR集群生产级部署 ==="
 echo "节点: ${NODES}"
 echo "版本: MySQL ${MYSQL_VERSION}"
 
+# Step 1: 配置所有节点
+echo ""
+echo ">>> Step 1: 配置MySQL环境"
+CURRENT_STEP=1
+NODE_ID=0
+INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-48G}"
+FAILED_NODE=""
 # 动态生成MGR集群UUID(避免多集群复用导致脑裂)
 MGR_CLUSTER_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 echo "MGR Cluster UUID: ${MGR_CLUSTER_UUID}"
 
-# Step 1: 配置所有节点
-echo ""
-echo ">>> Step 1: 配置MySQL环境"
-NODE_ID=0
-INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-48G}"  # 推荐物理内存的75%, 64G服务器→48G
 for node in ${NODES}; do
   NODE_ID=$((NODE_ID+1))
   echo "  配置 ${node} (server-id=${NODE_ID})..."
@@ -102,6 +133,7 @@ done
 # Step 2: 初始化MGR集群
 echo ""
 echo ">>> Step 2: 初始化MGR集群"
+CURRENT_STEP=2
 
 # 在第一个节点执行
 FIRST_NODE=$(echo ${NODES} | awk '{print $1}')
@@ -140,11 +172,13 @@ done
 # Step 3: 验证集群状态
 echo ""
 echo ">>> Step 3: 验证MGR集群"
+CURRENT_STEP=3
 ssh root@${FIRST_NODE} mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT * FROM performance_schema.replication_group_members;"
 
 # Step 4: 部署ProxySQL
 echo ""
 echo ">>> Step 4: 部署ProxySQL读写分离"
+CURRENT_STEP=4
 echo "  ProxySQL配置:"
 echo "    - 写入: MGR Primary"
 echo "    - 读取: MGR Secondary(轮询)"

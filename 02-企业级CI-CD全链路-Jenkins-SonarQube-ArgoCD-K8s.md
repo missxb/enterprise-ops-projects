@@ -432,10 +432,11 @@ deploy-production:
       
       # 等待完成
       kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
-  when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
     - if: $CI_COMMIT_TAG
+      when: manual
 
 # ========================================
 # 阶段10: 生产验证
@@ -702,7 +703,7 @@ yum install -y java-17-openjdk java-17-openjdk-devel
 yum install -y jenkins-2.426.3
 
 # 配置Jenkins
-cat > /etc/default/jenkins << EOF
+cat > /etc/sysconfig/jenkins << EOF
 JENKINS_PORT=8080
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 JAVA_OPTS="-Xms2g -Xmx4g -Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"

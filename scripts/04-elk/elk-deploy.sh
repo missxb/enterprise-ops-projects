@@ -12,9 +12,43 @@ echo "=== ELK生产级部署 ==="
 # Step 1: 创建命名空间
 echo ">>> Step 1: 创建命名空间"
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+# Step 2: 生成ES TLS证书
+echo ">>> Step 2: 生成ES TLS证书"
+CERT_DIR=$(mktemp -d)
+trap 'rm -rf "${CERT_DIR}"' EXIT
 
-# Step 2: 创建ES密码Secret
-echo ">>> Step 2: 创建ES密码Secret"
+# 生成CA
+openssl genrsa -out "${CERT_DIR}/ca.key" 2048
+openssl req -x509 -new -nodes -key "${CERT_DIR}/ca.key" -sha256 -days 3650 \
+  -out "${CERT_DIR}/ca.crt" -subj "/CN=ELK-CA"
+
+# 生成Transport证书(节点间通信)
+openssl genrsa -out "${CERT_DIR}/transport.key" 2048
+openssl req -new -key "${CERT_DIR}/transport.key" \
+  -out "${CERT_DIR}/transport.csr" -subj "/CN=elasticsearch-transport"
+openssl x509 -req -in "${CERT_DIR}/transport.csr" -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" \
+  -CAcreateserial -out "${CERT_DIR}/transport.crt" -days 3650 -sha256
+cat "${CERT_DIR}/transport.key" "${CERT_DIR}/transport.crt" | openssl pkcs12 -export \
+  -out "${CERT_DIR}/transport.p12" -passout pass:changeit
+
+# 生成HTTP证书(客户端访问)
+openssl genrsa -out "${CERT_DIR}/http.key" 2048
+openssl req -new -key "${CERT_DIR}/http.key" \
+  -out "${CERT_DIR}/http.csr" -subj "/CN=elasticsearch-http"
+openssl x509 -req -in "${CERT_DIR}/http.csr" -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" \
+  -CAcreateserial -out "${CERT_DIR}/http.crt" -days 3650 -sha256
+cat "${CERT_DIR}/http.key" "${CERT_DIR}/http.crt" | openssl pkcs12 -export \
+  -out "${CERT_DIR}/http.p12" -passout pass:changeit
+
+# 创建K8s Secret存储证书
+kubectl create secret generic es-certs -n ${NAMESPACE} \
+  --from-file=ca.crt="${CERT_DIR}/ca.crt" \
+  --from-file=transport.p12="${CERT_DIR}/transport.p12" \
+  --from-file=http.p12="${CERT_DIR}/http.p12" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Step 3: 创建ES密码Secret
+echo ">>> Step 3: 创建ES密码Secret"
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -25,8 +59,8 @@ stringData:
   password: "${ES_PASSWORD}"
 EOF
 
-# Step 3: 部署Elasticsearch集群(3节点)
-echo ">>> Step 3: 部署Elasticsearch集群"
+# Step 4: 部署Elasticsearch集群(3节点)
+echo ">>> Step 4: 部署Elasticsearch集群"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: StatefulSet
@@ -90,6 +124,14 @@ spec:
           volumeMounts:
             - name: es-data
               mountPath: /usr/share/elasticsearch/data
+            - name: es-certs
+              mountPath: /usr/share/elasticsearch/config/certs
+              readOnly: true
+  volumes:
+    - name: es-certs
+      secret:
+        secretName: es-certs
+        defaultMode: 0400
   volumeClaimTemplates:
     - metadata:
         name: es-data
@@ -100,8 +142,8 @@ spec:
             storage: 500Gi
 EOF
 
-# Step 4: 部署Logstash
-echo ">>> Step 4: 部署Logstash"
+# Step 5: 部署Logstash
+echo ">>> Step 5: 部署Logstash"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -137,8 +179,8 @@ spec:
             name: logstash-config
 EOF
 
-# Step 5: 部署Filebeat(DaemonSet)
-echo ">>> Step 5: 部署Filebeat"
+# Step 6: 部署Filebeat(DaemonSet)
+echo ">>> Step 6: 部署Filebeat"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: DaemonSet
@@ -160,8 +202,9 @@ spec:
           volumeMounts:
             - name: varlog
               mountPath: /var/log
-            - name: containers
-              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
               readOnly: true
             - name: filebeat-config
               mountPath: /usr/share/filebeat/filebeat.yml
@@ -177,16 +220,16 @@ spec:
         - name: varlog
           hostPath:
             path: /var/log
-        - name: containers
+        - name: varlogpods
           hostPath:
-            path: /var/lib/docker/containers
+            path: /var/log/pods
         - name: filebeat-config
           configMap:
             name: filebeat-config
 EOF
 
-# Step 6: 部署Kibana
-echo ">>> Step 6: 部署Kibana"
+# Step 7: 部署Kibana
+echo ">>> Step 7: 部署Kibana"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment

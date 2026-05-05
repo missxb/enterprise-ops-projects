@@ -129,6 +129,13 @@ log:
     max_size: 50m
     max_archives: 10
 
+# === HTTPS配置 ===
+# [生产必须] 启用HTTPS以保证镜像传输安全
+https:
+  enabled: true
+  cert: /opt/harbor/cert/server.crt
+  key: /opt/harbor/cert/server.key
+
 # === 证书 ===
 # 使用cert-manager自动管理，或手动放置证书:
 # /data/cert/server.crt
@@ -192,6 +199,9 @@ cat > /etc/nginx/conf.d/harbor-ha.conf << CONF
 upstream harbor_backend {
     # Harbor HA后端
 $(echo -e "${HARBOR_BACKENDS}")
+    # [生产注意] 后端使用自签证书时需关闭SSL验证
+    # 如使用正式证书建议保持ssl_verify on
+    ssl_verify off;
 }
 
 server {

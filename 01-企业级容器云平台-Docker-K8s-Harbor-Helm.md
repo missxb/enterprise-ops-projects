@@ -286,8 +286,7 @@ frontend k8s_apiserver_bind
     default_backend k8s_apiserver
 
 backend k8s_apiserver
-    option httpchk GET /healthz
-    http-check expect status 200
+    option tcp-check
     balance roundrobin
     server master01 ${MASTER01}:6443 check inter 3s fall 3 rise 2
     server master02 ${MASTER02}:6443 check inter 3s fall 3 rise 2
@@ -327,7 +326,7 @@ vrrp_script check_haproxy {
 
 vrrp_instance K8S_VIP {
     state MASTER          # 其他节点改为BACKUP
-    interface eth0
+    # interface eth0  # 自动检测：Keepalived >= 1.3.7 会自动选择默认网卡，无需硬编码
     virtual_router_id 51
     priority 101          # MASTER=101, BACKUP=100
     advert_int 1

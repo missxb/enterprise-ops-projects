@@ -1,5 +1,13 @@
 #!/bin/bash
 # etcd恢复脚本
+# === 多节点恢复说明 ===
+# 对于3节点etcd集群，恢复时需要在所有节点上执行此脚本：
+# 1. 停止所有节点的etcd和kube-apiserver
+# 2. 在每个节点上分别运行此脚本，使用同一个备份文件
+# 3. 每个节点的 --initial-cluster 参数必须包含所有节点的完整集群信息
+# 4. 恢复完成后先启动第1个节点，确认健康后再启动其余节点
+# 5. 验证命令: etcdctl endpoint status --endpoints=<所有节点> --write-out=table
+# 注意: 如果集群中有节点永久丢失，需先从恢复节点执行 member remove
 set -euo pipefail
 umask 077
 

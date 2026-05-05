@@ -161,7 +161,7 @@ spec:
         - --store=prometheus-0.prometheus.monitoring.svc.cluster.local:10901
         - --store=prometheus-1.prometheus.monitoring.svc.cluster.local:10901
         - --store=thanos-store-gateway.monitoring.svc.cluster.local:10901
-        - --query.replica-label=prometheus_replica
+        - --query.replica-label=replica
         ports:
         - name: grpc
           containerPort: 10901
@@ -211,6 +211,9 @@ data:
     config:
       bucket: thanos
       endpoint: minio.monitoring:9000
+      # [注意] access_key需通过K8s Secret注入，不要明文写入ConfigMap
+      # 建议使用: kubectl create secret generic thanos-objstore --from-literal=access_key=<KEY>
+      # 然后通过环境变量或挂载方式注入到容器
       access_key: ${MINIO_ACCESS_KEY}
       secret_key: ${MINIO_SECRET_KEY}
       insecure: true
@@ -1173,7 +1176,10 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: ${GRAFANA_ADMIN_PASSWORD}
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-credentials
+                  key: password
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
           ports:
