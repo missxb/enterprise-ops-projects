@@ -13,6 +13,8 @@ REDIS_VERSION="${REDIS_VERSION:-7.2.4}"
 echo "=== Redis Cluster生产级部署(3主3从) ==="
 echo "节点: ${NODES}"
 echo "版本: Redis ${REDIS_VERSION}"
+# [前置条件] 需要在目标机配置sudoers免密:
+# echo "${REDIS_USER} ALL=(ALL) NOPASSWD: /usr/bin/redis-cli, /bin/bash" > /etc/sudoers.d/redis
 
 # Step 1: 安装Redis
 echo ""
@@ -109,20 +111,18 @@ for node in ${NODES}; do
   NODE_ARGS="${NODE_ARGS} ${node}:${PORT}"
 done
 
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
-  REDISCLI_AUTH=${REDIS_PASSWORD} --cluster create ${NODE_ARGS} \
-  --cluster-replicas 1 --cluster-yes
+ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli \
+  --cluster create ${NODE_ARGS} \
+  --cluster-replicas 1 --cluster-yes"
 
 # Step 3: 验证Cluster状态
 echo ""
 echo ">>> Step 3: 验证Cluster状态"
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
-  REDISCLI_AUTH=${REDIS_PASSWORD} cluster info
+ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli cluster info"
 
 echo ""
 echo ">>> Cluster节点信息"
-ssh ${REDIS_USER}@${FIRST_NODE} sudo /usr/bin/redis-cli \
-  REDISCLI_AUTH=${REDIS_PASSWORD} cluster nodes
+ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli cluster nodes"
 
 echo ""
 echo "=== Redis Cluster部署完成 ==="
