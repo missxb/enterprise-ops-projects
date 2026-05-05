@@ -153,7 +153,7 @@ else
   firewall-cmd --permanent --add-port=2379-2380/tcp  # etcd
   firewall-cmd --permanent --add-port=8472/udp   # flannel VXLAN
   firewall-cmd --permanent --add-port=4789/udp   # Calico/VXLAN overlay
-  firewall-cmd --permanent --add-port=10255/tcp   # read-only kubelet
+  # 10255/tcp(read-only kubelet)在K8s 1.16+已废弃，默认不开放
   firewall-cmd --permanent --add-port=30000-32767/tcp  # NodePort范围
   firewall-cmd --permanent --add-port=179/tcp     # Calico BGP(如使用)
   firewall-cmd --reload

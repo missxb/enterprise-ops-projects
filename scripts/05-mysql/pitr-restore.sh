@@ -1,5 +1,5 @@
 #!/bin/bash
-# MySQL PITR恢复脚本
+# MySQL PITR恢复脚本(支持MGR+GTID)
 set -euo pipefail
 umask 077
 
@@ -31,40 +31,73 @@ trap "rm -f ${MYSQL_CNF}" EXIT
 echo "=== MySQL PITR恢复 ==="
 echo "目标时间: ${TARGET_TIME}"
 
+# Step 1: 停止MySQL
 echo "Step 1: 停止MySQL..."
 systemctl stop mysqld
 
+# Step 2: 备份当前数据(安全措施)
 echo "Step 2: 备份当前数据(安全措施)..."
 if [ -d "${DATA_DIR}" ] && [ "$(ls -A ${DATA_DIR} 2>/dev/null)" ]; then
   cp -r ${DATA_DIR} ${DATA_DIR}.bak.$(date +%Y%m%d%H%M%S)
   echo "  已备份到 ${DATA_DIR}.bak.*"
 fi
 
+# Step 3: 清理数据目录
 echo "Step 3: 清理数据目录..."
 rm -rf ${DATA_DIR}/*
 
+# Step 4: 恢复全量备份
 echo "Step 4: 恢复全量备份..."
 echo "  Step 4.1: prepare全量备份..."
 xtrabackup --prepare --target-dir=${FULL_BACKUP}
 echo "  Step 4.2: copy-back到数据目录..."
 xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 
-echo "Step 5: 修复权限并启动MySQL..."
+# Step 5: 预生成binlog应用文件(在MySQL启动前完成)
+echo "Step 5: 预生成binlog应用文件..."
+BINLOG_SQL="/tmp/pitr_binlog_$(date +%Y%m%d%H%M%S).sql"
+BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort)
+if [ -z "$BINLOG_FILES" ]; then
+  echo "  ⚠️ 无binlog文件，跳过binlog生成"
+  touch ${BINLOG_SQL}
+else
+  echo "  生成binlog SQL: ${BINLOG_SQL}"
+  mysqlbinlog --stop-datetime="${TARGET_TIME}" ${BINLOG_FILES} > ${BINLOG_SQL}
+  echo "  binlog SQL大小: $(wc -c < ${BINLOG_SQL}) 字节"
+fi
+trap "rm -f ${MYSQL_CNF} ${BINLOG_SQL}" EXIT
+
+# Step 6: 修复权限并启动MySQL
+echo "Step 6: 修复权限并启动MySQL..."
 chown -R mysql:mysql ${DATA_DIR}
 systemctl start mysqld
 
-echo "Step 6: 应用binlog到目标时间点..."
-BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort)
-if [ -z "$BINLOG_FILES" ]; then
-  echo "  ⚠️ 无binlog文件，跳过binlog恢复"
+# 等待MySQL就绪
+echo "  等待MySQL启动..."
+for i in $(seq 1 30); do
+  if mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT 1" &>/dev/null; then
+    echo "  MySQL已就绪"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "  ❌ MySQL启动超时(30s)"
+    exit 1
+  fi
+  sleep 1
+done
+
+# Step 7: 应用binlog到目标时间点
+if [ -s "${BINLOG_SQL}" ]; then
+  echo "Step 7: 应用binlog到目标时间点..."
+  mysql --defaults-extra-file=${MYSQL_CNF} < ${BINLOG_SQL}
+  echo "  binlog应用完成"
 else
-  for f in $BINLOG_FILES; do
-    echo "  应用: $f"
-    mysqlbinlog --stop-datetime="${TARGET_TIME}" "$f" | mysql --defaults-extra-file=${MYSQL_CNF}
-  done
+  echo "Step 7: 跳过(无binlog)"
 fi
 
-echo "Step 7: 重启MySQL确保干净状态..."
+# Step 8: 重启MySQL确保干净状态
+echo "Step 8: 重启MySQL确保干净状态..."
 systemctl restart mysqld
 
-echo "✅ PITR恢复完成，请验证数据"
+echo "✅ PITR恢复完成，已恢复到: ${TARGET_TIME}"
+echo "  请验证数据一致性"

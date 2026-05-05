@@ -599,7 +599,7 @@ echo "✅ MetalLB配置完成，IP池: 10.10.10.200-10.10.10.240"
 set -euo pipefail
 
 HARBOR_VERSION="2.12.0"
-HARBOR_DOMAIN="harbor.internal.com"
+HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
 HARBOR_IP="10.10.10.31"
 
 echo "安装Docker Compose..."
@@ -750,7 +750,7 @@ echo "用户名: admin / 密码: ${HARBOR_ADMIN_PASSWORD}"
 
 set -euo pipefail
 
-HARBOR_DOMAIN="harbor.internal.com"
+HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
 
 echo "创建namespace..."
 kubectl create namespace harbor-system
