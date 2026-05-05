@@ -367,7 +367,7 @@ SERVICE_DOMAIN="cluster.local"
 
 echo "========== 创建kubeadm配置文件 =========="
 cat > /tmp/kubeadm-config.yaml << EOF
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 localAPIEndpoint:
   advertiseAddress: 10.10.10.11
@@ -380,7 +380,7 @@ nodeRegistration:
     - effect: NoSchedule
       key: node-role.kubernetes.io/control-plane
 ---
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: v1.31.0
 controlPlaneEndpoint: "${VIP}:6443"

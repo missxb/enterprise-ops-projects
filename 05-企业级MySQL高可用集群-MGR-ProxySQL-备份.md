@@ -107,7 +107,7 @@ loose-group_replication_single_primary_mode=ON
 loose-group_replication_enforce_update_everywhere_checks=OFF
 loose-group_replication_recovery_get_public_key=1
 
-# [注意] MGR不支持binlog-do_db/db-do_db过滤
+# [注意] MGR下binlog-do_db可能不一致，生产环境不建议使用
 # 如需库级过滤，在应用层实现或使用独立从库+replicate-do-db
 ```
 

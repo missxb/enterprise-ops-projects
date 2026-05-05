@@ -139,7 +139,7 @@ etcdctl endpoint health --cluster
 | Chaos Mesh | K8s Pod/网络/IO故障 | Helm install |
 | Litmus Chaos | K8s原生混沌工程 | Helm install |
 | tc/netem | 网络延迟/丢包 | Linux自带 |
-|| stress-ng | CPU/内存压力 | yum install ||
+| stress-ng | CPU/内存压力 | yum install |
 
 ### Litmus Chaos平台部署
 

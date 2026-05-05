@@ -148,8 +148,11 @@ else
   firewall-cmd --permanent --add-port=10250/tcp   # kubelet
   firewall-cmd --permanent --add-port=10251/tcp   # kube-scheduler
   firewall-cmd --permanent --add-port=10252/tcp   # kube-controller-manager
+  firewall-cmd --permanent --add-port=10257/tcp  # kube-controller-manager secure
+  firewall-cmd --permanent --add-port=10259/tcp  # kube-scheduler secure
   firewall-cmd --permanent --add-port=2379-2380/tcp  # etcd
   firewall-cmd --permanent --add-port=8472/udp   # flannel VXLAN
+  firewall-cmd --permanent --add-port=4789/udp   # Calico/VXLAN overlay
   firewall-cmd --permanent --add-port=10255/tcp   # read-only kubelet
   firewall-cmd --permanent --add-port=30000-32767/tcp  # NodePort范围
   firewall-cmd --permanent --add-port=179/tcp     # Calico BGP(如使用)
