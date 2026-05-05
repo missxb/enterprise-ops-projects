@@ -850,9 +850,9 @@ SET GLOBAL innodb_flush_log_at_trx_commit = 2;  -- 从库可以用2
 SET GLOBAL sync_binlog = 100;  -- 从库可以放宽
 
 -- 4. 增加从库并行复制
-SET GLOBAL slave_parallel_workers = 8;
-SET GLOBAL slave_parallel_type = 'LOGICAL_CLOCK';
-SET GLOBAL slave_preserve_commit_order = 1;
+SET GLOBAL replica_parallel_workers = 8;  # [已修复] MySQL 8.0.26+推荐replica前缀
+SET GLOBAL replica_parallel_type = 'LOGICAL_CLOCK';
+SET GLOBAL replica_preserve_commit_order = 1;
 ```
 
 ### 案例6: 表锁导致业务超时
@@ -870,7 +870,7 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
     b.trx_id blocking_trx_id,
     b.trx_mysql_thread_id blocking_thread,
     b.trx_query blocking_query
-  FROM information_schema.innodb_lock_waits w
+  FROM performance_schema.data_lock_waits w  # [已修复] innodb_lock_waits在8.0.1+已废弃
   INNER JOIN information_schema.innodb_trx b ON b.trx_id = w.blocking_trx_id
   INNER JOIN information_schema.innodb_trx r ON r.trx_id = w.requesting_trx_id;
 "

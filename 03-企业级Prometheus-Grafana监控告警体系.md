@@ -414,7 +414,7 @@ Thanos配置中的MinIO地址:
 # objstore.yml (在thanos-objstore-config ConfigMap中)
 type: S3
 config:
-  bucket: thanos-metrics
+  bucket: thanos
   endpoint: minio.monitoring:9000  # 使用K8s Service名称
   access_key: ${MINIO_ACCESS_KEY}
   secret_key: ${MINIO_SECRET_KEY}
@@ -931,7 +931,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           # 命中率低
           - alert: RedisLowHitRate
             expr: |
-              redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100 < 80
+              rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100 < 80
             for: 15m
             labels:
               severity: warning
@@ -1143,7 +1143,7 @@ data:
   bucket.yml: |
     type: S3
     config:
-      bucket: thanos-metrics
+      bucket: thanos
       endpoint: minio-01:9000
       access_key: ${MINIO_ACCESS_KEY}
       secret_key: ${MINIO_SECRET_KEY}
