@@ -95,6 +95,7 @@ data:
     ```
 
     ```yaml
+    # [以下scrape_configs属于上方prometheus.yml ConfigMap的data字段续接]
     # Thanos Sidecar配置(独立Deployment)
     # 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
     apiVersion: apps/v1

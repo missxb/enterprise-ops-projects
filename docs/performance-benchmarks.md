@@ -42,6 +42,20 @@
 | Elasticsearch(3节点) | 3核 | 12GB | 200GB |
 | Kibana | 0.5核 | 1GB | - |
 
+## 测试工具版本
+| 工具 | 版本 | 说明 |
+|------|------|------|
+| sysbench | 1.0.20 | MySQL OLTP基准 |
+| redis-benchmark | 7.2.4 | Redis官方压测 |
+| wrk | 4.2.0 | HTTP压测 |
+| pt-query-digest | 8.0.36 | 慢查询分析 |
+
+## 网络延迟基线
+| 节点间 | 延迟(P50) | 延迟(P99) | 带宽 |
+|--------|-----------|-----------|------|
+| Master↔Worker | 0.1ms | 0.3ms | 10Gbps |
+| 跨可用区 | 1.5ms | 3ms | 1Gbps |
+
 ## 压测工具
 ```bash
 # MySQL
