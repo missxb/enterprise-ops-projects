@@ -1509,6 +1509,7 @@ kubectl apply -f thanos/
 echo "Step 7: 配置Helm (可选)..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm install kube-prometheus prometheus-community/kube-prometheus-stack \
+  --version 65.1.0 \
   --namespace monitoring \
   --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \
   --set prometheus.retention=15d

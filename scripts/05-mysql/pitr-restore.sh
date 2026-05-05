@@ -87,6 +87,11 @@ for i in $(seq 1 30); do
 done
 
 # Step 7: 应用binlog到目标时间点
+# [注意] GTID模式下，如果备份已包含部分binlog事务，可能报
+# "GTID has already been executed"。如遇此错误，执行:
+#   mysql> RESET MASTER;
+#   mysql> SET GLOBAL GTID_PURGED='xxx';
+# 然后重新SOURCE binlog.sql。实际PITR场景中全量备份通常在binlog之前，极少冲突。
 if [ -s "${BINLOG_SQL}" ]; then
   echo "Step 7: 应用binlog到目标时间点..."
   mysql --defaults-extra-file=${MYSQL_CNF} < ${BINLOG_SQL}
