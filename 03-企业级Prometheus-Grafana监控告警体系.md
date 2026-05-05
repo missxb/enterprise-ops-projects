@@ -74,7 +74,11 @@ data:
         # [注意] $(HOSTNAME)需要通过Downward API注入:
         # env: [{name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}]
         # 然后在启动参数中使用 --label replica="$(POD_NAME)"
-        replica: 'prometheus'
+        # [注意] replica标签必须唯一(用于Thanos去重):
+        # Prometheus A: replica: prometheus-a
+        # Prometheus B: replica: prometheus-b
+        # 通过Downward API注入: --label replica="$(POD_NAME)"
+        replica: 'prometheus'  # 替换为实际实例标识
     
     # 告警规则文件
     rule_files:
@@ -88,23 +92,35 @@ data:
                 - alertmanager-01:9093
                 - alertmanager-02:9093
     
-    # Thanos Sidecar配置
-    - name: thanos-sidecar
-      image: quay.io/thanos/thanos:v0.34.0
-      args:
-      - sidecar
-      - --log.level=info
-      - --prometheus.url=http://localhost:9090
-      - --tsdb.path=/prometheus
-      - --objstore.config-file=/etc/thanos/bucket.yml
-      ports:
-      - name: grpc-sidecar
-        containerPort: 10901
-      - name: http-sidecar
-        containerPort: 10902
-      volumeMounts:
-      - name: prometheus-config
-        mountPath: /etc/thanos
+    ```
+
+    # Thanos Sidecar配置(独立 Deployment)
+    # 注意: Thanos Sidecar应作为sidecar容器嵌入Prometheus StatefulSet,
+    # 或作为独立Deployment部署,而非放在scrape_configs YAML块内
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: thanos-sidecar
+    spec:
+      template:
+        spec:
+          containers:
+          - name: thanos-sidecar
+            image: quay.io/thanos/thanos:v0.34.0
+            args:
+            - sidecar
+            - --log.level=info
+            - --prometheus.url=http://localhost:9090
+            - --tsdb.path=/prometheus
+            - --objstore.config-file=/etc/thanos/bucket.yml
+            ports:
+            - name: grpc-sidecar
+              containerPort: 10901
+            - name: http-sidecar
+              containerPort: 10902
+            volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/thanos
     ```
     
 ### Thanos Query (全局查询入口)

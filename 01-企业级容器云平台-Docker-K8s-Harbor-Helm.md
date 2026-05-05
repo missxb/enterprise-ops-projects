@@ -182,16 +182,17 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 mkdir -p /etc/containerd/certs.d/docker.io
 cat > /etc/containerd/certs.d/docker.io/hosts.toml << EOF
 server = "https://docker.io"
-[host."https://docker.mirrors.tuna.tsinghua.edu.cn"]
-  capabilities = ["pull", "resolve"]
-[host."https://docker.m.daocloud.io"]
-  capabilities = ["pull", "resolve"]
-[host."https://noohub.ru"]
-  capabilities = ["pull", "resolve"]
-[host."https://mirror.iscas.ac.cn"]
-  capabilities = ["pull", "resolve"]
-[host."https://docker.xuanyuan.me"]
-  capabilities = ["pull", "resolve"]
+# [已停用] 以下镜像站已不可用，保留供参考:
+# [host."https://docker.mirrors.tuna.tsinghua.edu.cn"]
+#   capabilities = ["pull", "resolve"]
+# [host."https://docker.m.daocloud.io"]
+#   capabilities = ["pull", "resolve"]
+# [host."https://noohub.ru"]
+#   capabilities = ["pull", "resolve"]
+# [host."https://mirror.iscas.ac.cn"]
+#   capabilities = ["pull", "resolve"]
+# [host."https://docker.xuanyuan.me"]
+#   capabilities = ["pull", "resolve"]
 EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
 

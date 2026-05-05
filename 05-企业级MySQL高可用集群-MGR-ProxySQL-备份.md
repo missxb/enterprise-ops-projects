@@ -515,6 +515,22 @@ SET GLOBAL group_replication_bootstrap_group = OFF;
 START GROUP_REPLICATION;
 ```
 
+### 数据一致性校验(必须执行)
+
+```bash
+# 数据一致性校验(必须执行)
+echo "执行数据一致性校验..."
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+  -- 检查是否有未同步的事务
+  SELECT MEMBER_ID, MEMBER_STATE, COUNT_TRANSACTIONS_IN_QUEUE
+  FROM performance_schema.replication_group_member_stats
+  WHERE COUNT_TRANSACTIONS_IN_QUEUE > 0;
+"
+# 建议使用pt-table-checksum校验主从数据一致性:
+# pt-table-checksum --host=master_host --user=root --password=xxx --databases=app_db
+# pt-table-sync --execute h=master_host,d=app_db,t=orders
+```
+
 ### 案例2: 磁盘满导致MySQL崩溃
 
 **故障**: binlog累积占满磁盘，MySQL无法写入

@@ -44,10 +44,17 @@ resource "alicloud_security_group_rule" "ssh" {
   description       = "SSH"
 }
 
+# 查找最新可用镜像
+data "alicloud_images" "default" {
+  name_regex  = "^aliyun_3_x64_"
+  most_recent = true
+  owners      = "system"
+}
+
 resource "alicloud_instance" "master" {
   count                = 3
   instance_name        = "${var.project}-master-${count.index + 1}"
-  image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
+  image_id             = data.alicloud_images.default.images[0].id
   instance_type        = "ecs.g7.2xlarge"  # 8C16G, 文档要求8C16G
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
@@ -62,7 +69,7 @@ resource "alicloud_instance" "master" {
 resource "alicloud_instance" "worker" {
   count                = 5
   instance_name        = "${var.project}-worker-${count.index + 1}"
-  image_id             = "aliyun_3_x64_20G_alibase_20240101.vhd"
+  image_id             = data.alicloud_images.default.images[0].id
   instance_type        = "ecs.g7.4xlarge"  # 16C64G, 文档要求16C64G或32C128G
   security_groups      = [alicloud_security_group.main.id]
   vswitch_id           = alicloud_vswitch.main.id
