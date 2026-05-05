@@ -77,6 +77,55 @@
 
 ---
 
+## 跨机房etcd灾备配置
+
+### 架构说明
+```
+机房A (主)                      机房B (备)
+┌─────────────────┐            ┌─────────────────┐
+│ etcd-0 (10.10.10.11) │◄──同步──►│ etcd-3 (10.20.10.11) │
+│ etcd-1 (10.10.10.12) │         │ etcd-4 (10.20.10.12) │
+│ etcd-2 (10.10.10.13) │         │ etcd-5 (10.20.10.13) │
+└─────────────────┘            └─────────────────┘
+         │                              │
+    Master x3                       Master x3
+```
+
+### etcd成员添加(跨机房)
+```bash
+# 在机房B的etcd节点上加入机房A的集群
+etcdctl member add etcd-3 \
+  --peer-urls=https://10.20.10.11:2380
+
+# 机房B的etcd启动参数(以etcd-3为例)
+etcdctl member update etcd-3 \
+  --peer-urls=https://10.20.10.11:2380
+
+# 验证集群状态
+etcdctl member list -w table
+etcdctl endpoint health --cluster
+```
+
+### 跨机房网络要求
+- 两机房之间延迟 < 5ms (同城双活) 或 < 50ms (异地灾备)
+- 带宽 ≥ 1Gbps
+- etcd端口: 2379(客户端), 2380(peer), 2381(metrics)
+- 建议使用专线或VPN，避免公网传输etcd数据
+
+### 故障切换SOP
+1. 检测: 机房A etcd集群不可用(3个节点均无响应)
+2. 确认: 在机房B执行 `etcdctl endpoint health --endpoints=https://10.20.10.11:2379`
+3. 选举: 将机房B的etcd节点提升为主(如有3个以上成员可自动选举)
+4. 切换: 修改机房B的apiserver指向本地etcd endpoints
+5. 验证: K8s集群在机房B恢复正常
+
+### 注意事项
+- etcd集群必须有奇数个成员(3或5)才能正常选举
+- 跨机房场景建议机房A 3节点 + 机房B 3节点 = 6节点(偶数)
+- 实际生产中，机房B通常作为冷备，不同时运行etcd成员
+- 推荐方案: 机房A运行etcd 3节点，机房B定期备份etcd snapshot
+
+
 ## 混沌工程基础
 
 ### 混沌工程原则

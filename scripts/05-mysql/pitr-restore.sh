@@ -44,13 +44,16 @@ echo "Step 3: 清理数据目录..."
 rm -rf ${DATA_DIR}/*
 
 echo "Step 4: 恢复全量备份..."
-# 正确顺序: prepare → copy-back → 应用binlog → 最终prepare → 启动
 echo "  Step 4.1: prepare全量备份..."
 xtrabackup --prepare --target-dir=${FULL_BACKUP}
 echo "  Step 4.2: copy-back到数据目录..."
 xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 
-echo "Step 5: 应用binlog到目标时间点..."
+echo "Step 5: 修复权限并启动MySQL..."
+chown -R mysql:mysql ${DATA_DIR}
+systemctl start mysqld
+
+echo "Step 6: 应用binlog到目标时间点..."
 BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort)
 if [ -z "$BINLOG_FILES" ]; then
   echo "  ⚠️ 无binlog文件，跳过binlog恢复"
@@ -61,11 +64,7 @@ else
   done
 fi
 
-echo "Step 6: 最终prepare(数据一致性)..."
-xtrabackup --prepare --target-dir=${FULL_BACKUP}
-
-echo "Step 7: 修复权限并启动..."
-chown -R mysql:mysql ${DATA_DIR}
-systemctl start mysqld
+echo "Step 7: 重启MySQL确保干净状态..."
+systemctl restart mysqld
 
 echo "✅ PITR恢复完成，请验证数据"

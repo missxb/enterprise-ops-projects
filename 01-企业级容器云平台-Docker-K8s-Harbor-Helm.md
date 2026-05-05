@@ -381,6 +381,11 @@ kind: ClusterConfiguration
 kubernetesVersion: v1.31.0
 controlPlaneEndpoint: "${VIP}:6443"
 imageRepository: registry.aliyuncs.com/google_containers  # [阿里云镜像加速]
+# [镜像源说明]
+# 1. kubeadm imageRepository: 控制面组件镜像(apiserver, scheduler, etc.)
+# 2. containerd certs.d: 应用容器镜像(docker.io上的镜像)
+# 3. Harbor: 业务应用镜像(私有仓库)
+# 三处镜像策略不同是正常的，但需确保内网环境三者均可访问
 networking:
   dnsDomain: ${SERVICE_DOMAIN}
   podSubnet: ${POD_CIDR}
@@ -556,10 +561,10 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-  - 10.10.200.100-10.10.200.200   # 101个可用IP
+  - 10.10.10.200-10.10.10.240   # 41个可用IP，与节点同子网(10.10.10.0/24)
   # [重要] L2模式要求: MetalLB IP池必须与节点在同一二层网络(同一VLAN)
-  # 如果节点在10.10.10.0/24，IP池应在同一子网或已路由的子网
-  # 生产建议: 使用BGP模式或云厂商LB替代MetalLB
+  # 当前节点在10.10.10.0/24，IP池已配置在同一子网内
+  # 生产建议: 大规模集群建议使用BGP模式或云厂商LoadBalancer替代MetalLB
 ---
 apiVersion: metallb.io/v1beta2
 kind: L2Advertisement
@@ -572,7 +577,7 @@ spec:
 EOF
 
 kubectl apply -f /tmp/metallb-config.yaml
-echo "✅ MetalLB配置完成，IP池: 10.10.200.100-10.10.200.200"
+echo "✅ MetalLB配置完成，IP池: 10.10.10.200-10.10.10.240"
 ```
 
 ---

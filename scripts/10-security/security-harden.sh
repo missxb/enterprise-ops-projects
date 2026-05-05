@@ -111,6 +111,7 @@ echo ">>> 7. 配置fail2ban"
 yum install -y fail2ban 2>/dev/null || apt-get install -y fail2ban 2>/dev/null || true
 cat > /etc/fail2ban/jail.local << 'F2BEOF'
 [DEFAULT]
+ignoreip = 127.0.0.1/8 ::1 ADMIN_IP_PLACEHOLDER
 bantime = 3600
 findtime = 600
 maxretry = 5
@@ -123,10 +124,12 @@ logpath = /var/log/secure
 maxretry = 3
 bantime = 86400
 F2BEOF
+# 注入管理IP白名单(防止Ansible控制机被封禁)
+sed -i "s/ADMIN_IP_PLACEHOLDER/${ADMIN_IP}/" /etc/fail2ban/jail.local
 systemctl enable fail2ban 2>/dev/null || true
 systemctl start fail2ban 2>/dev/null || true
 
-# 9. 配置防火墙(非K8s节点)
+# 9. 配置防火墙(所有节点均启用，K8s节点开放集群所需端口)
 echo ">>> 8. 配置防火墙"
 if ! systemctl is-active kubelet &>/dev/null; then
   systemctl enable firewalld
@@ -135,9 +138,23 @@ if ! systemctl is-active kubelet &>/dev/null; then
   firewall-cmd --permanent --add-port=80/tcp
   firewall-cmd --permanent --add-port=443/tcp
   firewall-cmd --reload
-  echo "  防火墙已启用(K8s节点请手动关闭)"
+  echo "  防火墙已启用(非K8s节点)"
 else
-  echo "  检测到K8s节点，跳过防火墙配置"
+  # K8s节点: 启用防火墙但放行K8s所需端口
+  systemctl enable firewalld
+  systemctl start firewalld
+  firewall-cmd --permanent --add-service=ssh
+  firewall-cmd --permanent --add-port=6443/tcp    # kube-apiserver
+  firewall-cmd --permanent --add-port=10250/tcp   # kubelet
+  firewall-cmd --permanent --add-port=10251/tcp   # kube-scheduler
+  firewall-cmd --permanent --add-port=10252/tcp   # kube-controller-manager
+  firewall-cmd --permanent --add-port=2379-2380/tcp  # etcd
+  firewall-cmd --permanent --add-port=8472/udp   # flannel VXLAN
+  firewall-cmd --permanent --add-port=10255/tcp   # read-only kubelet
+  firewall-cmd --permanent --add-port=30000-32767/tcp  # NodePort范围
+  firewall-cmd --permanent --add-port=179/tcp     # Calico BGP(如使用)
+  firewall-cmd --reload
+  echo "  防火墙已启用(K8s节点，已放行集群端口)"
 fi
 
 HARDENING_EOF

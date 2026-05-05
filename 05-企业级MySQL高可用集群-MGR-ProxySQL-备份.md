@@ -107,11 +107,8 @@
    110|loose-group_replication_enforce_update_everywhere_checks=OFF
    111|loose-group_replication_recovery_get_public_key=1
    112|
-   113|# 过滤不需要同步的库
-   114|# [已禁用] MGR不兼容binlog-do_db
-# binlog-do_db=app_db
-   115|# binlog-do_db=user_db
-   116|# binlog-do_db=order_db
+# [注意] MGR不支持binlog-do_db/db-do_db过滤
+# 如需库级过滤，在应用层实现或使用独立从库+replicate-do-db
    117|```
    118|
    119|### 3.2 初始化MGR集群
@@ -288,36 +285,38 @@ UPDATE global_variables SET variable_value='${MONITOR_PASSWORD}' WHERE variable_
    288|## 六、PITR恢复
    289|
    290|```bash
-   291|#!/bin/bash
-   292|# pitr_restore.sh - 基于时间点恢复
-   293|
-   294|set -euo pipefail
-   295|
-   296|RESTORE_DIR="/data/restore"
-   297|BACKUP_DIR="/data/backup/mysql"
-   298|TARGET_TIME="2024-01-15 14:30:00"
-   299|
-   300|echo "Step 1: 找到最近的全量备份..."
-   301|LATEST_FULL=$(ls -td ${BACKUP_DIR}/full/full-* | head -1)
-   302|echo "使用备份: ${LATEST_FULL}"
-   303|
-   304|echo "Step 2: 应用redo log..."
-   305|xtrabackup --prepare --target-dir=${LATEST_FULL} --apply-log-only
-   306|
-   307|echo "Step 3: 恢复数据..."
-   308|systemctl stop mysqld
-   309|rm -rf /data/mysql/*
-   310|xtrabackup --copy-back --target-dir=${LATEST_FULL}
-   311|
-   312|echo "Step 4: 应用binlog到目标时间点..."
-mysqlbinlog --stop-datetime="${TARGET_TIME}" /data/backup/binlog/binlog-*.sql | mysql -uroot -p${MYSQL_ROOT_PASSWORD}
-   313|# 找到对应的binlog文件
-   314|xtrabackup --prepare --target-dir=${LATEST_FULL}
-   315|
-   316|chown -R mysql:mysql /data/mysql
-   317|systemctl start mysqld
-   318|
-   319|echo "✅ PITR恢复完成，已恢复到: ${TARGET_TIME}"
+#!/bin/bash
+# pitr_restore.sh - 基于时间点恢复
+
+set -euo pipefail
+
+RESTORE_DIR="/data/restore"
+BACKUP_DIR="/data/backup/mysql"
+TARGET_TIME="2024-01-15 14:30:00"
+
+echo "Step 1: 找到最近的全量备份..."
+LATEST_FULL=$(ls -td ${BACKUP_DIR}/full/full-* | head -1)
+echo "使用备份: ${LATEST_FULL}"
+
+echo "Step 2: 停止MySQL并清理数据目录..."
+systemctl stop mysqld
+rm -rf /data/mysql/*
+
+echo "Step 3: 恢复全量备份..."
+xtrabackup --prepare --target-dir=${LATEST_FULL}
+xtrabackup --copy-back --target-dir=${LATEST_FULL}
+
+echo "Step 4: 修复权限并启动MySQL..."
+chown -R mysql:mysql /data/mysql
+systemctl start mysqld
+
+echo "Step 5: 应用binlog到目标时间点..."
+mysqlbinlog --stop-datetime="${TARGET_TIME}" /data/backup/binlog/binlog-*.sql | mysql --defaults-extra-file=${MYSQL_CNF}
+
+echo "Step 6: 重启MySQL确保干净状态..."
+systemctl restart mysqld
+
+echo "✅ PITR恢复完成，已恢复到: ${TARGET_TIME}"
    320|```
    321|
    322|---

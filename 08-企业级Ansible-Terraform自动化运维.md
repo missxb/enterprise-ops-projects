@@ -775,6 +775,10 @@ terraform import alicloud_vpc.existing vpc-xxxxxxxxxxxx
 # ansible.cfg
 [defaults]
 forks = 20  # 从50降到20
+# 同时将Ansible控制机IP加入fail2ban白名单
+# 在目标机的/etc/fail2ban/jail.local中:
+# [sshd]
+# ignoreip = 127.0.0.1/8 10.10.0.100  # Ansible控制机IP
 
 [ssh_connection]
 # 添加随机延迟
