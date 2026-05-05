@@ -1966,7 +1966,7 @@ groups:
     rules:
       - alert: NodeDown
         expr: up{job="node-exporter"} == 0
-        for: 2m
+        for: 3m
         labels: { severity: critical }
       - alert: HighCPU
         expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80

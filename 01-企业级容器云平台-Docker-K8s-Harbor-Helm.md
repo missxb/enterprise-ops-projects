@@ -727,7 +727,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/harbor
 ExecStart=/usr/bin/docker compose -f /opt/harbor/docker-compose.yml up -d
-ExecStop=/usr/local/bin/docker-compose -f /opt/harbor/docker-compose.yml down
+ExecStop=/usr/bin/docker compose -f /opt/harbor/docker-compose.yml down
 TimeoutStartSec=0
 
 [Install]
