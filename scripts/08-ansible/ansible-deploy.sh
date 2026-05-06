@@ -311,7 +311,7 @@ prepare_playbook() {
   hosts: all
   become: yes
   vars:
-    k8s_version: "1.28"
+    k8s_version: "1.31"
     pod_cidr: "10.244.0.0/16"
     service_cidr: "10.96.0.0/12"
   tasks:

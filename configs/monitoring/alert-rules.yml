@@ -4,11 +4,11 @@ groups:
     rules:
       - alert: NodeDown
         expr: up{job="node"} == 0
-        for: 1m
+        for: 3m
         labels:
           severity: critical
         annotations:
-          summary: "节点 {{ $labels.instance }} 宕机"
+          summary: "节点 {{ $labels.instance }} 宕机(超过3分钟)"
           description: "节点已宕机超过1分钟"
 
       - alert: HighCPU
