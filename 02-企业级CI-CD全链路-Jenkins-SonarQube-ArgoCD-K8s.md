@@ -948,7 +948,7 @@ spec:
       # 如需自动回滚，将selfHeal改为true
     automated:
       prune: true
-      selfHeal: true  # 自动修复偏离Git状态的资源(自动回滚)
+      selfHeal: false  # 生产环境建议关闭自动回滚，避免意外状态变更
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true

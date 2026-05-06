@@ -336,7 +336,17 @@ set -euo pipefail
 
 RESTORE_DIR="/data/restore"
 BACKUP_DIR="/data/backup/mysql"
-TARGET_TIME="2024-01-15 14:30:00"
+# [修复] TARGET_TIME不再硬编码，改为从参数/环境变量读取
+# 用法: TARGET_TIME="2024-01-15 14:30:00" ./pitr_restore.sh
+# 或: ./pitr_restore.sh (将交互式提示输入)
+TARGET_TIME="${TARGET_TIME:-}"
+if [ -z "${TARGET_TIME}" ]; then
+  read -p "请输入恢复目标时间(格式: YYYY-MM-DD HH:MM:SS): " TARGET_TIME
+fi
+if [[ ! "${TARGET_TIME}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+  echo "❌ 时间格式错误，应为: YYYY-MM-DD HH:MM:SS"
+  exit 1
+fi
 
 echo "Step 1: 找到最近的全量备份..."
 LATEST_FULL=$(ls -td ${BACKUP_DIR}/full/full-* | head -1)
@@ -544,7 +554,7 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345 AND status = 'paid';
 **排查过程**:
 - 03:00 收到Grafana告警: MGR成员状态异常
 - 03:10 SSH登录发现网络正常，ping延迟<1ms
-- 03:25 检查etcd发现机房B的网络交换机在02:50有过一次重启(运维团队凌晨割接)
+- 03:25 检查MGR集群状态发现机房B的网络交换机在02:50有过一次重启(运维团队凌晨割接)
 - 03:30 确认是网络分区导致的脑裂，机房A的2个节点形成了多数派
 - 03:45 执行强制恢复，04:00业务恢复正常
 - 04:30 数据对账发现有12条订单不一致，手动修复
@@ -644,7 +654,7 @@ SAVE MYSQL SERVERS TO DISK;
 
 | 指标 | 目标值 | 实现方式 |
 |------|--------|---------|
-| RPO(数据丢失) | < 1秒 | MGR强一致性 + AOF |
+| RPO(数据丢失) | < 1秒 | MGR强一致性 + sync_binlog |
 | RTO(恢复时间) | < 5分钟 | MGR自动failover |
 | 备份频率 | 每天全量 + 每小时增量 | xtrabackup |
 | 备份保留 | 7天 | 自动清理 |
@@ -810,10 +820,9 @@ mysql-ha-cluster/
 # 查看复制状态
 mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SHOW REPLICA STATUS\G
-" | grep -E "Seconds_Behind_Master|Slave_SQL_Running|Exec_Master_Log_Pos"
+" | grep -E "Seconds_Behind|Slave_SQL_Running|Exec_Master_Log_Pos|Replica_IO_Running|Replica_SQL_Running"
 
-# Seconds_Behind_Master: 300
-# Slave_SQL_Running: Yes
+# Seconds_Behind_Master(8.0.22前) / Seconds_Behind_Source(8.0.22+)
 # 发现: 一个DELETE大表操作(删除1000万行)导致从库重放慢
 ```
 
@@ -1553,7 +1562,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "
 "
 
 # 4. 复制延迟
-mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW REPLICA STATUS\G" | grep -E "Seconds_Behind|Replica_SQL_Running"
 
 # 5. 慢查询数量
 mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW STATUS LIKE 'Slow_queries';"

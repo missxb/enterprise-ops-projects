@@ -110,9 +110,15 @@ http {
     ssl_session_cache shared:SSL:50m;
     ssl_session_timeout 1d;
     # SSL会话票据: 启用后通过ticket key轮转兼顾性能与安全
-    # 定期轮转: openssl rand 80 | xxd -p -c 80 > /etc/nginx/ssl/ssl_ticket_key.current
-    # 配置ssl_session_ticket_key并设置轮转cron
     ssl_session_tickets on;
+    # SSL Session Ticket Key轮转(每24小时轮转，兼顾性能与前向保密):
+    # 1. 生成当前key: openssl rand 80 | xxd -p -c 80 > /etc/nginx/ssl/ssl_ticket_key.current
+    # 2. 生成上一个key(用于解密旧会话): 保留前一次生成的key
+    # 3. 配置(最多配置4个key，当前key放最前):
+    #    ssl_session_ticket_key /etc/nginx/ssl/ssl_ticket_key.current;  # 当前key
+    #    ssl_session_ticket_key /etc/nginx/ssl/ssl_ticket_key.previous; # 上一个key(解密旧会话)
+    # 4. 设置cron每天轮转:
+    #    0 3 * * * /opt/scripts/ssl_ticket_rotate.sh
     ssl_stapling on;
     ssl_stapling_verify on;
     # DH参数: 增强前向保密，生成命令: openssl dhparam -out /etc/nginx/ssl/dhparam.pem 2048
@@ -140,6 +146,7 @@ http {
     upstream api_backend {
         # [修复] 同上，least_conn配合keepalive更优
         least_conn;
+        keepalive 32;
         server 10.10.50.21:8081 max_fails=3;
         server 10.10.50.22:8081 max_fails=3;
     }
@@ -157,6 +164,9 @@ http {
         listen 443 ssl http2;
         listen [::]:443 ssl http2;
         server_name www.ecommerce.com;
+
+        # [安全] 隐藏Nginx版本号，防止版本信息泄露
+        server_tokens off;
 
         ssl_certificate /etc/nginx/ssl/ecommerce.com.pem;
         ssl_certificate_key /etc/nginx/ssl/ecommerce.com.key;
@@ -244,6 +254,9 @@ http {
         listen 443 ssl http2;
         server_name admin.ecommerce.com;
 
+        # [安全] 隐藏Nginx版本号
+        server_tokens off;
+
         ssl_certificate /etc/nginx/ssl/admin.ecommerce.com.pem;
         ssl_certificate_key /etc/nginx/ssl/admin.ecommerce.com.key;
 
@@ -301,12 +314,20 @@ vrrp_instance VI_1 {
 #!/bin/bash
 # check_nginx.sh - Nginx健康检查脚本
 if ! /usr/sbin/nginx -t 2>/dev/null; then
+    echo "❌ Nginx配置语法检查失败，跳过重启"
     exit 1
 fi
 if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 3; then
+    # 重启前再次确认配置正确，避免错误配置导致服务中断
+    if ! /usr/sbin/nginx -t 2>/dev/null; then
+        echo "❌ Nginx配置语法错误，终止重启"
+        exit 1
+    fi
     systemctl restart nginx
     sleep 2
+    # 重启后验证健康状态
     if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 3; then
+        echo "❌ 重启后仍不健康，检查Nginx日志: /var/log/nginx/error.log"
         exit 1
     fi
 fi

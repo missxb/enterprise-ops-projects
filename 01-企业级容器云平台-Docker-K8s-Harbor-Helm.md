@@ -939,8 +939,8 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/rate-limit: "100"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/limit-rpm: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
   hosts:
     - host: api.ecommerce.com
       paths:
@@ -1275,11 +1275,11 @@ echo "Grafana: http://10.10.10.210 (密码请查看: kubectl -n monitoring get s
 set -euo pipefail
 
 echo "部署Elasticsearch..."
+# 替换为实际环境的StorageClass名称
 helm install elasticsearch elastic/elasticsearch \
   --set nodes.hot.replicas=1 \
   --set nodes.warm.replicas=1 \
   --set nodes.cold.replicas=1 \
-  # 替换为实际环境的StorageClass名称
   --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \
   --namespace logging --create-namespace \
   --set replicas=3 \
@@ -1584,7 +1584,7 @@ kubectl top nodes
 **解决方案**:
 ```bash
 # 1. 水平扩容节点
-kubectl scale nodepool worker-pool --replicas=8
+kubectl scale nodepool worker-pool --replicas=8  # 注意: 此命令仅适用于阿里云ACK
 
 # 2. 或调整资源请求
 kubectl set resources deployment my-app -n production   --requests=cpu=100m,memory=128Mi   --limits=cpu=500m,memory=512Mi

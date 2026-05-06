@@ -24,7 +24,12 @@ echo "=== etcd恢复 ==="
 echo "⚠️ 警告: 此操作将覆盖当前etcd数据!"
 
 # 确认
-read -p "确认恢复? (yes/no): " CONFIRM
+# [修复] 支持CONFIRM环境变量用于非交互式执行(如CI/CD流水线)
+# 用法: CONFIRM=yes ./etcd-restore.sh /path/to/backup
+CONFIRM="${CONFIRM:-}"
+if [ -z "${CONFIRM}" ]; then
+  read -p "确认恢复? (yes/no): " CONFIRM
+fi
 [ "$CONFIRM" != "yes" ] && { echo "已取消"; exit 0; }
 
 # 停止所有etcd成员(3节点恢复需要先停止所有成员)

@@ -64,6 +64,9 @@ server {
     listen 80;
     server_name _;
 
+    # [安全] 隐藏Nginx版本号，防止版本信息泄露
+    server_tokens off;
+
     # === SSL(生产环境启用) ===
     # listen 443 ssl http2;
     # ssl_certificate /etc/nginx/ssl/server.crt;

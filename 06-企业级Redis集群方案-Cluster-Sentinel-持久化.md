@@ -241,7 +241,10 @@ client-output-buffer-limit pubsub 32mb 8mb 60
 
 # ===== 安全配置 =====
 # [生产建议] Redis 6.0+推荐使用ACL替代rename-command:
-# acl setuser app_user on >password ~* +get +set +del -flushdb -flushall -debug
+# 先检查用户是否已存在，避免重复创建报错
+# if ! redis-cli ACL LIST | grep -q "app_user"; then
+#   redis-cli ACL SETUSER app_user on >password ~* +get +set +del -flushdb -flushall -debug
+# fi
 requirepass ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 masterauth ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 rename-command FLUSHDB ""
@@ -385,8 +388,45 @@ sentinel failover-timeout mymaster 30000
 sentinel parallel-syncs mymaster 1
 
 # 通知脚本
+# [重要] 以下脚本需提前创建，否则Sentinel启动会报错
+# redis-notify.sh: 哨兵检测到master下线/恢复时触发通知(邮件/钉钉等)
+# redis-reconfig.sh: 故障转移完成后，自动更新客户端连接配置
+#
+# 脚本示例路径: /opt/scripts/redis-notify.sh
+# 脚本示例路径: /opt/scripts/redis-reconfig.sh
 sentinel notification-script mymaster /opt/scripts/redis-notify.sh
 sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
+
+# === 脚本内容示例 ===
+# --- /opt/scripts/redis-notify.sh ---
+# #!/bin/bash
+# # Sentinel通知脚本 - 哨兵事件回调
+# # 参数: $1=事件类型 $2=master地址 $3=端口 $4=详情
+# EVENT=$1
+# NAME=$2
+# IP=$3
+# PORT=$4
+# MSG="Sentinel event: ${EVENT} master=${NAME} ${IP}:${PORT} $5"
+# echo "$(date): ${MSG}" >> /var/log/redis/notify.log
+# # 发送告警(邮件/钉钉/企业微信)
+# curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
+#   -H "Content-Type: application/json" \
+#   -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"Redis告警: ${MSG}\"}}" \
+#   > /dev/null 2>&1 || true
+# exit 0
+#
+# --- /opt/scripts/redis-reconfig.sh ---
+# #!/bin/bash
+# # Sentinel故障转移后重配置脚本
+# # 参数: $1=旧master $2=旧master端口 $3=新master $4=新master端口 $5=详情
+# OLD_HOST=$1
+# OLD_PORT=$2
+# NEW_HOST=$3
+# NEW_PORT=$4
+# echo "$(date): 故障转移 ${OLD_HOST}:${OLD_PORT} -> ${NEW_HOST}:${NEW_PORT}" >> /var/log/redis/reconfig.log
+# # 更新应用端的服务发现(根据实际架构修改)
+# # 例: 更新consul/etcd中的redis服务地址
+# exit 0
 ```
 
 ### 4.2 Sentinel常用命令
@@ -489,9 +529,9 @@ fi
 
 | 优化项 | 方法 | 效果 |
 |--------|------|------|
-| 数据结构选择 | 小数据用ziplist/listpack | 内存节省30-50% |
-| 编码优化 | hash-max-ziplist-entries 512 | 小hash省内存 |
-| 压缩列表 | zset-max-ziplist-entries 128 | 小zset省内存 |
+| 数据结构选择 | 小数据用listpack(Redis 7.0+替代ziplist) | 内存节省30-50% |
+| 编码优化 | hash-max-listpack-entries 128 | 小hash省内存 |
+| 编码优化 | zset-max-listpack-entries 128 | 小zset省内存 |
 | 整数集合 | set-max-intset-entries 512 | 小set省内存 |
 | 过期策略 | 业务key必须设置TTL | 防止内存泄漏 |
 | 淘汰策略 | allkeys-lru 或 volatile-lru | 智能淘汰 |
@@ -879,7 +919,8 @@ ssh root@10.10.40.11 "systemctl start redis@6379"
 
 echo "Step 5: 重新加入集群..."
 NEW_MASTER_ID=$(redis-cli -c -h 10.10.40.12 cluster nodes | grep master | grep -v "10.10.40.11" | head -1 | awk '{print $1}')
-redis-cli -c -h 10.10.40.11 CLUSTER REPLICATE "${NEW_MASTER_ID}"
+# 使用集群模式连接并认证，CLUSTER REPLICATE需要-a传入密码
+redis-cli -c -a "${REDIS_PASSWORD}" --no-auth-warning -h 10.10.40.11 CLUSTER REPLICATE "${NEW_MASTER_ID}"
 
 echo ""
 echo "演练结果:"

@@ -74,6 +74,7 @@ ansible-ops/
 ansible_user=deploy
 ansible_become=yes
 ansible_python_interpreter=/usr/bin/python3
+# [统一] 密钥文件路径与ansible.cfg保持一致
 ansible_ssh_private_key_file=~/.ssh/deploy_key
 
 [webservers]
@@ -317,6 +318,12 @@ provider "alicloud" {
 }
 
 # VPC
+# [重要] VPC CIDR创建后不可扩展(阿里云/AWS均不支持CIDR变更)
+# 当前配置 10.0.0.0/12(约100万个IP)适合中大规模集群
+# 如未来需要更多子网，可通过:
+# 1. 新建VPC并使用VPC对等连接/云企业网(CEN)互通
+# 2. 初始规划时预留充足CIDR范围(如/12或更大)
+# 3. 避免使用/16等小范围CIDR，后期扩展困难
 resource "alicloud_vpc" "main" {
   vpc_name   = "production-vpc"
   cidr_block = "10.0.0.0/12"  # VPC CIDR，包含所有子网(10.0.0.0 - 10.15.255.255)
@@ -1397,6 +1404,7 @@ control_path = /tmp/ansible-%%h-%%r
 # ansible.cfg - 生产环境优化配置
 [defaults]
 inventory = ./inventory/production/
+# [统一] remote_user和密钥文件与inventory保持一致
 remote_user = deploy
 private_key_file = ~/.ssh/deploy_key
 host_key_checking = False
