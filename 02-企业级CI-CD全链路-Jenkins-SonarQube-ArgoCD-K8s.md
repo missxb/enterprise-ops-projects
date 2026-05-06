@@ -533,6 +533,13 @@ ENTRYPOINT ["java", \
 
 set -euo pipefail
 
+> **⚠️ 生产环境必须分离部署**
+> SonarQube和PostgreSQL不应部署在同一节点(8C/16G资源竞争严重)。
+> 推荐方案:
+> - 使用阿里云RDS PostgreSQL(推荐)
+> - 或独立节点部署PostgreSQL
+> - 配置: `sonar.jdbc.url=jdbc:postgresql://独立PG节点:5432/sonarqube`
+
 echo "安装PostgreSQL..."
 # [生产建议] 使用外部PostgreSQL(阿里云RDS或已有PG集群)，避免本地安装
 yum install -y postgresql-server postgresql

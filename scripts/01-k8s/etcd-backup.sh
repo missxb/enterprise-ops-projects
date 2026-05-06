@@ -30,4 +30,23 @@ ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --w
 echo "清理过期备份..."
 find ${BACKUP_DIR} -name "etcd-snapshot-*.db" -mtime +${KEEP_DAYS} -delete
 
-echo "✅ etcd备份完成: etcd-snapshot-${DATE}.db"
+# === 异地备份(OSS) ===
+echo ">>> 异地备份到OSS..."
+BACKUP_FILE="etcd-snapshot-${DATE}.db"
+if command -v ossutil &>/dev/null; then
+  ossutil cp ${BACKUP_DIR}/${BACKUP_FILE} oss://${OSS_BUCKET:-etcd-backup}/$(date +%Y%m%d)/${BACKUP_FILE} 2>/dev/null && \
+    echo "  ✅ OSS上传成功" || \
+    echo "  ⚠️  OSS上传失败，请检查ossutil配置"
+else
+  echo "  ℹ️  ossutil未安装，跳过OSS上传"
+  echo "  [生产建议] 安装ossutil并配置异地备份: ossutil config -e oss-cn-hangzhou.aliyuncs.com"
+fi
+
+# === 告警通知 ===
+echo ">>> 备份状态通知..."
+BACKUP_SIZE=$(stat -f%z "${BACKUP_DIR}/${BACKUP_FILE}" 2>/dev/null || stat -c%s "${BACKUP_DIR}/${BACKUP_FILE}" 2>/dev/null)
+if [ "${BACKUP_SIZE}" -gt 0 ] 2>/dev/null; then
+  echo "  ✅ etcd备份完成: ${BACKUP_FILE} ($(numfmt --to=iec ${BACKUP_SIZE:-0}))"
+else
+  echo "  ❌ etcd备份失败: 文件为空"
+fi

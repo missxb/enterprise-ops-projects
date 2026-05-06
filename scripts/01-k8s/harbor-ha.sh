@@ -8,6 +8,31 @@
 set -euo pipefail
 umask 077
 
+# === 回滚函数 ===
+CURRENT_STEP=0
+rollback() {
+  local exit_code=$?
+  [ $exit_code -eq 0 ] && return
+  echo ""
+  echo "⚠️  部署失败(Step ${CURRENT_STEP})，开始回滚..."
+  case $CURRENT_STEP in
+    6)
+      echo "  回滚: 停止Harbor..."
+      for node in ${MASTER_NODES} ${BACKUP_NODES}; do
+        ssh root@${node} "cd /opt/harbor && docker compose down 2>/dev/null || true"
+      done
+      ;;
+    5)
+      echo "  回滚: 停止Docker..."
+      for node in ${MASTER_NODES} ${BACKUP_NODES}; do
+        ssh root@${node} "systemctl stop docker 2>/dev/null || true"
+      done
+      ;;
+  esac
+  echo "✅ 回滚完成"
+}
+trap rollback ERR
+
 # === 必填参数 ===
 HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:?请设置HARBOR_ADMIN_PASSWORD}"
 HARBOR_DB_PASSWORD="${HARBOR_DB_PASSWORD:?请设置HARBOR_DB_PASSWORD}"
@@ -28,6 +53,31 @@ echo "主节点: ${MASTER_NODES}"
 echo "备节点: ${BACKUP_NODES}"
 echo "负载均衡: ${LOAD_BALANCER}"
 
+# === 前置检查 ===
+echo ">>> 前置检查..."
+errors=0
+
+# 检查必要命令
+for cmd in docker openssl kubectl; do
+  command -v $cmd &>/dev/null || { echo "  ❌ $cmd 未安装"; errors=$((errors+1)); }
+done
+
+# 检查磁盘空间(至少20GB可用)
+avail_gb=$(df -BG /opt 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G')
+if [ "${avail_gb:-0}" -lt 20 ]; then
+  echo "  ❌ /opt磁盘空间不足(需20GB,当前${avail_gb:-0}GB)"
+  errors=$((errors+1))
+fi
+
+# 检查内存(至少8GB)
+mem_gb=$(free -g | awk '/Mem:/{print $2}')
+if [ "${mem_gb:-0}" -lt 8 ]; then
+  echo "  ⚠️  内存不足8GB(当前${mem_gb}GB),可能影响性能"
+fi
+
+[ $errors -gt 0 ] && { echo "前置检查失败"; exit 1; }
+echo "  ✅ 前置检查通过"
+
 # === SSH免密检查与配置 ===
 echo ""
 echo ">>> 检查SSH免密连接..."
@@ -43,6 +93,7 @@ done
 
 # Step 1: 部署外部PostgreSQL(使用阿里云RDS或自建)
 echo ""
+CURRENT_STEP=1
 echo ">>> Step 1: 外部PostgreSQL配置"
 echo "  [生产建议] 使用阿里云RDS PostgreSQL 14+高可用版"
 echo "  [自建方案] 主备流复制 + Patroni自动故障转移"
@@ -63,6 +114,7 @@ echo "  ✅ PostgreSQL数据库harbor_registry已创建"
 
 # Step 2: 部署外部Redis(使用阿里云Redis或自建Sentinel)
 echo ""
+CURRENT_STEP=2
 echo ">>> Step 2: 外部Redis配置"
 echo "  [生产建议] 使用阿里云Redis 6.0+集群版"
 echo "  [自建方案] 3主3从 + Sentinel监控"
@@ -76,6 +128,7 @@ redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/d
 
 # Step 3: 配置OSS共享存储
 echo ""
+CURRENT_STEP=3
 echo ">>> Step 3: OSS共享存储配置"
 echo "  创建OSS Bucket: ${OSS_BUCKET}"
 echo "  Endpoint: ${OSS_ENDPOINT}"
@@ -83,6 +136,7 @@ echo "  访问密钥: 通过环境变量或RAM角色授予"
 
 # Step 4: 生成Harbor配置
 echo ""
+CURRENT_STEP=4
 echo ">>> Step 4: 生成Harbor配置"
 
 generate_harbor_config() {
@@ -132,10 +186,11 @@ storage_service:
     multipartcopymaxconcurrency: 100
     multipartcopysinglesize: 1048576
 
-# === 数据卷(不使用本地存储) ===
-data_volume:
-  persistence:
-    enabled: false  # 使用OSS，不挂载本地存储
+# === 数据卷 ===
+# [已禁用] 使用OSS对象存储，不挂载本地存储
+# data_volume:
+#   persistence:
+#     enabled: false
 
 # === 日志(发送到ELK) ===
 log:
@@ -173,6 +228,7 @@ done
 
 # Step 5: 安装Docker + Docker Compose
 echo ""
+CURRENT_STEP=5
 echo ">>> Step 5: 安装Docker + Docker Compose"
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << 'DOCKER_EOF'
@@ -186,6 +242,7 @@ done
 
 # Step 6: 下载并安装Harbor
 echo ""
+CURRENT_STEP=6
 echo ">>> Step 6: 下载并安装Harbor"
 INSTALL_SCRIPT="https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-online-installer-v${HARBOR_VERSION}.tgz"
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
@@ -200,6 +257,7 @@ done
 
 # Step 7: 配置负载均衡(Keepalived + Nginx)
 echo ""
+CURRENT_STEP=7
 echo ">>> Step 7: 配置负载均衡"
 echo "  VIP: ${LOAD_BALANCER}"
 echo "  后端: ${MASTER_NODES} + ${BACKUP_NODES}"
@@ -249,6 +307,7 @@ done
 
 # Step 8: 验证HA
 echo ""
+CURRENT_STEP=8
 echo ">>> Step 8: 验证HA"
 echo "  1. 访问 https://${HARBOR_HOSTNAME}"
 echo "  2. 推送镜像测试: docker push ${HARBOR_HOSTNAME}/library/alpine:latest"

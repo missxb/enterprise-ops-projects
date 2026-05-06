@@ -58,7 +58,7 @@ xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 # Step 5: 预生成binlog应用文件(在MySQL启动前完成)
 echo "Step 5: 预生成binlog应用文件..."
 BINLOG_SQL="/tmp/pitr_binlog_$(date +%Y%m%d%H%M%S).sql"
-BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort)
+BINLOG_FILES=$(ls ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort -V)
 if [ -z "$BINLOG_FILES" ]; then
   echo "  ⚠️ 无binlog文件，跳过binlog生成"
   touch ${BINLOG_SQL}
