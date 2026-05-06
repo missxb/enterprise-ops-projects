@@ -93,7 +93,7 @@ spec:
     - port: 5678
       targetPort: 5678
 ---
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: echo-server

@@ -90,8 +90,8 @@
 | 组件 | 版本 | 依赖 | 兼容说明 |
 |------|------|------|----------|
 | K8s | 1.31 | containerd 2.0+ | LTS版本 |
-| Calico | 3.26 | K8s 1.31 | BGP模式需内核4.19+ |
-| MetalLB | 0.13 | K8s 1.24+ | L2模式需ARP |
+| Calico | 3.28 | K8s 1.31 | BGP模式需内核4.19+ |
+| MetalLB | 0.14 | K8s 1.24+ | L2模式需ARP |
 | Istio | 1.20 | K8s 1.31 | Sidecar兼容性 |
 | Harbor | 2.12 | K8s 1.31 | Helm安装 |
 | Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
