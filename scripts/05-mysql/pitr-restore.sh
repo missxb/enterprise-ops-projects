@@ -64,7 +64,11 @@ if [ -z "$BINLOG_FILES" ]; then
   touch ${BINLOG_SQL}
 else
   echo "  生成binlog SQL: ${BINLOG_SQL}"
-  mysqlbinlog --stop-datetime="${TARGET_TIME}" ${BINLOG_FILES} > ${BINLOG_SQL}
+  # 逐文件处理，避免命令行参数过长导致E2BIG错误
+  > ${BINLOG_SQL}  # 清空输出文件
+  for binlog in ${BINLOG_FILES}; do
+    mysqlbinlog --stop-datetime="${TARGET_TIME}" "${binlog}" >> ${BINLOG_SQL}
+  done
   echo "  binlog SQL大小: $(wc -c < ${BINLOG_SQL}) 字节"
 fi
 trap "rm -f ${MYSQL_CNF} ${BINLOG_SQL}" EXIT

@@ -148,6 +148,21 @@ else
   echo "  防火墙已启用(非K8s节点)"
 fi
 
+# 10. SELinux策略
+echo ">>> 9. 检查SELinux策略"
+if [ -f /etc/selinux/config ]; then
+  current=$(grep ^SELINUX= /etc/selinux/config | cut -d= -f2)
+  if [ "$current" = "enforcing" ]; then
+    echo "  ⚠️  等保三级要求SELinux=enforcing，但K8s节点需要permissive"
+    echo "  ℹ️  K8s节点: 保持permissive(已由node-init.sh设置)"
+    echo "  ℹ️  非K8s节点: 建议保持enforcing以满足等保要求"
+  elif [ "$current" = "permissive" ]; then
+    echo "  ℹ️  SELinux=permissive(K8s兼容模式)"
+  fi
+else
+  echo "  ℹ️  未检测到SELinux配置(/etc/selinux/config不存在)，跳过"
+fi
+
 HARDENING_EOF
 
   echo "  ✅ ${node} 安全加固完成"

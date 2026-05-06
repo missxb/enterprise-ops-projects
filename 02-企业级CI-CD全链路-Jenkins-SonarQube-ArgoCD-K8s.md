@@ -369,13 +369,8 @@ deploy-staging:
   script:
     - echo "部署到Staging环境..."
     - kubectl config use-context staging
-    - |
-      # 更新镜像版本
-      kubectl set image deployment/${CI_PROJECT_NAME} \
-        ${CI_PROJECT_NAME}=${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} \
-        -n staging
-      # 等待 rollout 完成
-      kubectl rollout status deployment/${CI_PROJECT_NAME} -n staging --timeout=300s
+    - kubectl apply -k configs/kustomize/overlays/staging
+    - kubectl rollout status deployment/${CI_PROJECT_NAME} -n staging --timeout=300s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
@@ -418,19 +413,8 @@ deploy-production:
   script:
     - echo "部署到生产环境..."
     - kubectl config use-context production
-    - |
-      # 记录当前版本（用于回滚）
-      CURRENT_IMAGE=$(kubectl get deployment/${CI_PROJECT_NAME} -n production \
-        -o jsonpath='{.spec.template.spec.containers[0].image}')
-      echo "当前版本: ${CURRENT_IMAGE}"
-      
-      # 滚动更新
-      kubectl set image deployment/${CI_PROJECT_NAME} \
-        ${CI_PROJECT_NAME}=${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} \
-        -n production
-      
-      # 等待完成
-      kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
+    - kubectl apply -k configs/kustomize/overlays/production
+    - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual

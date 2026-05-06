@@ -56,10 +56,14 @@ data "alicloud_images" "default" {
   owners      = "system"
 }
 
+locals {
+  image_id = length(data.alicloud_images.default.images) > 0 ? data.alicloud_images.default.images[0].id : ""
+}
+
 resource "alicloud_instance" "master" {
   count                = 3
   instance_name        = "${var.project}-master-${count.index + 1}"
-  image_id             = data.alicloud_images.default.images[0].id
+  image_id             = local.image_id
   instance_type        = "ecs.g7.2xlarge"  # 8C16G, 文档要求8C16G
   key_name             = var.key_name
   security_groups      = [alicloud_security_group.main.id]
@@ -75,7 +79,7 @@ resource "alicloud_instance" "master" {
 resource "alicloud_instance" "worker" {
   count                = 5
   instance_name        = "${var.project}-worker-${count.index + 1}"
-  image_id             = data.alicloud_images.default.images[0].id
+  image_id             = local.image_id
   instance_type        = "ecs.g7.4xlarge"  # 16C64G, 文档要求16C64G或32C128G
   key_name             = var.key_name
   security_groups      = [alicloud_security_group.main.id]

@@ -113,18 +113,18 @@ for node in ${NODES}; do
   NODE_ARGS="${NODE_ARGS} ${node}:${PORT}"
 done
 
-ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli \
+ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/bin/redis-cli \
   --cluster create ${NODE_ARGS} \
   --cluster-replicas 1 --cluster-yes"
 
 # Step 3: 验证Cluster状态
 echo ""
 echo ">>> Step 3: 验证Cluster状态"
-ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli cluster info"
+ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/bin/redis-cli cluster info"
 
 echo ""
 echo ">>> Cluster节点信息"
-ssh ${REDIS_USER}@${FIRST_NODE} "REDISCLI_AUTH=${REDIS_PASSWORD} sudo -n /usr/bin/redis-cli cluster nodes"
+ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/bin/redis-cli cluster nodes"
 
 echo ""
 echo "=== Redis Cluster部署完成 ==="

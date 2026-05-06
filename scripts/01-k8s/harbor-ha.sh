@@ -28,6 +28,19 @@ echo "主节点: ${MASTER_NODES}"
 echo "备节点: ${BACKUP_NODES}"
 echo "负载均衡: ${LOAD_BALANCER}"
 
+# === SSH免密检查与配置 ===
+echo ""
+echo ">>> 检查SSH免密连接..."
+for node in ${MASTER_NODES} ${BACKUP_NODES} ${LOAD_BALANCER}; do
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 root@${node} echo ok &>/dev/null; then
+    echo "  ⚠️  ${node} SSH免密未配置，正在配置..."
+    ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q 2>/dev/null || true
+    ssh-copy-id -o StrictHostKeyChecking=no root@${node}
+  else
+    echo "  ✅ ${node} SSH免密已配置"
+  fi
+done
+
 # Step 1: 部署外部PostgreSQL(使用阿里云RDS或自建)
 echo ""
 echo ">>> Step 1: 外部PostgreSQL配置"
