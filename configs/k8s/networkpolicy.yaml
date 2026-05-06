@@ -11,6 +11,7 @@ spec:
   policyTypes:
     - Ingress
 
+---
 ## 允许前端访问后端
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -32,6 +33,7 @@ spec:
         - protocol: TCP
           port: 8080
 
+---
 ## 允许监控抓取指标
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -53,6 +55,7 @@ spec:
         - protocol: TCP
           port: 8080
 
+---
 ## 放行DNS出站(必须!)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -71,6 +74,7 @@ spec:
         - protocol: TCP
           port: 53
 
+---
 ## 允许出站访问外部服务
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

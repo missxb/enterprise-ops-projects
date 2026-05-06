@@ -79,9 +79,11 @@ server {
         limit_req zone=api burst=20 nodelay;
         limit_conn conn 100;
         proxy_pass http://app_backend;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Host \\$host;
+        proxy_set_header X-Real-IP \\$remote_addr;
+        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
@@ -96,8 +98,10 @@ server {
     # === 默认代理 ===
     location / {
         proxy_pass http://app_backend;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header Host \\$host;
+        proxy_set_header X-Real-IP \\$remote_addr;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
     }
 }
 CONF

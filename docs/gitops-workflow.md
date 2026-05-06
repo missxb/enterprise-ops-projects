@@ -37,12 +37,8 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-  # 健康检查
-  healthChecks:
-    - apiVersion: apps/v1
-      kind: Deployment
-      name: user-service
-      namespace: production
+  # [修复] ArgoCD Application spec中不存在healthChecks字段
+  # 健康检查由ArgoCD自动处理，无需手动配置
 ```
 
 ## ApplicationSet(批量管理)

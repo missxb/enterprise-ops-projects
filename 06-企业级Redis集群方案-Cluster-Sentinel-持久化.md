@@ -171,7 +171,8 @@ daemonize yes
 pidfile /var/run/redis/redis_6379.pid
 logfile /var/log/redis/redis_6379.log
 loglevel notice
-databases 16
+# [注意] Redis Cluster模式下databases指令无效，Cluster仅使用db0
+# databases 16
 always-show-logo no
 
 # ===== 网络优化 =====
@@ -401,12 +402,11 @@ sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
 # --- /opt/scripts/redis-notify.sh ---
 # #!/bin/bash
 # # Sentinel通知脚本 - 哨兵事件回调
-# # 参数: $1=事件类型 $2=master地址 $3=端口 $4=详情
-# EVENT=$1
-# NAME=$2
-# IP=$3
-# PORT=$4
-# MSG="Sentinel event: ${EVENT} master=${NAME} ${IP}:${PORT} $5"
+# # 参数: $1=master名称 $2=事件类型 $3=详情
+MASTER_NAME=$1
+EVENT=$2
+DETAILS=$3
+MSG="Sentinel event: ${EVENT} master=${MASTER_NAME} ${DETAILS}"
 # echo "$(date): ${MSG}" >> /var/log/redis/notify.log
 # # 发送告警(邮件/钉钉/企业微信)
 # curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
@@ -418,12 +418,14 @@ sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
 # --- /opt/scripts/redis-reconfig.sh ---
 # #!/bin/bash
 # # Sentinel故障转移后重配置脚本
-# # 参数: $1=旧master $2=旧master端口 $3=新master $4=新master端口 $5=详情
-# OLD_HOST=$1
-# OLD_PORT=$2
-# NEW_HOST=$3
-# NEW_PORT=$4
-# echo "$(date): 故障转移 ${OLD_HOST}:${OLD_PORT} -> ${NEW_HOST}:${NEW_PORT}" >> /var/log/redis/reconfig.log
+# # 参数: $1=master名称 $2=角色 $3=旧IP $4=旧端口 $5=新IP $6=新端口
+MASTER_NAME=$1
+ROLE=$2
+OLD_HOST=$3
+OLD_PORT=$4
+NEW_HOST=$5
+NEW_PORT=$6
+echo "$(date): 故障转移 ${MASTER_NAME} ${OLD_HOST}:${OLD_PORT} -> ${NEW_HOST}:${NEW_PORT}" >> /var/log/redis/reconfig.log
 # # 更新应用端的服务发现(根据实际架构修改)
 # # 例: 更新consul/etcd中的redis服务地址
 # exit 0
@@ -459,15 +461,14 @@ redis-cli -p 26379 sentinel get-master-addr-by-name mymaster
 ```bash
 #!/bin/bash
 # redis-notify.sh - Redis故障切换通知
-# 参数: $1=<master|slave|failover|reconf> $2=name $3=old-state $4=new-state
+# 参数: $1=master名称 $2=事件类型 $3=详情
+# 事件类型: +sdown, -sdown, +odown, -odown, +switch-master, +failover-end等
 
-EVENT=$1
-NAME=$2
-OLD_STATE=$3
-NEW_STATE=$4
+MASTER_NAME=$1
+EVENT=$2
+DETAILS=$3
 
-LOG_FILE="/var/log/redis/failover.log"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] EVENT=${EVENT} NAME=${NAME} OLD=${OLD_STATE} NEW=${NEW_STATE}" >> ${LOG_FILE}
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] MASTER=${MASTER_NAME} EVENT=${EVENT} DETAILS=${DETAILS}" >> ${LOG_FILE}
 
 # 钉钉通知
 DINGTALK_TOKEN="your-dingtalk-webhook-token"
@@ -954,7 +955,7 @@ echo "  - 业务影响: 无感知"
 - 单节点QPS: 10万
 - 业务峰值QPS: 30万
 - 最少主节点数: ceil(30万 / 10万) = 3主
-- 加从节点: 5 × 2 = 10节点
+加从节点: 3主 × 2(主从) = 6节点
 ```
 
 ### 10.3 连接数规划

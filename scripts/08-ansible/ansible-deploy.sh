@@ -260,16 +260,22 @@ EOF
     echo "" >> "${INVENTORY_FILE}"
   fi
 
-  # 组合组
+  # 组合组 - 使用实际主机名替代字面量
   echo "[k8s_master]" >> "${INVENTORY_FILE}"
   if [[ -n "${MASTER_NODES:-}" ]]; then
-    echo "master" >> "${INVENTORY_FILE}"
+    IFS=',' read -ra _masters <<< "$MASTER_NODES"
+    for node in "${_masters[@]}"; do
+      echo "$(echo "$node" | sed 's/.*@//')" >> "${INVENTORY_FILE}"
+    done
   fi
   echo "" >> "${INVENTORY_FILE}"
 
   echo "[k8s_worker]" >> "${INVENTORY_FILE}"
   if [[ -n "${WORKER_NODES:-}" ]]; then
-    echo "worker" >> "${INVENTORY_FILE}"
+    IFS=',' read -ra _workers <<< "$WORKER_NODES"
+    for node in "${_workers[@]}"; do
+      echo "$(echo "$node" | sed 's/.*@//')" >> "${INVENTORY_FILE}"
+    done
   fi
   echo "" >> "${INVENTORY_FILE}"
 

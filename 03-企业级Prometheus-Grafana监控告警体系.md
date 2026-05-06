@@ -318,7 +318,7 @@ data:
               severity: critical
             annotations:
               summary: "节点宕机: {{ $labels.instance }}"
-              description: "节点已不可达超过1分钟"
+              description: "节点已不可达超过3分钟"
           
           # 系统负载过高
           - alert: NodeHighLoad

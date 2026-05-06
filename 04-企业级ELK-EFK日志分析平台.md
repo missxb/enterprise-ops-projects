@@ -81,7 +81,7 @@ data:
     -Xms4g
     -Xmx4g
     -XX:+UseG1GC
-    -XX:G1HeapRegionSize=4m
+    -XX:G1HeapRegionSize=2m
     -XX:InitiatingHeapOccupancyPercent=30
     -XX:G1ReservePercent=15
     -XX:MaxGCPauseMillis=200
@@ -150,6 +150,10 @@ spec:
             - name: config
               mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
               subPath: elasticsearch.yml
+            # [修复] jvm.options ConfigMap已定义但未挂载到容器
+            - name: config
+              mountPath: /usr/share/elasticsearch/config/jvm.options
+              subPath: jvm.options
           readinessProbe:
             httpGet:
               path: /_cluster/health?local=true
@@ -1359,7 +1363,9 @@ swapoff -a
 // PUT _cluster/settings
 {
   "persistent": {
-    "cluster.routing.allocation.require.node_role": "data_hot",
+    # [修复] 移除cluster-level强制路由到hot节点的设置
+    # 该设置会导致master/data-warm节点无法分配分片，影响集群健康
+    # 应在index template级别设置routing.allocation.require.node_role
     "cluster.routing.allocation.disk.watermark.low": "80%",
     "cluster.routing.allocation.disk.watermark.high": "85%",
     "indices.memory.index_buffer_size": "15%",

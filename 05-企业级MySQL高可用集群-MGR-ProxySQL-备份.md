@@ -112,7 +112,7 @@ loose-group_replication_local_address="10.10.30.11:33061"  # 每台不同
 loose-group_replication_group_seeds="10.10.30.11:33061,10.10.30.12:33061,10.10.30.13:33061"
 loose-group_replication_single_primary_mode=ON
 loose-group_replication_enforce_update_everywhere_checks=OFF
-loose-group_replication_member_weight=50  # 投票权重(0-100)，数值大的优先成为Primary
+loose-group_replication_member_weight=80  # 投票权重(0-100)，数值大的优先成为Primary
 
 # [注意] MGR下binlog-do_db可能不一致，生产环境不建议使用
 # 如需库级过滤，在应用层实现或使用独立从库+replicate-do-db
@@ -224,7 +224,7 @@ password=${PROXYSQL_ADMIN_PASSWORD}
 host=127.0.0.1
 port=6032
 CNFEOF
-trap 'rm -f "${PROXYSQL_CNF}" "${MYSQL_CNF}"' EXIT
+trap 'rm -f "${PROXYSQL_CNF}"' EXIT
 mysql --defaults-extra-file=${PROXYSQL_CNF} << 'SQL'
 -- 添加MySQL服务器
 INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight, max_connections, max_replication_lag)
@@ -1270,7 +1270,7 @@ password=${PROXYSQL_ADMIN_PASSWORD}
 host=127.0.0.1
 port=6032
 CNFEOF
-trap 'rm -f "${PROXYSQL_CNF}" "${MYSQL_CNF}"' EXIT
+trap 'rm -f "${PROXYSQL_CNF}"' EXIT
 mysql --defaults-extra-file=${PROXYSQL_CNF} << 'SQL'
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=10 WHERE hostname='10.10.30.11';
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=20 WHERE hostname='10.10.30.12';

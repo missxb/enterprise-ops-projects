@@ -28,7 +28,5 @@ output.elasticsearch:
   # 如果使用自签证书:
   # ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
   # ssl.verification_mode: certificate
-  indices:
-    - index: "filebeat-%{+yyyy.MM.dd}"
 
 logging.level: info

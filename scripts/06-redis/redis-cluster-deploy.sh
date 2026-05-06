@@ -130,7 +130,9 @@ After=network.target
 User=redis
 Group=redis
 ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_${PORT}.conf
-ExecStop=/usr/local/redis/bin/redis-cli -a ${REDIS_PASSWORD} -p ${PORT} shutdown
+# [修复] 使用REDISCLI_AUTH环境变量传递密码，避免在ExecStop命令行中暴露明文密码
+Environment=REDISCLI_AUTH=${REDIS_PASSWORD}
+ExecStop=/usr/local/redis/bin/redis-cli -p ${PORT} shutdown
 Restart=always
 LimitNOFILE=65535
 [Install]

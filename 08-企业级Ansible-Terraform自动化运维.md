@@ -275,6 +275,9 @@ k8s-worker-03 ansible_host=10.10.10.23
   "registry-mirrors": [
     "https://mirror.ccs.tencentyun.com"
   ],
+  # [安全] 生产环境应为Harbor配置HTTPS证书，而非使用insecure-registries
+  # insecure-registries允许明文HTTP传输镜像，存在中间人攻击风险
+  # 推荐: 为harbor.internal.com配置TLS证书，并将CA加入Docker的信任列表
   "insecure-registries": [
     "harbor.internal.com"
   ],

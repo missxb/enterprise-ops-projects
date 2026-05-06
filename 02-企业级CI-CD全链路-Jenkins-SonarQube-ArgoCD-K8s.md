@@ -87,13 +87,14 @@ postgresql['maintenance_work_mem'] = "512MB"
 # 邮件通知
 gitlab_rails['smtp_enable'] = true
 gitlab_rails['smtp_address'] = "smtp.feishu.cn"
-gitlab_rails['smtp_port'] = 465
+gitlab_rails['smtp_port'] = 587
 gitlab_rails['smtp_user_name'] = "ci-bot@company.com"
 gitlab_rails['smtp_password'] = ENV['SMTP_PASSWORD']  # 从环境变量读取，避免明文硬编码
 gitlab_rails['smtp_domain'] = "feishu.cn"
 gitlab_rails['smtp_authentication'] = "login"
 gitlab_rails['smtp_enable_starttls_auto'] = true
-gitlab_rails['smtp_tls'] = true
+# [修复] 端口587使用STARTTLS，端口465使用implicit TLS，两者不能同时启用
+# smtp_tls=true会导致STARTTLS握手失败
 gitlab_rails['gitlab_email_from'] = 'ci-bot@company.com'
 EOF
 
@@ -923,6 +924,25 @@ echo "用户名: admin / 密码: ${ARGOCD_PWD}"
 # argocd-application.yaml - GitOps应用定义
 ---
 apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: production
+  namespace: argocd
+spec:
+  description: "生产环境项目"
+  sourceRepos:
+    - 'https://gitlab.internal.com/*'
+  destinations:
+    - namespace: production
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: user-service
@@ -967,11 +987,7 @@ spec:
       jsonPointers:
         - /spec/replicas
   
-  healthChecks:
-    - apiVersion: apps/v1
-      kind: Deployment
-      name: user-service
-      namespace: production
+
 ```
 
 ### 7.2 K8s部署清单 - Kustomize结构
@@ -1696,14 +1712,13 @@ withCredentials([usernamePassword(
 # 保留策略: 每个仓库最多保留10个Tag，保留30天
 
 # 2. 手动清理
-# 清理未引用的镜像
-harbor admin delete --project my-project --untagged
-# 或使用API
-curl -X DELETE "http://harbor/api/v2.0/projects/my-project/repositories"   -u admin:${HARBOR_ADMIN_PASSWORD}
+# [修复] Harbor CLI命令(harbor admin delete/harbor gc)不存在，使用API方式
+# 清理未标记的镜像(Harbor API)
+curl -X DELETE "http://harbor.internal.com/api/v2.0/projects/my-project/repositories"   -H "Content-Type: application/json"   -u admin:${HARBOR_ADMIN_PASSWORD}
 
-# 3. 配置垃圾回收
-harbor gc --dry-run
-harbor gc
+# 3. 垃圾回收(通过API触发，或在Harbor Web UI → Administration → Clean Up中操作)
+# GC通过Harbor的job服务执行，不支持命令行直接调用
+curl -X POST "http://harbor.internal.com/api/v2.0/system/gc/schedule"   -H "Content-Type: application/json"   -u admin:${HARBOR_ADMIN_PASSWORD}   -d '{"parameters":{"delete_untagged":true,"dry_run":true},"schedule":{"type":"Manual"}}'
 ```
 
 ---

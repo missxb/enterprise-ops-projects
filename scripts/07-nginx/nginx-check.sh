@@ -18,7 +18,7 @@ ss -tlnp | grep -E ':80|:443' || echo "⚠️ 80/443端口未监听"
 
 # 检查SSL证书
 echo "检查SSL证书..."
-for cert in /etc/nginx/ssl/*.crt; do
+for cert in /etc/nginx/ssl/*.pem; do
   if [ -f "$cert" ]; then
     echo "  证书: $cert"
     openssl x509 -in "$cert" -noout -dates 2>/dev/null || echo "  ❌ 证书无效"

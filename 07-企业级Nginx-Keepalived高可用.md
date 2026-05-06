@@ -123,10 +123,12 @@ http {
     ssl_stapling_verify on;
     # DH参数: 增强前向保密，生成命令: openssl dhparam -out /etc/nginx/ssl/dhparam.pem 2048
     ssl_dhparam /etc/nginx/ssl/dhparam.pem;
-    ssl_stapling_responder http://ocsp.example.com/;  # 替换为CA的OCSP地址
-    # [注意] Let's Encrypt OCSP地址已变更，当前地址: http://r3.o.lencr.org
-    # 但不同证书颁发机构地址不同，请使用CA提供的实际OCSP responder URL
-    # 可通过: openssl x509 -in cert.pem -noout -ocsp_uri 查询
+    # [⚠️ 重要] ssl_stapling_responder必须替换为实际CA的OCSP responder URL
+    # 获取方式: openssl x509 -in /etc/nginx/ssl/ecommerce.com.pem -noout -ocsp_uri
+    # Let's Encrypt当前地址: http://r3.o.lencr.org
+    # DigiCert/GlobalSign等商业CA请从CA官网获取实际地址
+    # [警告] 使用占位符http://ocsp.example.com/会导致SSL Stapling失败，浏览器可能提示证书吊销状态未知
+    ssl_stapling_responder http://r3.o.lencr.org;
 
     # Upstream后端池
     upstream app_backend {
@@ -177,7 +179,11 @@ http {
         add_header X-XSS-Protection "1; mode=block" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         # CSP策略: 允许自身域名资源和CDN，生产环境应根据实际资源来源收紧
-        add_header Content-Security-Policy "default-src 'self' https://cdn.example.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.example.com" always;
+        # [修复] CSP策略使用nonce替代unsafe-inline，避免XSS风险
+        # 生成nonce: openssl rand -base64 16 | 每次请求动态生成
+        # 此处使用变量方式，实际需配合lua/set变量动态生成
+        set $csp_nonce $request_id;
+        add_header Content-Security-Policy "default-src 'self' https://cdn.example.com; script-src 'self' 'nonce-$csp_nonce'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.example.com" always;
 
         # 健康检查端点
         location /health {
