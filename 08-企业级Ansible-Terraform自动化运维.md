@@ -525,7 +525,7 @@ plan:
 apply:
 	@echo "⚠️  即将应用Terraform变更，请确认已执行terraform plan并审批"
 	@read -p "请输入 'yes' 确认应用: " CONFIRM && [ "$$CONFIRM" = "yes" ] || (echo "已取消" && exit 1)
-	cd terraform && terraform apply -input=false
+	cd terraform && terraform apply
 
 destroy:
 	cd terraform && terraform destroy  # [注意] 生产环境不要用-auto-approve
@@ -1415,7 +1415,6 @@ fact_caching_timeout = 86400
 
 # 日志
 log_path = /var/log/ansible.log
-log_level = INFO
 
 # 回调插件
 stdout_callback = yaml
@@ -1522,7 +1521,7 @@ resource "alicloud_vpc" "this" {
 resource "alicloud_vswitch" "this" {
   count        = var.az_count
   vpc_id       = alicloud_vpc.this.id
-  cidr_block   = cidrsubnet(var.vpc_cidr, 8, count.index)
+  cidr_block   = cidrsubnet(var.cidr_block, 8, count.index)
   zone_id      = data.alicloud_zones.available.zones[count.index % var.az_count].id
 }
 

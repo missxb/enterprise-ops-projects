@@ -283,7 +283,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+        auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -432,7 +432,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+        auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -457,7 +457,7 @@ vrrp_instance VI_2 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+        auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     unicast_src_ip 10.10.50.12
     unicast_peer {
@@ -1393,7 +1393,7 @@ upstream app_backend {
     keepalive_timeout 60s;
     
     # 使用长连接
-    keepalive_disable none;
+    # keepalive_disable none;  # Nginx Plus only, 不适用于开源版
 }
 
 server {
@@ -1455,7 +1455,7 @@ location /static/ {
     
     # 直接从磁盘读取到网卡
     aio on;
-    directio 512k;
+    # directio 512k;  # 与sendfile冲突，已禁用
 }
 ```
 
@@ -1520,7 +1520,7 @@ location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff2|ttf)$ {
     
     # 预读取
     aio on;
-    directio 4k;
+    # directio 4k;  # 与sendfile冲突，已禁用
 }
 
 # 文件缓存(缓存代理响应)

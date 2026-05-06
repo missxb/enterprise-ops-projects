@@ -184,7 +184,7 @@ tcp-user-timeout 60
 # [优化建议] 8C/32G服务器建议部署2个Redis实例
 # 每个实例maxmemory设为物理内存的35-40%，预留系统开销
 # 例: 32G服务器→2个实例→各用10G(maxmemory=10gb)
-maxmemory 20gb
+maxmemory 10gb
 maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
 maxmemory-samples 10           # LRU采样数，越大越精确
 
@@ -568,7 +568,7 @@ lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
 lazyfree-lazy-expire yes   # 异步过期，减少阻塞
 
 # ===== 内存层调优 =====
-maxmemory 20gb
+maxmemory 10gb
 maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
 maxmemory-samples 10           # LRU采样数，越大越精确
 
