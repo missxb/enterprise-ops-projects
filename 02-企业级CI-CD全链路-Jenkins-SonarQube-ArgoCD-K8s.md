@@ -41,7 +41,7 @@
 | GitLab | 10.10.20.11 | 8C/16G/500G | 代码仓库 |
 | Jenkins | 10.10.20.12 | 8C/16G/200G | CI引擎 |
 | SonarQube | 10.10.20.13 | 8C/16G/100G | 代码质量 |
-| Harbor | 10.10.10.31 | 8C/16G/2T | 镜像仓库 |
+| Harbor | 10.10.10.31 | 8C/16G/2T | 镜像仓库 (2.12.0, 详见文件1) |
 | ArgoCD | 10.10.10.11(K8s) | - | GitOps部署 |
 | K8s集群 | 10.10.10.x | - | 运行环境 |
 
@@ -89,7 +89,7 @@ gitlab_rails['smtp_enable'] = true
 gitlab_rails['smtp_address'] = "smtp.feishu.cn"
 gitlab_rails['smtp_port'] = 465
 gitlab_rails['smtp_user_name'] = "ci-bot@company.com"
-gitlab_rails['smtp_password'] = "smtp-password"
+gitlab_rails['smtp_password'] = ENV['SMTP_PASSWORD']  # 从环境变量读取，避免明文硬编码
 gitlab_rails['smtp_domain'] = "feishu.cn"
 gitlab_rails['smtp_authentication'] = "login"
 gitlab_rails['smtp_enable_starttls_auto'] = true
@@ -270,7 +270,7 @@ sonarqube-analysis:
       -Dsonar.projectKey=${CI_PROJECT_NAME}
       -Dsonar.sources=src/
       -Dsonar.host.url=${SONAR_HOST}
-      -Dsonar.login=${SONAR_TOKEN}
+      -Dsonar.token=${SONAR_TOKEN}  # SonarQube 9.6+已废弃sonar.login，改用sonar.token
       -Dsonar.java.binaries=target/classes/
       -Dsonar.java.libraries=target/dependency/
       -Dsonar.qualitygate.wait=true
@@ -556,7 +556,7 @@ sed -i 's/^local.*all.*all.*peer/local   all             all                    
 
 echo "安装SonarQube..."
 cd /opt
-SONAR_VERSION="10.4.0.88267"
+SONAR_VERSION="10.7.0.96107"  # 升级到10.7 LTS版本
 wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-${SONAR_VERSION}.zip
 unzip sonarqube-${SONAR_VERSION}.zip
 ln -sf sonarqube-${SONAR_VERSION} sonarqube
@@ -609,7 +609,8 @@ systemctl start sonarqube
 
 echo "✅ SonarQube安装完成"
 echo "访问: http://10.10.20.13:9000"
-echo "默认账号: admin/admin"
+echo "默认账号: admin (首次登录后请立即修改密码)"
+echo "[安全提醒] SonarQube 10.x要求首次登录强制修改密码"
 ```
 
 ### 5.1 SonarQube质量门禁配置
@@ -690,7 +691,7 @@ rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2024.key
 yum install -y java-17-openjdk java-17-openjdk-devel
 
 # 安装Jenkins
-yum install -y jenkins-2.426.3
+yum install -y jenkins-2.479.1  # 升级到最新LTS版本
 
 # 配置Jenkins
 cat > /etc/sysconfig/jenkins << EOF
@@ -704,6 +705,9 @@ systemctl start jenkins
 
 echo "Jenkins初始密码:"
 cat /var/lib/jenkins/secrets/initialAdminPassword
+echo ""
+echo "[提示] 如已通过JCasC配置管理员账户，可忽略此初始密码"
+echo "[生产建议] 配置JCasC (Jenkins Configuration as Code) 自动化初始配置"
 ```
 
 ### 6.1 Jenkins Pipeline共享库
@@ -1162,7 +1166,7 @@ patches:
 ```yaml
 # canary-deployment.yaml - Istio金丝雀发布
 ---
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: user-service
@@ -1180,7 +1184,7 @@ spec:
             subset: canary
           weight: 10
 ---
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
   name: user-service
@@ -1195,7 +1199,7 @@ spec:
         version: v2
 ```
 
-```yaml
+```bash
 # canary-promotion.sh - 金丝雀晋升脚本
 #!/bin/bash
 # 逐步将流量从旧版本切换到新版本
@@ -1207,7 +1211,7 @@ CANARY_WAIT="${CANARY_WAIT:-300}"  # 金丝雀观察时间(秒)，可通过环�
 
 echo "Phase 1: 10% -> 30%"
 kubectl apply -f - << EOF
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: ${SERVICE}
@@ -1230,7 +1234,7 @@ sleep ${CANARY_WAIT}  # 观察期，基于CANARY_WAIT变量
 
 echo "Phase 2: 30% -> 50%"
 kubectl apply -f - << EOF
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: ${SERVICE}
@@ -1253,7 +1257,7 @@ sleep ${CANARY_WAIT}
 
 echo "Phase 3: 50% -> 100% (全量切换)"
 kubectl apply -f - << EOF
-apiVersion: networking.istio.io/v1beta1
+apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: ${SERVICE}
@@ -1295,7 +1299,7 @@ curl -k --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
   --data "push_events=true" \
   --data "merge_requests_events=true" \
   --data "tag_push_events=true" \
-  --data "enable_ssl_verification=false"
+  --data "enable_ssl_verification=true"  # 生产环境必须启用SSL验证
 ```
 
 ### 9.2 Jenkins → Harbor 镜像扫描
@@ -1306,7 +1310,7 @@ webhook:
   targets:
     - name: jenkins
       url: http://jenkins.internal.com/generic-webhook-trigger/invoke
-      auth_secret: "webhook-secret-2024"
+      auth_secret: "${HARBOR_WEBHOOK_SECRET}"  # 通过环境变量注入，不要硬编码
       events:
         - SCAN_COMPLETED
         - QUARANTINE
@@ -1563,8 +1567,10 @@ curl -v http://jenkins.internal:8080/generic-webhook-trigger/invoke
 
 **解决方案**:
 ```bash
-# 1. Jenkins关闭CSRF保护(仅内网)
-# Manage Jenkins → Security → CSRF Protection → 取消勾选
+# 1. [推荐] 使用API Token解决CSRF问题(不要关闭CSRF保护)
+# Manage Jenkins → API Tokens → 生成Token
+# GitLab Webhook URL添加token参数:
+# http://jenkins:8080/generic-webhook-trigger/invoke?token=<your-token>
 
 # 2. 或使用API Token
 # Manage Jenkins → API Tokens → 生成Token
@@ -1672,7 +1678,7 @@ withCredentials([usernamePassword(
   usernameVariable: 'DOCKER_USER',
   passwordVariable: 'DOCKER_PASS'
 )]) {
-  sh "docker login -u \$DOCKER_USER -p \$DOCKER_PASS harbor.internal.com"
+  sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin harbor.internal.com"
 }
 
 // 使用MaskPasswords插件

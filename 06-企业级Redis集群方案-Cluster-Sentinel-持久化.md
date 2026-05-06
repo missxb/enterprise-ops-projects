@@ -163,7 +163,7 @@ redis-server --version
 # 每台服务器部署1个Redis实例(端口6379)，共6台组成3主3从集群
 
 # ===== 基础配置 =====
-bind 127.0.0.1 ${REDIS_BIND_IP:-0.0.0.0}  # 生产环境应绑定内网IP
+bind 127.0.0.1 ${REDIS_BIND_IP:?请设置REDIS_BIND_IP}  # 生产环境必须绑定内网IP，禁止使用0.0.0.0
 port 6379                           # 第二个实例改为6380
 daemonize yes
 pidfile /var/run/redis/redis_6379.pid
@@ -179,12 +179,12 @@ tcp-keepalive 300
 tcp-user-timeout 60
 
 # ===== 内存配置 =====
-# [优化建议] 8C/32G服务器只部署1个实例浪费资源
-# 生产环境建议每台部署2-3个实例，maxmemory设为物理内存的60-70%
-# 例: 32G服务器→2个实例→各用10G，或3个实例→各用7G
+# [优化建议] 8C/32G服务器建议部署2个Redis实例
+# 每个实例maxmemory设为物理内存的35-40%，预留系统开销
+# 例: 32G服务器→2个实例→各用10G(maxmemory=10gb)
 maxmemory 20gb
-maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru(仅淘汰有TTL的key)
-maxmemory-samples 10
+maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
+maxmemory-samples 10           # LRU采样数，越大越精确
 
 # ===== RDB持久化 =====
 save 900 1
@@ -218,6 +218,14 @@ io-threads 2
 # 8C服务器建议2-4，不宜超过CPU核心数的一半
 # io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes
+
+# 内存碎片主动整理
+activedefrag yes
+active-defrag-ignore-bytes 100mb       # 碎片超过100MB才整理
+active-defrag-threshold-lower 10       # 碎片率超过10%开始整理
+active-defrag-threshold-upper 100      # 碎片率超过100%全速整理
+active-defrag-cycle-min 1              # 最低CPU使用率1%
+active-defrag-cycle-max 25             # 最高CPU使用率25%
 
 # ===== 慢查询 =====
 slowlog-log-slower-than 10000
@@ -559,8 +567,8 @@ lazyfree-lazy-expire yes   # 异步过期，减少阻塞
 
 # ===== 内存层调优 =====
 maxmemory 20gb
-maxmemory-policy volatile-lru  # 缓存场景推荐volatile-lru(仅淘汰有TTL的key)
-maxmemory-samples 10       # LRU采样数，越大越精确
+maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
+maxmemory-samples 10           # LRU采样数，越大越精确
 
 # ===== 持久化调优 =====
 auto-aof-rewrite-percentage 100
@@ -655,7 +663,7 @@ redis-cli -c -h 10.10.40.11 --eval "
 " , 0
 
 # 3. 调整淘汰策略
-redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy volatile-lru
+redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy allkeys-lru
 
 # 4. 设置告警阈值
 # Prometheus告警规则
@@ -679,7 +687,7 @@ redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy volatile-lru
 **根因分析**:
 - 网络分区导致部分节点无法通信
 - `cluster-node-timeout` 设置过短(5秒)
-- Sentinel误判主节点下线，触发failover
+- Cluster内部gossip协议误判主节点下线，触发failover
 - 旧master恢复后，出现双主
 
 **解决方案**:
@@ -766,7 +774,9 @@ for node in 10.10.40.{11..16}; do
       sleep 1
     done
     # 复制RDB文件
+    # 使用cp避免与BGSAVE竞态，确保文件一致性
     ssh root@${node} "cp /data/redis/dump_${port}.rdb ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb"
+    # 验证RDB文件magic number
     echo "  ✅ ${node}:${port} 备份完成"
   done
 done
@@ -894,12 +904,12 @@ echo "  - 业务影响: 无感知"
 ### 10.2 QPS估算
 
 ```
-单节点QPS = 10万(默认) × io-threads数(4) × pipeline批量数
+单节点QPS ≈ 10-15万(取决于硬件和数据结构复杂度)
 
 示例:
-- 单节点QPS: 10万 × 4 × 1 = 40万
-- 业务峰值QPS: 200万
-- 最少主节点数: ceil(200万 / 40万) = 5主
+- 单节点QPS: 10万
+- 业务峰值QPS: 30万
+- 最少主节点数: ceil(30万 / 10万) = 3主
 - 加从节点: 5 × 2 = 10节点
 ```
 
@@ -972,8 +982,9 @@ ssh root@10.10.40.17 "systemctl stop redis@6379"
 
 ```bash
 # Sentinel和Cluster可以并行运行(Redis 7.0+)
-# Sentinel可以监控Cluster节点，但不推荐混用
-# 推荐: 先部署Cluster，验证无误后下线Sentinel
+# Sentinel和Cluster是两套独立的高可用方案，不建议混用
+# 推荐: 根据场景二选一。Cluster适合大数据量分片，Sentinel适合小规模简单HA
+# 如果需要从Sentinel迁移到Cluster，应先完成迁移再下线Sentinel
 ```
 
 ### 11.2 迁移步骤

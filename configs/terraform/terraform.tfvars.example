@@ -1,0 +1,24 @@
+# Terraform变量示例文件
+# 复制此文件为 terraform.tfvars 并填入实际值
+# 注意: terraform.tfvars 不应提交到版本控制系统
+
+# 阿里云区域
+region = "cn-hangzhou"
+
+# 项目名称
+project = "production"
+
+# 可用区ID
+zone_id = "cn-hangzhou-h"
+
+# ECS镜像ID(通过数据源查询或手动指定)
+# image_id = "aliyun_3_x64_20G_alibase_20230816.vhd"
+
+# SSH密钥对名称
+key_name = "deploy-key"
+
+# 管理员IP白名单CIDR(限制SSH访问)
+admin_cidr = "10.10.0.0/16"
+
+# 允许访问HTTP/HTTPS的CIDR(限制Web访问)
+allowed_cidr = "10.10.0.0/16"

@@ -98,6 +98,8 @@ cat > /etc/audit/rules.d/99-custom.rules << 'AUDITEOF'
 -w /etc/shadow -p wa -k identity
 -w /etc/sudoers -p wa -k sudoers
 -w /var/log/secure -p wa -k logins
+# [修复] 添加-e 2使审计规则不可变(需要重启才能修改，防止攻击者篡改)
+-e 2
 AUDITEOF
 augenrules --load 2>/dev/null || true
 
@@ -144,6 +146,12 @@ else
   firewall-cmd --permanent --add-service=ssh
   firewall-cmd --permanent --add-port=80/tcp
   firewall-cmd --permanent --add-port=443/tcp
+  # [修复] 添加数据库端口限制(仅允许内网访问)
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/16" port port="3306" protocol="tcp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/16" port port="6379" protocol="tcp" accept'
+  # 拒绝外部访问数据库端口
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="0.0.0.0/0" port port="3306" protocol="tcp" reject'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="0.0.0.0/0" port port="6379" protocol="tcp" reject'
   firewall-cmd --reload
   echo "  防火墙已启用(非K8s节点)"
 fi

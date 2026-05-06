@@ -27,7 +27,7 @@
 | Elasticsearch Master | 3 | 8C/32G/200G SSD | 集群管理+协调 |
 | Elasticsearch Data-Hot | 3 | 16C/64G/2T NVMe | 热数据(7天) |
 | Elasticsearch Data-Warm | 2 | 8C/32G/4T HDD | 温数据(30天) |
-| Elasticsearch Data-Cold | 1 | 4C/16G/10T HDD | 冷数据(90天) |
+| Elasticsearch Data-Cold | 2 | 4C/16G/10T HDD | 冷数据(90天) |
 | Kibana | 2 | 4C/8G/50G | 可视化 |
 | Logstash | 3 | 8C/16G/100G | 日志转换 |
 | Filebeat | DaemonSet | - | 日志采集 |
@@ -77,8 +77,8 @@ data:
     xpack.security.http.ssl.keystore.path: /usr/share/elasticsearch/config/certs/http.p12
 
   jvm.options: |
-    -Xms16g
-    -Xmx16g
+    -Xms4g
+    -Xmx4g
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=4m
     -XX:InitiatingHeapOccupancyPercent=30
@@ -128,7 +128,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: ES_JAVA_OPTS
-              value: "-Xms16g -Xmx16g"
+              value: "-Xms4g -Xmx4g"
             - name: ELASTIC_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -255,7 +255,7 @@ spec:
         }
       },
       "delete": {
-        "min_age": "90d",
+        "min_age": "365d",
         "actions": {
           "delete": {}
         }
@@ -362,7 +362,8 @@ spec:
           image: elastic/filebeat:8.11.3
           args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
           securityContext:
-            runAsUser: 0  # 需要root访问日志目录。生产替代方案: 1)挂载hostPath并设置fsGroup 2)使用Filebeat提供的非root镜像
+            runAsUser: 1000
+            runAsGroup: 1000
           resources:
             requests:
               cpu: 100m
@@ -399,7 +400,9 @@ spec:
           hostPath:
             path: /var/log/pods
         - name: data
-          emptyDir: {}
+          hostPath:
+            path: /var/lib/filebeat
+            type: DirectoryOrCreate
 
 ---
 apiVersion: v1
@@ -750,13 +753,13 @@ GET /logs-*/_search
 **解决**:
 ```bash
 # 1. 检查集群状态
-curl -s 'http://es-master:9200/_cluster/health?pretty'
+curl -s -k 'https://es-master:9200/_cluster/health?pretty'
 
 # 2. 查看未分配分片
-curl -s 'http://es-master:9200/_cluster/allocation/explain?pretty'
+curl -s -k 'https://es-master:9200/_cluster/allocation/explain?pretty'
 
 # 3. 强制分配分片(数据会丢失)
-curl -X POST 'http://es-master:9200/_cluster/reroute' -H 'Content-Type: application/json' -d '{
+curl -X POST -k 'https://es-master:9200/_cluster/reroute' -H 'Content-Type: application/json' -d '{
   "commands": [{
     "allocate_stale_primary": {
       "index": "logs-2024.01.15",
@@ -908,7 +911,7 @@ kubectl label node es-cold-01 node-role.kubernetes.io/es-cold: ""
 echo "========== ELK日常巡检 =========="
 
 # 1. ES集群状态
-curl -s 'http://es-master:9200/_cluster/health?pretty' | grep -E "status|number_of_nodes|unassigned_shards"
+curl -s -k 'https://es-master:9200/_cluster/health?pretty' | grep -E "status|number_of_nodes|unassigned_shards"
 
 # 2. 索引统计
 curl -

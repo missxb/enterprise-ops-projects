@@ -97,7 +97,7 @@ http {
 
     # 限流配置
     limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
-    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=5r/m;
+    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=20r/m;  # 登录限流: 20次/分钟，防暴力破解同时允许正常用户多次尝试
     limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 
     # 隐藏版本号
@@ -109,9 +109,14 @@ http {
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:50m;
     ssl_session_timeout 1d;
-    ssl_session_tickets off;
+    # SSL会话票据: 启用后通过ticket key轮转兼顾性能与安全
+    # 定期轮转: openssl rand 80 | xxd -p -c 80 > /etc/nginx/ssl/ssl_ticket_key.current
+    # 配置ssl_session_ticket_key并设置轮转cron
+    ssl_session_tickets on;
     ssl_stapling on;
     ssl_stapling_verify on;
+    # DH参数: 增强前向保密，生成命令: openssl dhparam -out /etc/nginx/ssl/dhparam.pem 2048
+    ssl_dhparam /etc/nginx/ssl/dhparam.pem;
     ssl_stapling_responder http://ocsp.example.com/;  # 替换为CA的OCSP地址
     # [注意] Let's Encrypt OCSP地址已变更，当前地址: http://r3.o.lencr.org
     # 但不同证书颁发机构地址不同，请使用CA提供的实际OCSP responder URL
@@ -119,8 +124,11 @@ http {
 
     # Upstream后端池
     upstream app_backend {
-        ip_hash;  # 基于客户端IP哈希的会话保持
-# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
+        # [修复] ip_hash与keepalive组合会导致连接不均匀分配:
+        # keepalive连接由worker进程独立维护，ip_hash将同一IP固定到同一后端
+        # 但不同worker的keepalive连接可能指向不同后端，导致负载不均
+        # 推荐方案: 使用consistent hash或least_conn替代ip_hash
+        least_conn;  # 最少连接均衡，配合keepalive效果最佳
         keepalive 32;
 
         server 10.10.50.11:8080 max_fails=3 fail_timeout=30s;
@@ -130,8 +138,8 @@ http {
     }
 
     upstream api_backend {
-        ip_hash;                        # 会话保持
-# [注意] 若Nginx作为K8s Ingress前置LB，建议改用least_conn(避免与Ingress负载策略冲突)
+        # [修复] 同上，least_conn配合keepalive更优
+        least_conn;
         server 10.10.50.21:8081 max_fails=3;
         server 10.10.50.22:8081 max_fails=3;
     }
@@ -158,7 +166,8 @@ http {
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-        add_header Content-Security-Policy "default-src 'self'" always;
+        # CSP策略: 允许自身域名资源和CDN，生产环境应根据实际资源来源收紧
+        add_header Content-Security-Policy "default-src 'self' https://cdn.example.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.example.com" always;
 
         # 健康检查端点
         location /health {
@@ -450,9 +459,9 @@ vrrp_instance VI_2 {
         auth_type PASS
         auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
-    unicast_src_ip 10.10.50.11
+    unicast_src_ip 10.10.50.12
     unicast_peer {
-        10.10.50.12
+        10.10.50.11
     }
     virtual_ipaddress {
         10.10.50.101/24 dev eth0
@@ -460,6 +469,9 @@ vrrp_instance VI_2 {
     track_script {
         chk_nginx
     }
+    notify_master "/opt/scripts/notify.sh MASTER 10.10.50.12"
+    notify_backup "/opt/scripts/notify.sh BACKUP 10.10.50.12"
+    notify_fault  "/opt/scripts/notify.sh FAULT 10.10.50.12"
 }
 ```
 

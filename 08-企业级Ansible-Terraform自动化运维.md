@@ -276,6 +276,8 @@ k8s-worker-03 ansible_host=10.10.30.23
   ],
   "insecure-registries": [
     "harbor.internal.com"
+    # [安全修复] insecure-registries使用HTTP传输，存在中间人攻击风险
+    # 生产环境应为Harbor配置TLS证书，然后移除此配置
   ],
   "max-concurrent-downloads": 10,
   "max-concurrent-uploads": 5,
@@ -301,13 +303,14 @@ terraform {
   required_providers {
     alicloud = {
       source  = "aliyun/alicloud"
-      version = "~> 2.0"
+      version = ">= 2.0, < 3.0"  # 明确版本范围，避免自动升级到不兼容版本
     }
   }
   backend "oss" {
     bucket = "terraform-state-prod"
     key    = "k8s-cluster/terraform.tfstate"
     region = "cn-hangzhou"
+    encrypt = true  # 加密State文件，防止敏感信息泄露
   }
 }
 
@@ -318,7 +321,7 @@ provider "alicloud" {
 # VPC
 resource "alicloud_vpc" "main" {
   vpc_name   = "production-vpc"
-  cidr_block = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/12"  # VPC CIDR，包含所有子网(10.0.0.0 - 10.15.255.255)
 }
 
 # 可用区
@@ -330,7 +333,7 @@ data "alicloud_zones" "available" {
 resource "alicloud_vswitch" "web" {
   count        = 3
   vpc_id       = alicloud_vpc.main.id
-  cidr_block   = "10.0.${count.index + 1}.0/24"
+  cidr_block   = "10.${count.index}.0.0/16"  # 子网CIDR需在VPC CIDR范围内
   zone_id      = data.alicloud_zones.available.zones[count.index % 3].id
   vswitch_name = "web-subnet-${count.index + 1}"
 }
@@ -348,7 +351,7 @@ resource "alicloud_security_group_rule" "allow_http" {
   policy            = "accept"
   port_range        = "80/80"
   security_group_id = alicloud_security_group.k8s.id
-  cidr_ip           = "0.0.0.0/0"
+  cidr_ip           = var.allowed_cidr  # 限制访问来源，不使用0.0.0.0/0
 }
 
 resource "alicloud_security_group_rule" "allow_https" {
@@ -358,7 +361,16 @@ resource "alicloud_security_group_rule" "allow_https" {
   policy            = "accept"
   port_range        = "443/443"
   security_group_id = alicloud_security_group.k8s.id
-  cidr_ip           = "0.0.0.0/0"
+  cidr_ip           = var.allowed_cidr  # 限制访问来源
+}
+
+resource "alicloud_security_group_rule" "allow_ssh" {
+  type              = "ingress"
+  ip_protocol       = "tcp"
+  policy            = "accept"
+  port_range        = "22/22"
+  security_group_id = alicloud_security_group.k8s.id
+  cidr_ip           = var.admin_cidr  # 仅允许管理员IP访问SSH
 }
 
 # K8s Master节点
@@ -367,7 +379,7 @@ resource "alicloud_instance" "k8s_master" {
   instance_name        = "k8s-master-${count.index + 1}"
   host_name            = "k8s-master-${count.index + 1}"
   instance_type        = "ecs.g7.2xlarge"  # 8C/32G
-  image_id             = "rockylinux_9_x64_20G_alibase_20230816.vhd"
+  image_id             = var.image_id  # 通过变量传入，不硬编码镜像ID
   security_groups      = [alicloud_security_group.k8s.id]
   vswitch_id           = alicloud_vswitch.web[count.index % 3].id
   system_disk_category = "cloud_essd"
@@ -387,7 +399,7 @@ resource "alicloud_instance" "k8s_worker" {
   instance_name        = "k8s-worker-${count.index + 1}"
   host_name            = "k8s-worker-${count.index + 1}"
   instance_type        = count.index < 3 ? "ecs.c7.4xlarge" : "ecs.g7.8xlarge"
-  image_id             = "rockylinux_9_x64_20G_alibase_20230816.vhd"
+  image_id             = var.image_id  # 通过变量传入，不硬编码镜像ID
   security_groups      = [alicloud_security_group.k8s.id]
   vswitch_id           = alicloud_vswitch.web[count.index % 3].id
   system_disk_category = "cloud_essd"
@@ -446,6 +458,23 @@ variable "region" {
 variable "environment" {
   description = "环境"
   default     = "production"
+}
+
+variable "image_id" {
+  description = "ECS镜像ID"
+  type        = string
+}
+
+variable "admin_cidr" {
+  description = "管理员IP白名单CIDR"
+  type        = string
+  default     = "10.10.0.0/16"
+}
+
+variable "allowed_cidr" {
+  description = "允许访问HTTP/HTTPS的CIDR"
+  type        = string
+  default     = "10.10.0.0/16"  # 生产环境应使用CDN或SLB的CIDR
 }
 
 # outputs.tf
@@ -570,7 +599,7 @@ roles:
     version: "4.0.0"
 collections:
   - name: community.general
-    version: ">=7.0.0"
+    version: "7.0.0"  # [修复] 使用精确版本锁定避免不兼容升级
 ```
 
 ### 4.3 动态Inventory

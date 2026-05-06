@@ -59,6 +59,7 @@ default-time-zone='+08:00'
 
 # InnoDB配置
 innodb_buffer_pool_size=48G          # 75%内存
+log-error=/data/mysql/error.log      # 错误日志路径
 innodb_buffer_pool_instances=16
 innodb_log_file_size=2G
 innodb_log_buffer_size=64M
@@ -67,6 +68,7 @@ innodb_flush_method=O_DIRECT
 innodb_file_per_table=1
 innodb_autoinc_lock_mode=2           # MGR必须=2
 innodb_lock_wait_timeout=10
+sync_binlog=1                        # 每次提交同步binlog，保证数据一致性
 
 # GTID配置（MGR依赖GTID）
 gtid_mode=ON
@@ -97,6 +99,11 @@ log_queries_not_using_indexes=1
 performance_schema=ON
 performance_schema_max_table_instances=500
 
+# 从库多线程复制(推荐所有节点配置)
+replica_parallel_workers=8           # 并行回放线程数
+replica_parallel_type='LOGICAL_CLOCK'  # 基于逻辑时钟并行
+replica_preserve_commit_order=1      # 保证提交顺序
+
 # MGR核心配置
 plugin_load_add='group_replication.so'
 loose-group_replication_group_name="550e8400-e29b-41d4-a716-446554000000"  # 请替换为uuidgen生成的UUID
@@ -105,7 +112,7 @@ loose-group_replication_local_address="10.10.30.11:33061"  # 每台不同
 loose-group_replication_group_seeds="10.10.30.11:33061,10.10.30.12:33061,10.10.30.13:33061"
 loose-group_replication_single_primary_mode=ON
 loose-group_replication_enforce_update_everywhere_checks=OFF
-loose-group_replication_recovery_get_public_key=1
+loose-group_replication_member_weight=50  # 投票权重(0-100)，数值大的优先成为Primary
 
 # [注意] MGR下binlog-do_db可能不一致，生产环境不建议使用
 # 如需库级过滤，在应用层实现或使用独立从库+replicate-do-db
@@ -279,7 +286,12 @@ echo "获取LSN..."
 # xtrabackup备份会自动记录LSN到xtrabackup_info文件
 
 echo "备份binlog..."
-mysqlbinlog --read-from-remote-server   --host=10.10.30.11 --user=${MYSQL_USER} --password=${MYSQL_PASS}   --start-datetime="$(date -d '1 hour ago' '+%Y-%m-%d %H:%M:%S')"   --stop-datetime="$(date '+%Y-%m-%d %H:%M:%S')"   $(mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW BINARY LOGS" -N | tail -1 | awk "{print \$1}") > ${BACKUP_DIR}/binlog/binlog-${DATE}.sql
+# 使用--defaults-extra-file避免命令行密码暴露
+CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW MASTER STATUS" --skip-column-names 2>/dev/null | awk '{print $1}')
+mysqlbinlog --read-from-remote-server --raw --to-last-log --defaults-extra-file=${MYSQL_CNF} \
+  --host=127.0.0.1 \
+  ${CURRENT_BINLOG} \
+  --result-file=${BACKUP_DIR}/binlog/binlog-${DATE}_
 
 echo "清理过期备份..."
 find ${BACKUP_DIR}/full -maxdepth 1 -type d -mtime +${KEEP_DAYS} -exec rm -rf {} +
@@ -520,13 +532,12 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345 AND status = 'paid';
 -- 1. 检查集群状态
 SELECT * FROM performance_schema.replication_group_members;
 
--- 2. 强制恢复为单主模式
-SET GLOBAL group_replication_force_members = '10.10.30.12:33061,10.10.30.13:33061';
-
--- 3. 重新加入异常节点
+-- 设置超时后自动排除不可达成员(force_members在MySQL 8.0.27+已废弃)
+SET GLOBAL group_replication_unreachable_majority_timeout = 10;
 STOP GROUP_REPLICATION;
-SET GLOBAL group_replication_bootstrap_group = OFF;
 START GROUP_REPLICATION;
+
+--- 3. 重新加入异常节点
 ```
 
 ### 数据一致性校验(必须执行)
@@ -669,7 +680,7 @@ MySQL服务器内存分配(64GB):
 - 3年数据量: 500 × 2^3 = 4TB
 - 冗余系数: 1.5
 - 所需磁盘: 6TB
-- 建议: 3 × 2TB NVMe SSD (RAID10)
+- 建议: 4 × 2TB NVMe SSD (RAID10，最少4块盘)
 ```
 
 ---
@@ -1647,9 +1658,11 @@ systemctl start mysqld
 
 # 3. 升级主库MySQL-01
 echo "升级MySQL-01..."
-# 先将MGR切换到MySQL-02
+# 先将MGR切换到MySQL-02(force_members在MySQL 8.0.27+已废弃，使用unreachable_majority_timeout)
 mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
-  SET GLOBAL group_replication_force_members = '10.10.30.12:33061,10.10.30.13:33061';
+  SET GLOBAL group_replication_unreachable_majority_timeout = 10;
+  STOP GROUP_REPLICATION;
+  START GROUP_REPLICATION;
 "
 
 # 等待新Primary就绪

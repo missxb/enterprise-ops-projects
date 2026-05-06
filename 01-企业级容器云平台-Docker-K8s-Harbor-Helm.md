@@ -112,7 +112,7 @@ metadata:
 ```bash
 #!/bin/bash
 # init_nodes.sh - 所有K8s节点执行
-# 适用系统: CentOS 7.9 / Rocky Linux 8 / Ubuntu 22.04
+# 适用系统: CentOS 7.9 / Rocky Linux 8 (仅支持yum/dnf包管理器)
 
 set -euo pipefail
 
@@ -182,17 +182,11 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 mkdir -p /etc/containerd/certs.d/docker.io
 cat > /etc/containerd/certs.d/docker.io/hosts.toml << EOF
 server = "https://docker.io"
-# [已停用] 以下镜像站已不可用，保留供参考:
-# [host."https://docker.mirrors.tuna.tsinghua.edu.cn"]
-#   capabilities = ["pull", "resolve"]
-# [host."https://docker.m.daocloud.io"]
-#   capabilities = ["pull", "resolve"]
-# [host."https://noohub.ru"]
-#   capabilities = ["pull", "resolve"]
-# [host."https://mirror.iscas.ac.cn"]
-#   capabilities = ["pull", "resolve"]
-# [host."https://docker.xuanyuan.me"]
-#   capabilities = ["pull", "resolve"]
+# 推荐: 使用内网Harbor作为pull-through cache加速镜像拉取
+# 前提: 已配置内网Harbor registry并通过containerd certs.d信任
+[host."https://harbor.internal.com"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = false
 EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
 
@@ -561,7 +555,7 @@ kubectl get ippool -o wide
 set -euo pipefail
 
 echo "安装MetalLB..."
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
 
 echo "等待MetalLB就绪..."
 kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
@@ -570,8 +564,7 @@ echo "配置IP地址池..."
 cat > /tmp/metallb-config.yaml << EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
-# [注意] MetalLB 0.13.x使用v1beta1，0.14+可能使用v1beta2
-# 请根据实际安装版本选择API版本
+# MetalLB v0.14.x API版本: metallb.io/v1beta1 ( IPAddressPool ) / metallb.io/v1beta2 (L2Advertisement)
 metadata:
   name: production-pool
   namespace: metallb-system
@@ -639,7 +632,7 @@ cd /opt/harbor/certs
 # [生产建议] 使用cert-manager自动管理证书，避免手动openssl操作:
 # helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
 openssl genrsa -out ca.key 4096
-openssl req -x509 -new -nodes -sha512 -days 365 \
+openssl req -x509 -new -nodes -sha512 -days 1095 \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Harbor-CA" \
   -key ca.key -out ca.crt
 
@@ -662,7 +655,7 @@ DNS.2=harbor-01
 IP.1=${HARBOR_IP}
 EOF
 
-openssl x509 -req -sha512 -days 365 \
+openssl x509 -req -sha512 -days 1095 \
   -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial \
   -in harbor.csr -out harbor.crt
 
@@ -784,7 +777,7 @@ server = "https://${HARBOR_DOMAIN}"
 
 [host."https://${HARBOR_DOMAIN}"]
   capabilities = ["pull", "resolve"]
-  skip_verify = true  # [注意] 生产环境应分发CA证书后改为false
+  skip_verify = false  # 已在上方步骤分发CA证书到所有节点
 EOF
 
 systemctl restart containerd
@@ -1207,6 +1200,7 @@ kubectl get nodes --show-labels
 set -euo pipefail
 
 # [已修复] 备份频率统一为每6小时(crontab: 0 */6 * * *)
+BACKUP_DIR="/data/etcd-backup"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
 
@@ -1267,7 +1261,7 @@ echo "等待就绪..."
 kubectl -n monitoring rollout status deployment/prometheus-grafana --timeout=300s
 
 echo "✅ 监控系统部署完成"
-echo "Grafana: http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
+echo "Grafana: http://10.10.10.210 (密码请查看: kubectl -n monitoring get secret grafana-admin-credentials -o jsonpath='{.data.password}' | base64 -d)"
 ```
 
 ---
@@ -1285,7 +1279,7 @@ helm install elasticsearch elastic/elasticsearch \
   --set nodes.hot.replicas=1 \
   --set nodes.warm.replicas=1 \
   --set nodes.cold.replicas=1 \
-  --set persistence.storageClass=aliyun-disk-ssd \
+  --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \  # 替换为实际环境的StorageClass名称
   --namespace logging --create-namespace \
   --set replicas=3 \
   --set resources.requests.cpu=1 \
@@ -1310,7 +1304,8 @@ helm install filebeat elastic/filebeat \
     - /var/log/containers/*.log
   processors:
     - add_kubernetes_metadata:
-        host: ${NODE_NAME}
+        host: ${NODE_NAME}  # 注意: Helm --set传递时此变量不会被Shell展开
+                          # 生产环境应使用Downward API注入: fieldRef: fieldPath: spec.nodeName
 output.elasticsearch:
   hosts: ["http://elasticsearch-master:9200"]'
 
@@ -1489,7 +1484,8 @@ echo "================================================"
 echo "  ✅ 企业级容器云平台部署完成！"
 echo "================================================"
 echo "  K8s API:      https://10.10.10.100:6443"
-echo "  Grafana:      http://10.10.10.210 (${GRAFANA_ADMIN_PASSWORD})"
+echo "  Grafana:      http://10.10.10.210"
+echo "  Grafana密码:  kubectl -n monitoring get secret grafana-admin-credentials -o jsonpath='{.data.password}' | base64 -d"
 echo "  Kibana:       http://10.10.10.211"
 echo "  Harbor:       https://harbor.internal.com"
 echo "  Ingress LB:   10.10.10.200"
@@ -1956,7 +1952,7 @@ apiServer:
   extraArgs:
     max-requests-inflight: "400"        # 只读请求
     max-mutating-requests-inflight: "200" # 变更请求
-    event-ttl: "1h"
+    event-ttl: "720h"  # 统一为30天(与主配置一致)
     audit-log-maxage: "30"
     audit-log-maxbackup: "10"
     audit-log-maxsize: "100"
@@ -2011,7 +2007,40 @@ DNS: app.example.com → 机房A优先，机房B备用
 ```bash
 #!/bin/bash
 # etcd_restore.sh - etcd恢复(从备份快照恢复)
-```
+
+set -euo pipefail
+
+BACKUP_FILE=$1
+if [ -z "$BACKUP_FILE" ]; then
+  echo "用法: $0 <etcd-snapshot-file.db>"
+  echo "示例: $0 /data/etcd-backup/etcd-snapshot-20260506_120000.db"
+  exit 1
+fi
+
+# 1. 停止etcd服务
+systemctl stop etcd
+
+# 2. 备份当前数据目录
+mv /var/lib/etcd /var/lib/etcd.bak.$(date +%Y%m%d%H%M%S)
+
+# 3. 从快照恢复
+ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
+  --data-dir=/var/lib/etcd \
+  --name=$(hostname -s) \
+  --initial-cluster="etcd-0=https://10.10.10.11:2380,etcd-1=https://10.10.10.12:2380,etcd-2=https://10.10.10.13:2380" \
+  --initial-advertise-peer-urls=https://$(hostname -i):2380 \
+  --initial-cluster-token=etcd-cluster
+
+# 4. 启动etcd
+systemctl start etcd
+
+# 5. 验证恢复结果
+etcdctl endpoint health --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+echo "✅ etcd恢复完成"
 
 ### 故障切换SOP
 
@@ -2132,8 +2161,8 @@ kubectl top pods -A --sort-by=cpu | head -20
 > **完整脚本见第十一节** (etcd_backup.sh)，此处仅展示crontab配置。
 
 ```bash
-# 每日自动备份 (crontab: 0 2 * * *)
-# 0 2 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
+# 每6小时自动备份 (crontab: 0 */6 * * *)
+# 0 */6 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
 
 ### 版本升级SOP
@@ -2181,8 +2210,8 @@ kubectl top pods -A --sort-by=cpu | head -20
 ### crontab配置
 
 ```bash
-# 每天凌晨3点执行etcd备份
-0 3 * * * /opt/scripts/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1
+# 每6小时执行etcd备份 (与第十一节统一)
+0 */6 * * * /opt/scripts/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
 
 ### 恢复步骤

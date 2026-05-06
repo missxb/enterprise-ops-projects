@@ -231,10 +231,8 @@ data:
     type: S3
     config:
       bucket: thanos
-      endpoint: minio.monitoring:9000
-      # [注意] access_key需通过K8s Secret注入，不要明文写入ConfigMap
-      # 建议使用: kubectl create secret generic thanos-objstore --from-literal=access_key=<KEY>
-      # 然后通过环境变量或挂载方式注入到容器
+      # [安全要求] ConfigMap不适合存储凭证，生产环境应使用Secret
+      # 推荐: kubectl create secret generic thanos-objstore-secret --from-literal=access_key=<KEY> --from-literal=secret_key=<SECRET>
       access_key: ${MINIO_ACCESS_KEY}
       secret_key: ${MINIO_SECRET_KEY}
       insecure: true
@@ -309,8 +307,8 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-  MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-changeme}"
+  MINIO_ROOT_USER: "${MINIO_ROOT_USER}"        # 必须通过Secret提供，不要使用默认值
+  MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}" # 生产环境必须使用强随机密码
 
 ---
 apiVersion: apps/v1
