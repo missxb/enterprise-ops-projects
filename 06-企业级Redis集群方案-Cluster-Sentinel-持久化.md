@@ -1334,25 +1334,25 @@ redis-cluster/
 
 ## 十八、关键要点总结
 
-### 17.1 架构要点
+### 18.1 架构要点
 - **Cluster**: 6节点起步，3主3从，16384个slot均匀分配
 - **Sentinel**: 3节点，quorum=2，自动故障转移
 - **持久化**: 混合模式(RDB+AOF)，everysec同步
 - **内存**: maxmemory + allkeys-lru，预留15%余量
 
-### 17.2 性能要点
+### 18.2 性能要点
 - **网络**: tcp-backlog 511, tcp-keepalive 300
 - **IO**: io-threads 2, io-threads-do-reads yes
 - **内存**: lazyfree异步删除, maxmemory-samples 10
 - **持久化**: aof-use-rdb-preamble yes
 
-### 17.3 安全要点
+### 18.3 安全要点
 - **认证**: requirepass + masterauth
 - **命令禁用**: KEYS, FLUSHALL, CONFIG, SHUTDOWN
 - **网络**: 绑定内网IP, 防火墙限制
 - **审计**: 慢查询日志, 命令统计
 
-### 17.4 监控要点
+### 18.4 监控要点
 - **核心指标**: 内存、连接数、命中率、QPS、延迟
 - **告警阈值**: 内存85%、延迟10ms、命中率80%
 - **集群状态**: cluster_state、slot分配、节点状态

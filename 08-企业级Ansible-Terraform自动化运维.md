@@ -782,7 +782,7 @@ terraform apply -var="environment=staging" -var="node_count=3"
 terraform apply -var="environment=production" -var="node_count=5"
 ```
 
-### 5.3 State管理
+### 6.3 State管理
 
 ```hcl
 # 后端配置(阿里云OSS)
@@ -798,7 +798,7 @@ terraform {
 }
 ```
 
-### 5.4 导入现有资源
+### 6.4 导入现有资源
 
 ```bash
 # 导入现有ECS实例
