@@ -640,13 +640,18 @@ redis-cli -c -h 10.10.40.11 --bigkeys
 
 # 2. 批量设置TTL(使用Lua脚本保证原子性)
 redis-cli -c -h 10.10.40.11 --eval "
-  local keys = redis.call('SCAN', 0, 'COUNT', 1000)
-  for i, key in ipairs(keys[2]) do
-    local ttl = redis.call('TTL', key)
-    if ttl == -1 then
-      redis.call('EXPIRE', key, 86400)
+  local cursor = 0
+  repeat
+    local result = redis.call('SCAN', cursor, 'COUNT', 1000)
+    cursor = tonumber(result[1])
+    local keys = result[2]
+    for _, key in ipairs(keys) do
+      local ttl = redis.call('TTL', key)
+      if ttl == -1 then
+        redis.call('EXPIRE', key, 86400)
+      end
     end
-  end
+  until cursor == 0
 " , 0
 
 # 3. 调整淘汰策略

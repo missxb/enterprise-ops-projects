@@ -94,35 +94,56 @@ data:
     
     ```
 
-    ```yaml
-    # [以下scrape_configs属于上方prometheus.yml ConfigMap的data字段续接]
-    # Thanos Sidecar配置(独立Deployment)
-    # 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
-    apiVersion: apps/v1
-    kind: Deployment
+### Thanos Sidecar (独立Deployment)
+
+> Thanos Sidecar是独立的Deployment资源，不属于上方ConfigMap。
+
+```yaml
+# thanos-sidecar-deployment.yaml
+# 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-sidecar
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-sidecar
+  template:
     metadata:
-      name: thanos-sidecar
+      labels:
+        app: thanos-sidecar
     spec:
-      template:
-        spec:
-          containers:
-          - name: thanos-sidecar
-            image: quay.io/thanos/thanos:v0.34.0
-            args:
-            - sidecar
-            - --log.level=info
-            - --prometheus.url=http://localhost:9090
-            - --tsdb.path=/prometheus
-            - --objstore.config-file=/etc/thanos/bucket.yml
-            ports:
-            - name: grpc-sidecar
-              containerPort: 10901
-            - name: http-sidecar
-              containerPort: 10902
-            volumeMounts:
-            - name: prometheus-config
-              mountPath: /etc/thanos
-    ```
+      containers:
+      - name: thanos-sidecar
+        image: quay.io/thanos/thanos:v0.34.0
+        args:
+        - sidecar
+        - --log.level=info
+        - --prometheus.url=http://localhost:9090
+        - --tsdb.path=/prometheus
+        - --objstore.config-file=/etc/thanos/bucket.yml
+        ports:
+        - name: grpc-sidecar
+          containerPort: 10901
+        - name: http-sidecar
+          containerPort: 10902
+        volumeMounts:
+        - name: prometheus-data
+          mountPath: /prometheus
+          readOnly: true
+        - name: thanos-config
+          mountPath: /etc/thanos
+      volumes:
+      - name: prometheus-data
+        persistentVolumeClaim:
+          claimName: prometheus-data
+      - name: thanos-config
+        configMap:
+          name: thanos-config
+```
     
 ### Thanos Query (全局查询入口)
 

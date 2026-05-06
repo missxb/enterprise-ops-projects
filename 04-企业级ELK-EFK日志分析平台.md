@@ -271,7 +271,7 @@ spec:
 ```bash
 # [必须] 在ILM策略生效前创建snapshot仓库
 # 1. 注册S3/OSS仓库(与section 16.2中使用的仓库同名)
-curl -X PUT 'http://es-master:9200/_snapshot/cold-backup' \
+curl -k -X PUT 'https://es-master:9200/_snapshot/cold-backup' \
   -H 'Content-Type: application/json' -d '{
   "type": "s3",
   "settings": {
@@ -284,10 +284,10 @@ curl -X PUT 'http://es-master:9200/_snapshot/cold-backup' \
 }'
 
 # 2. 验证仓库连通性
-curl -X POST 'http://es-master:9200/_snapshot/cold-backup/_verify'
+curl -k -X POST 'https://es-master:9200/_snapshot/cold-backup/_verify'
 
 # 3. [可选] 如果使用共享文件系统(NFS)代替S3
-# curl -X PUT 'http://es-master:9200/_snapshot/cold-backup' \
+# curl -k -X PUT 'https://es-master:9200/_snapshot/cold-backup' \
 #   -H 'Content-Type: application/json' -d '{
 #   "type": "fs",
 #   "settings": {
@@ -299,7 +299,7 @@ curl -X POST 'http://es-master:9200/_snapshot/cold-backup/_verify'
 
 ```bash
 # 创建Index Template
-curl -X PUT "http://es-master-0:9200/_index_template/enterprise-logs" -H 'Content-Type: application/json' -d'
+curl -k -X PUT "https://es-master-0:9200/_index_template/enterprise-logs" -H 'Content-Type: application/json' -d'
 {
   "index_patterns": ["enterprise-logs-*"],
   "template": {
@@ -634,9 +634,18 @@ spec:
 
 ---
 apiVersion: v1
-
-
----
+kind: Service
+metadata:
+  name: kibana
+  namespace: logging
+spec:
+  type: ClusterIP
+  selector:
+    app: kibana
+  ports:
+    - port: 5601
+      targetPort: 5601
+```
 
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，

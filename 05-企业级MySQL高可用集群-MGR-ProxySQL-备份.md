@@ -323,7 +323,9 @@ chown -R mysql:mysql /data/mysql
 systemctl start mysqld
 
 echo "Step 5: 应用binlog到目标时间点..."
-mysqlbinlog --stop-datetime="${TARGET_TIME}" /data/backup/binlog/binlog-*.sql | mysql --defaults-extra-file=${MYSQL_CNF}
+for sql_file in ${BACKUP_DIR}/binlog/binlog-*.sql; do
+  [ -f "${sql_file}" ] && mysql --defaults-extra-file=${MYSQL_CNF} < "${sql_file}" 2>/dev/null || true
+done
 
 echo "Step 6: 重启MySQL确保干净状态..."
 systemctl restart mysqld

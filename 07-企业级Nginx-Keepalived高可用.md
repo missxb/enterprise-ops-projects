@@ -163,8 +163,8 @@ http {
         # 健康检查端点
         location /health {
             access_log off;
+            default_type text/plain;
             return 200 'OK';
-            add_header Content-Type text/plain;
         }
 
         # Nginx状态监控
@@ -274,7 +274,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
+        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -423,7 +423,7 @@ vrrp_instance VI_1 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
+        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -448,7 +448,7 @@ vrrp_instance VI_2 {
     advert_int 1
     authentication {
         auth_type PASS
-        auth_pass ${KEEPALIVED_AUTH_PASS:-CHANGEME}  # 通过.env注入,或: openssl rand -hex 4
+        auth_pass CHANGE_ME_TO_8_CHAR_PASSWORD  # 运行脚本时由环境变量注入: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {

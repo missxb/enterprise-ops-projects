@@ -804,7 +804,10 @@ echo "✅ K8s节点已信任Harbor"
 set -euo pipefail
 
 echo "安装Helm..."
-yum install -y helm  # 或: snap install helm --classic
+# Helm 3 官方安装方式 (yum默认仓库无helm包)
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# 或使用离线/国内镜像:
+# curl https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar xz && mv linux-amd64/helm /usr/local/bin/
 
 echo "添加常用仓库..."
 helm repo add bitnami https://charts.bitnami.com/bitnami

@@ -62,6 +62,12 @@ ansible-ops/
 
 ### 2.1 主机清单
 
+> **⚠️ 首次使用需先执行bootstrap**
+> deploy用户需要先创建，运行以下命令以root身份初始化:
+> ```bash
+> ansible-playbook -i inventory/hosts playbooks/bootstrap.yml --user root
+> ```
+
 ```ini
 # inventory/production/hosts
 [all:vars]
@@ -95,9 +101,9 @@ k8s-master-02 ansible_host=10.10.10.12
 k8s-master-03 ansible_host=10.10.10.13
 
 [k8s_workers]
-k8s-worker-01 ansible_host=10.10.10.21
-k8s-worker-02 ansible_host=10.10.10.22
-k8s-worker-03 ansible_host=10.10.10.23
+k8s-worker-01 ansible_host=10.10.30.21
+k8s-worker-02 ansible_host=10.10.30.22
+k8s-worker-03 ansible_host=10.10.30.23
 ```
 
 ### 2.2 基础配置Playbook
