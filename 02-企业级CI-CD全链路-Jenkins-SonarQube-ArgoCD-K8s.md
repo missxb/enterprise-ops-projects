@@ -179,7 +179,6 @@ checkout:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
     - if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
-    - /^hotfix\/.*$/
 
 # ========================================
 # 阶段2: 编译构建
@@ -477,9 +476,9 @@ rollback-production:
     - echo "手动回滚生产环境..."
     - kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
     - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=300s
-  when: manual
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
 ```
 
 ---
@@ -1626,6 +1625,18 @@ EOF
 ### 案例6: Pipeline并发冲突
 
 **故障现象**: 多个分支同时构建导致镜像标签冲突
+
+**排查过程**:
+```bash
+# 查看Jenkins节点上的Pod状态
+kubectl get pods -n jenkins
+
+# 检查Jenkins日志中的并发相关错误
+kubectl logs <pod-name> -n jenkins | grep -i "concurrent"
+
+# 查看Job历史记录，确认并发构建情况
+jenkins-cli job-history <job-name>
+```
 
 **解决方案**:
 ```groovy
