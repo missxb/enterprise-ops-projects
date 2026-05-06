@@ -2,6 +2,8 @@
 # K8s集群初始化脚本 - 所有节点执行
 # 适用系统: CentOS 7.9 / Rocky Linux 8 / Ubuntu 22.04
 # 适用于K8s 1.31 + containerd
+# 依赖: kubeadm, kubelet, kubectl, containerd, curl
+# 前置: 所有节点已配置网络互通, 时间同步(NTP), 每个节点单独执行
 set -euo pipefail
 umask 077
 

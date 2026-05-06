@@ -1,5 +1,7 @@
 #!/bin/bash
 # Prometheus+Grafana+AlertManager生产级部署
+# 依赖: kubectl, helm
+# 前置: K8s集群已就绪, 至少2个Worker节点, kube-state-metrics已部署
 set -euo pipefail
 umask 077
 
@@ -43,6 +45,98 @@ data:
             replacement: '${1}:9100'
 EOF
 
+# 创建告警规则ConfigMap
+echo ">>> Step 2b: 部署Prometheus告警规则"
+cat << 'RULESEOF' | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+data:
+  node-alerts.yml: |
+    groups:
+      - name: node-alerts
+        rules:
+          - alert: NodeDown
+            expr: up{job="node"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "节点 {{ $labels.instance }} 宕机"
+              description: "节点已宕机超过1分钟"
+          - alert: HighCPU
+            expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "节点 {{ $labels.instance }} CPU使用率 > 80%"
+          - alert: HighMemory
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "节点 {{ $labels.instance }} 内存使用率 > 85%"
+          - alert: DiskSpaceLow
+            expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "节点 {{ $labels.instance }} 磁盘剩余 < 15%"
+      - name: app-alerts
+        rules:
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 5 > 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.pod }} CrashLoopBackOff"
+          - alert: PodNotReady
+            expr: kube_pod_status_ready{condition="true"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.pod }} 未就绪"
+      - name: mysql-alerts
+        rules:
+          - alert: MySQLDown
+            expr: mysql_up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "MySQL实例 {{ $labels.instance }} 宕机"
+          - alert: MySQLSlowQueries
+            expr: rate(mysql_global_status_slow_queries[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "MySQL {{ $labels.instance }} 慢查询过多"
+      - name: redis-alerts
+        rules:
+          - alert: RedisDown
+            expr: redis_up == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis实例 {{ $labels.instance }} 宕机"
+          - alert: RedisHighMemory
+            expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis {{ $labels.instance }} 内存使用 > 90%"
+RULESEOF
+
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: StatefulSet
@@ -76,6 +170,9 @@ spec:
               mountPath: /prometheus
             - name: prometheus-config
               mountPath: /etc/prometheus
+            - name: prometheus-alert-rules
+              mountPath: /etc/prometheus/rules
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -83,6 +180,13 @@ spec:
             limits:
               cpu: 2000m
               memory: 8Gi
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-alert-rules
+          configMap:
+            name: prometheus-alert-rules
   volumeClaimTemplates:
     - metadata:
         name: prometheus-data

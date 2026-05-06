@@ -1,5 +1,7 @@
 #!/bin/bash
 # Nginx+Keepalived生产级高可用部署
+# 依赖: nginx, keepalived, ssh(节点间免密)
+# 前置: 至少2个节点, VIP未被占用, 后端应用已部署
 set -euo pipefail
 umask 077
 

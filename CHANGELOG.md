@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## [1.4.1] - 2026-05-06
+
+### Fixed
+- 所有22个脚本添加依赖/前置条件注释(17个脚本补充)
+- capacity-planning.md: 修复存储表格错位(Prometheus/Harbor行从crontab后移到表格内)
+
+### Added
+- README.md: 新增部署脚本目录(22个脚本+依赖说明)和文档目录(6个文档)
+
 ## [1.4.0] - 2026-05-05
 
 ### Fixed

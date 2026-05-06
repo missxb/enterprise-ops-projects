@@ -79,27 +79,34 @@
 
 ## 跨机房etcd灾备配置
 
-### 架构说明
+### 架构说明 (推荐方案A: 5节点 3+2)
 ```
-机房A (主)                      机房B (备)
-┌─────────────────┐            ┌─────────────────┐
-│ etcd-0 (10.10.10.11) │◄──同步──►│ etcd-3 (10.20.10.11) │
-│ etcd-1 (10.10.10.12) │         │ etcd-4 (10.20.10.12) │
-│ etcd-2 (10.10.10.13) │         │ etcd-5 (10.20.10.13) │
-└─────────────────┘            └─────────────────┘
-         │                              │
-    Master x3                       Master x3
+机房A (主, 投票成员)            机房B (备, learner观察者)
+┌─────────────────────┐       ┌─────────────────────┐
+│ etcd-0 (10.10.10.11)│◄同步►│ etcd-3 (10.20.10.11)│
+│ etcd-1 (10.10.10.12)│       │ etcd-4 (10.20.10.12)│
+│ etcd-2 (10.10.10.13)│       └─────────────────────┘
+└─────────────────────┘
+   Leader x3 (参与选举)         Learner x2 (仅同步)
 ```
 
-### etcd成员添加(跨机房)
+> 也可选择方案B: 机房A运行3节点etcd，机房B不部署etcd，仅定期备份snapshot
+
+### etcd成员添加(跨机房 - learner模式)
 ```bash
-# 在机房B的etcd节点上加入机房A的集群
+# 在机房B的etcd节点上以learner身份加入机房A的集群
 etcdctl member add etcd-3 \
-  --peer-urls=https://10.20.10.11:2380
+  --peer-urls=https://10.20.10.11:2380 \
+  --learner
 
-# 机房B的etcd启动参数(以etcd-3为例)
-etcdctl member update etcd-3 \
-  --peer-urls=https://10.20.10.11:2380
+# 启动etcd-3时指定learner模式
+etcd --name etcd-3 \
+  --initial-cluster-state existing \
+  --initial-cluster-role learner \
+  ...
+
+# 将learner提升为voting成员(仅在故障切换时执行)
+etcdctl member promote etcd-3
 
 # 验证集群状态
 etcdctl member list -w table
@@ -120,10 +127,10 @@ etcdctl endpoint health --cluster
 5. 验证: K8s集群在机房B恢复正常
 
 ### 注意事项
-- etcd集群必须有奇数个成员(3或5)才能正常选举
-- 跨机房场景建议机房A 3节点 + 机房B 3节点 = 6节点(偶数)
-- 实际生产中，机房B通常作为冷备，不同时运行etcd成员
-- 推荐方案: 机房A运行etcd 3节点，机房B定期备份etcd snapshot
+- etcd集群必须有奇数个成员(3或5)才能正常选举，偶数节点会导致脑裂风险且无容错收益
+- 跨机房场景推荐方案A: 5节点(3+2) - 机房A 3节点为主投票成员，机房B 2节点为learner/观察者（不参与投票，仅同步数据）
+- 跨机房场景推荐方案B: 3节点+冷备 - 机房A运行3节点etcd集群，机房B定期备份etcd snapshot（不部署etcd成员）
+- 避免偶数节点部署: 6节点etcd无法获得额外容错能力，反而增加脑裂风险
 
 
 ## 混沌工程基础

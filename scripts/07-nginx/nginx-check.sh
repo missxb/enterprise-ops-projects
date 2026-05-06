@@ -1,5 +1,7 @@
 #!/bin/bash
 # Nginx配置测试脚本
+# 依赖: nginx, curl
+# 前置: Nginx+Keepalived已部署
 set -euo pipefail
 umask 077
 

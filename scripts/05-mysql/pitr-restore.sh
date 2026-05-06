@@ -1,5 +1,7 @@
 #!/bin/bash
 # MySQL PITR恢复脚本(支持MGR+GTID)
+# 依赖: xtrabackup, mysql 8.0, mysqlbinlog
+# 前置: 全量备份存在, binlog连续完整, 目标时间点明确
 set -euo pipefail
 umask 077
 

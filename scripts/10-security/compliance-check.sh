@@ -1,5 +1,7 @@
 #!/bin/bash
 # 等保合规检查脚本(二级)
+# 依赖: grep, systemctl
+# 前置: 以root权限运行
 set -euo pipefail
 umask 077
 

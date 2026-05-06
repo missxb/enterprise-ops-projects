@@ -1,5 +1,8 @@
 #!/bin/bash
 # etcd恢复脚本
+# 依赖: etcdctl, 备份快照文件
+# 前置: 所有etcd节点已停止kube-apiserver和etcd
+# 恢复步骤: 1.停止所有节点 2.每个节点分别运行此脚本 3.启动etcd 4.验证集群
 # === 多节点恢复说明 ===
 # 对于3节点etcd集群，恢复时需要在所有节点上执行此脚本：
 # 1. 停止所有节点的etcd和kube-apiserver

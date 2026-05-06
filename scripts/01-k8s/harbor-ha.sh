@@ -1,6 +1,10 @@
 #!/bin/bash
 # Harbor生产级HA部署脚本
 # 外部PG + 外部Redis + OSS + 双节点 + 负载均衡
+# 依赖: docker-ce, docker-compose-plugin, psql(客户端), redis-cli, nginx, keepalived
+# 前置: 外部PostgreSQL已部署, 外部Redis已部署, OSS Bucket已创建, 节点间SSH免密
+# 说明: 负载均衡部分使用Nginx作为简化方案，生产环境推荐HAProxy或云厂商SLB/ALB
+# 参考: Harbor官方HA部署文档 https://goharbor.io/docs/latest/administration/configure-multi-instance/
 set -euo pipefail
 umask 077
 
@@ -186,6 +190,10 @@ echo ""
 echo ">>> Step 7: 配置负载均衡"
 echo "  VIP: ${LOAD_BALANCER}"
 echo "  后端: ${MASTER_NODES} + ${BACKUP_NODES}"
+echo ""
+echo "  [生产建议] 推荐使用HAProxy替代Nginx，或使用云厂商SLB/ALB"
+echo "  [简化方案] 本脚本使用Nginx作为负载均衡，适用于测试/小规模环境"
+echo ""
 
 # 配置Nginx upstream代理Harbor后端
 HARBOR_BACKENDS=""

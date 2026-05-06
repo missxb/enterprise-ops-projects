@@ -28,6 +28,8 @@
 | MySQL binlog | 5GB | 150GB | 1.8TB | 7天 |
 | Redis RDB | 2GB | 60GB | 720GB | 7天 |
 | ES日志 | 10GB | 300GB | 3.6TB | 30天热+90天冷 |
+| Prometheus | 1GB | 30GB | 360GB | 30天 |
+| Harbor镜像 | 5GB | 150GB | 1.8TB | 按标签保留 |
 
 ## 自动化容量检查脚本
 
@@ -88,9 +90,6 @@ echo "巡检完成"
 # 每天上午9点自动巡检
 0 9 * * * /opt/scripts/capacity-check.sh >> /var/log/capacity-check.log 2>&1
 ```
-| Prometheus | 1GB | 30GB | 360GB | 30天 |
-| Harbor镜像 | 5GB | 150GB | 1.8TB | 按标签保留 |
-
 ## 扩容方案
 - K8s Worker: 添加节点+自动调度
 - MySQL: 读写分离+从库扩容

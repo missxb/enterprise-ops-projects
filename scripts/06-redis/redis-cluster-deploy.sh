@@ -1,5 +1,7 @@
 #!/bin/bash
 # Redis Cluster生产级部署(3主3从)
+# 依赖: redis 7.2+, ssh(节点间免密)
+# 前置: 至少6个节点, 节点间网络互通, 每个节点至少4G空闲内存
 set -euo pipefail
 umask 077
 

@@ -1,6 +1,8 @@
 #!/bin/bash
 # CI/CD流水线完整部署脚本
 # 部署Jenkins + SonarQube + ArgoCD到K8s集群
+# 依赖: kubectl, K8s集群已就绪
+# 前置: Harbor镜像仓库已部署(node-init.sh), K8s集群已初始化
 set -euo pipefail
 umask 077
 

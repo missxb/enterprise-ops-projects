@@ -1,5 +1,7 @@
 #!/bin/bash
 # MySQL全量备份脚本
+# 依赖: xtrabackup, mysql客户端
+# 前置: MySQL MGR集群已部署, 备份目录可写
 set -euo pipefail
 umask 077
 

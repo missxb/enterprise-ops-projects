@@ -1,5 +1,7 @@
 #!/bin/bash
 # MySQL MGR集群生产级部署
+# 依赖: mysql 8.0, ssh(节点间免密)
+# 前置: 至少3个节点, 节点间网络互通, 每个节点16G+内存
 set -euo pipefail
 umask 077
 
@@ -136,7 +138,9 @@ CURRENT_STEP=2
 
 # 在第一个节点执行
 FIRST_NODE=$(echo ${NODES} | awk '{print $1}')
-ssh root@${FIRST_NODE} mysql --defaults-extra-file=${MYSQL_CNF} << MGR_INIT
+# 将密码配置文件传到第一个节点
+scp -o StrictHostKeyChecking=no "${MYSQL_CNF}" root@${FIRST_NODE}:/tmp/mysql.cnf
+ssh root@${FIRST_NODE} mysql --defaults-extra-file=/tmp/mysql.cnf << MGR_INIT
   # 创建复制用户
   CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
   GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
@@ -158,7 +162,9 @@ MGR_INIT
 # 其他节点加入集群
 OTHER_NODES=$(echo ${NODES} | awk '{for(i=2;i<=NF;i++) print $i}')
 for node in ${OTHER_NODES}; do
-  ssh root@${node} mysql --defaults-extra-file=${MYSQL_CNF} << MGR_JOIN
+#   将密码配置文件传到每个节点
+    scp -o StrictHostKeyChecking=no "${MYSQL_CNF}" root@${node}:/tmp/mysql.cnf
+    ssh root@${node} mysql --defaults-extra-file=/tmp/mysql.cnf << MGR_JOIN
     CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
     GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
     CHANGE REPLICATION SOURCE TO SOURCE_USER='repl', SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}'
@@ -172,7 +178,7 @@ done
 echo ""
 echo ">>> Step 3: 验证MGR集群"
 CURRENT_STEP=3
-ssh root@${FIRST_NODE} mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT * FROM performance_schema.replication_group_members;"
+ssh root@${FIRST_NODE} mysql --defaults-extra-file=/tmp/mysql.cnf -e "SELECT * FROM performance_schema.replication_group_members;"
 
 # Step 4: 部署ProxySQL
 echo ""
@@ -185,3 +191,7 @@ echo "    - 故障检测: 自动剔除不健康节点"
 
 echo ""
 echo "=== MySQL MGR集群部署完成 ==="
+# 清理远程节点上的临时密码文件
+for node in ${NODES}; do
+  ssh root@${node} "rm -f /tmp/mysql.cnf" 2>/dev/null || true
+done

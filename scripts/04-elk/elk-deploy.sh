@@ -1,5 +1,7 @@
 #!/bin/bash
 # ELK生产级部署(Elasticsearch集群+Logstash+Filebeat+Kibana)
+# 依赖: kubectl, helm
+# 前置: K8s集群已就绪, 至少3个Worker节点(ES需要), 节点vm.max_map_count>=524288
 set -euo pipefail
 umask 077
 

@@ -101,3 +101,24 @@ resource "alicloud_db_instance" "mysql" {
     Project = var.project
   }
 }
+
+# === Outputs ===
+output "master_ips" {
+  description = "Master节点公网IP"
+  value       = alicloud_instance.master[*].public_ip
+}
+
+output "worker_ips" {
+  description = "Worker节点公网IP"
+  value       = alicloud_instance.worker[*].public_ip
+}
+
+output "vpc_id" {
+  description = "VPC ID"
+  value       = alicloud_vpc.main.id
+}
+
+output "security_group_id" {
+  description = "安全组ID"
+  value       = alicloud_security_group.main.id
+}

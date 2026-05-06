@@ -27,6 +27,48 @@
 
 ---
 
+## 📂 部署脚本
+
+每个项目配套生产级部署脚本，所有脚本包含: `set -euo pipefail` + `umask 077` + 变量检查 + 错误处理 + 依赖声明
+
+| # | 脚本 | 用途 | 依赖 |
+|---|------|------|------|
+| 01 | [node-init.sh](scripts/01-k8s/node-init.sh) | K8s节点初始化 | kubeadm, containerd |
+| 01 | [harbor-deploy.sh](scripts/01-k8s/harbor-deploy.sh) | Harbor单实例 | docker-ce |
+| 01 | [harbor-ha.sh](scripts/01-k8s/harbor-ha.sh) | Harbor生产HA | 外部PG/Redis |
+| 01 | [etcd-backup.sh](scripts/01-k8s/etcd-backup.sh) | etcd备份 | kubectl |
+| 01 | [etcd-restore.sh](scripts/01-k8s/etcd-restore.sh) | etcd恢复 | etcdctl |
+| 02 | [cicd-deploy.sh](scripts/02-cicd/cicd-deploy.sh) | CI/CD全链路 | kubectl |
+| 03 | [monitor-deploy.sh](scripts/03-monitor/monitor-deploy.sh) | Prometheus+Grafana | kubectl, helm |
+| 03 | [monitor-check.sh](scripts/03-monitor/monitor-check.sh) | 监控检查 | curl, jq |
+| 04 | [elk-deploy.sh](scripts/04-elk/elk-deploy.sh) | ELK日志平台 | kubectl, helm |
+| 04 | [elk-check.sh](scripts/04-elk/elk-check.sh) | ELK健康检查 | curl, jq |
+| 05 | [mysql-cluster-deploy.sh](scripts/05-mysql/mysql-cluster-deploy.sh) | MySQL MGR集群 | mysql 8.0 |
+| 05 | [mysql-backup.sh](scripts/05-mysql/mysql-backup.sh) | MySQL全量备份 | xtrabackup |
+| 05 | [pitr-restore.sh](scripts/05-mysql/pitr-restore.sh) | MySQL PITR恢复 | xtrabackup, mysqlbinlog |
+| 06 | [redis-cluster-deploy.sh](scripts/06-redis/redis-cluster-deploy.sh) | Redis Cluster | redis 7.2+ |
+| 06 | [redis-backup.sh](scripts/06-redis/redis-backup.sh) | Redis集群备份 | redis-cli |
+| 07 | [nginx-ha-deploy.sh](scripts/07-nginx/nginx-ha-deploy.sh) | Nginx+Keepalived | nginx, keepalived |
+| 07 | [nginx-check.sh](scripts/07-nginx/nginx-check.sh) | Nginx配置检查 | nginx, curl |
+| 08 | [ansible-deploy.sh](scripts/08-ansible/ansible-deploy.sh) | Ansible批量部署 | ansible |
+| 09 | [gateway-deploy.sh](scripts/09-gateway/gateway-deploy.sh) | K8s微服务网关 | kubectl, helm, istioctl |
+| 10 | [security-harden.sh](scripts/10-security/security-harden.sh) | 服务器安全加固 | ssh |
+| 10 | [security-check.sh](scripts/10-security/security-check.sh) | 安全快速检查 | - |
+| 10 | [compliance-check.sh](scripts/10-security/compliance-check.sh) | 等保合规检查 | grep, systemctl |
+
+## 📚 文档
+
+| 文档 | 内容 |
+|------|------|
+| [变更管理](docs/change-management.md) | 灰度发布 + DDL审核 + 金丝雀发布脚本 |
+| [灾备演练SOP](docs/disaster-recovery-sop.md) | 演练checklist + 跨机房etcd + 混沌工程 |
+| [容量规划](docs/capacity-planning.md) | 资源基线 + 扩容阈值 + 自动巡检脚本 |
+| [GitOps工作流](docs/gitops-workflow.md) | ArgoCD Application + ApplicationSet |
+| [性能基准](docs/performance-benchmarks.md) | MySQL/Redis/K8s性能数据 |
+| [灾备演练模板](docs/dr-drill-record-template.md) | 演练记录填写模板 |
+
+---
+
 ## 📌 项目定位
 
 本仓库是**单一、独立**的运维参考文档集。与学习笔记不同，本文档按生产环境标准组织：

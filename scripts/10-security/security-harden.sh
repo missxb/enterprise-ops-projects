@@ -1,5 +1,7 @@
 #!/bin/bash
 # 服务器安全加固生产级脚本(等保二级)
+# 依赖: ssh(节点间免密), yum/apt
+# 前置: 以root权限运行, 已备份SSH配置
 set -euo pipefail
 umask 077
 
@@ -129,9 +131,14 @@ sed -i "s/ADMIN_IP_PLACEHOLDER/${ADMIN_IP}/" /etc/fail2ban/jail.local
 systemctl enable fail2ban 2>/dev/null || true
 systemctl start fail2ban 2>/dev/null || true
 
-# 9. 配置防火墙(所有节点均启用，K8s节点开放集群所需端口)
+# 9. 配置防火墙(非K8s节点启用firewalld，K8s节点使用NetworkPolicy替代)
 echo ">>> 8. 配置防火墙"
-if ! systemctl is-active kubelet &>/dev/null; then
+
+# K8s节点使用NetworkPolicy替代firewalld，跳过防火墙配置
+if systemctl is-active kubelet &>/dev/null; then
+  echo "  ℹ️  检测到K8s节点，跳过firewalld配置(使用NetworkPolicy)"
+else
+  # 非K8s节点: 启用firewalld
   systemctl enable firewalld
   systemctl start firewalld
   firewall-cmd --permanent --add-service=ssh
@@ -139,25 +146,6 @@ if ! systemctl is-active kubelet &>/dev/null; then
   firewall-cmd --permanent --add-port=443/tcp
   firewall-cmd --reload
   echo "  防火墙已启用(非K8s节点)"
-else
-  # K8s节点: 启用防火墙但放行K8s所需端口
-  systemctl enable firewalld
-  systemctl start firewalld
-  firewall-cmd --permanent --add-service=ssh
-  firewall-cmd --permanent --add-port=6443/tcp    # kube-apiserver
-  firewall-cmd --permanent --add-port=10250/tcp   # kubelet
-  firewall-cmd --permanent --add-port=10251/tcp   # kube-scheduler
-  firewall-cmd --permanent --add-port=10252/tcp   # kube-controller-manager
-  firewall-cmd --permanent --add-port=10257/tcp  # kube-controller-manager secure
-  firewall-cmd --permanent --add-port=10259/tcp  # kube-scheduler secure
-  firewall-cmd --permanent --add-port=2379-2380/tcp  # etcd
-  firewall-cmd --permanent --add-port=8472/udp   # flannel VXLAN
-  firewall-cmd --permanent --add-port=4789/udp   # Calico/VXLAN overlay
-  # 10255/tcp(read-only kubelet)在K8s 1.16+已废弃，默认不开放
-  firewall-cmd --permanent --add-port=30000-32767/tcp  # NodePort范围
-  firewall-cmd --permanent --add-port=179/tcp     # Calico BGP(如使用)
-  firewall-cmd --reload
-  echo "  防火墙已启用(K8s节点，已放行集群端口)"
 fi
 
 HARDENING_EOF

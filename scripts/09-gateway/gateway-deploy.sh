@@ -1,5 +1,7 @@
 #!/bin/bash
 # K8s微服务网关完整部署脚本(Kong + Istio + Jaeger)
+# 依赖: kubectl, helm, istioctl
+# 前置: K8s集群已就绪, Istio已安装, Jaeger Operator已部署
 set -euo pipefail
 umask 077
 

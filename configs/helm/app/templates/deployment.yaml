@@ -36,11 +36,11 @@ spec:
         envFrom:
           {{- if .Values.configMap.enabled }}
           - configMapRef:
-              name: {{ include "app.fullname" . }}
+              name: {{ include "app.fullname" . }}-config
           {{- end }}
           {{- if .Values.secret.enabled }}
           - secretRef:
-              name: {{ include "app.fullname" . }}
+              name: {{ include "app.fullname" . }}-secret
           {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}

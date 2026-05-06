@@ -1,5 +1,7 @@
 #!/bin/bash
 # Redis集群备份脚本
+# 依赖: redis-cli, cron
+# 前置: Redis Cluster已部署, 备份目录可写
 set -euo pipefail
 umask 077
 
@@ -47,11 +49,7 @@ for node in ${REDIS_NODES}; do
       # 等待AOF重写完成
       MAX_AOF_WAIT=300
       AOF_WAITED=0
-      while ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} LASTSAVE" 2>/dev/null | grep -q .; do
-        # 检查bgrewriteaof是否还在运行
-        if ! ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} INFO persistence 2>/dev/null" | grep -q "aof_rewrite_in_progress:1"; then
-          break
-        fi
+      while ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} INFO persistence 2>/dev/null" | grep -q "aof_rewrite_in_progress:1"; do
         sleep 1
         AOF_WAITED=$((AOF_WAITED+1))
         if [ $AOF_WAITED -ge $MAX_AOF_WAIT ]; then

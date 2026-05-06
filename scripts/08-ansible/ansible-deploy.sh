@@ -1,5 +1,7 @@
 #!/bin/bash
 # Ansible批量部署脚本
+# 依赖: ansible, ssh
+# 前置: SSH免密已配置, inventory文件已准备
 set -euo pipefail
 umask 077
 
