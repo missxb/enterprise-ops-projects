@@ -23,6 +23,7 @@ fi
 
 # 创建临时配置文件避免命令行密码暴露
 MYSQL_CNF=$(mktemp)
+chmod 600 "${MYSQL_CNF}"
 cat > ${MYSQL_CNF} << CNF
 [client]
 user=root

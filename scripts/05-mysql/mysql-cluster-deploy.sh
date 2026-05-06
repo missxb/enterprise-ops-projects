@@ -71,7 +71,9 @@ echo ""
 echo ">>> Step 1: 配置MySQL环境"
 CURRENT_STEP=1
 NODE_ID=0
-INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-48G}"
+# [注意] 默认值4G适用于测试环境，生产环境请根据服务器内存调整
+# 推荐: 物理内存的50-70%，如64G内存服务器建议设置32-40G
+INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-4G}"
 FAILED_NODE=""
 # 动态生成MGR集群UUID(避免多集群复用导致脑裂)
 MGR_CLUSTER_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)

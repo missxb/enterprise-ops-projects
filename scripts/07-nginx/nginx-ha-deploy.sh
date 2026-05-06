@@ -12,6 +12,15 @@ BACKENDS="${BACKENDS:?请设置后端应用服务器列表(空格分隔)}"
 AUTH_PASS="${AUTH_PASS:-CHANGEME}"
 KEEPALIVED_PASS="${KEEPALIVED_PASS:?请设置KEEPALIVED密码(≤8字符)}"
 
+# 验证Keepalived密码长度(≤8字符，Keepalived协议限制)
+if [ ${#KEEPALIVED_PASS} -gt 8 ]; then
+  echo "❌ KEEPALIVED密码长度不能超过8字符(当前${#KEEPALIVED_PASS}字符)"
+  exit 1
+fi
+if [ ${#KEEPALIVED_PASS} -lt 4 ]; then
+  echo "⚠️  KEEPALIVED密码长度建议至少4字符(当前${#KEEPALIVED_PASS}字符)"
+fi
+
 echo "=== Nginx+Keepalived生产级高可用部署 ==="
 echo "VIP: ${VIP}"
 echo "节点: ${NODES}"

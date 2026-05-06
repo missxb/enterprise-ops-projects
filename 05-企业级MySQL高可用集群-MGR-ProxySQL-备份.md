@@ -126,7 +126,16 @@ loose-group_replication_member_weight=50  # 投票权重(0-100)，数值大的�
 
 set -euo pipefail
 
-MYSQL_CMD="mysql -uroot -p${MYSQL_ROOT_PASSWORD}"
+# 使用--defaults-extra-file避免命令行密码暴露(需要先创建临时.cnf文件)
+MYSQL_CNF=$(mktemp /tmp/mysql.cnf.XXXXXX)
+chmod 600 "${MYSQL_CNF}"
+cat > "${MYSQL_CNF}" << CNFEOF
+[client]
+user=root
+password=${MYSQL_ROOT_PASSWORD}
+CNFEOF
+trap 'rm -f "${MYSQL_CNF}"' EXIT
+MYSQL_CMD="mysql --defaults-extra-file=${MYSQL_CNF}"
 
 echo "Step 1: 配置复制用户..."
 ${MYSQL_CMD} << SQL
@@ -167,19 +176,19 @@ START GROUP_REPLICATION;
 set -euo pipefail
 
 echo "========== 集群成员状态 =========="
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
 
 echo "========== 复制延迟 =========="
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT CHANNEL_NAME, SERVICE_STATE, COUNT_TRANSACTIONS_IN_QUEUE
   FROM performance_schema.replication_group_member_stats;
 "
 
 echo "========== 集群一致性检查 =========="
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ROLE, MEMBER_STATE FROM performance_schema.replication_group_members
   WHERE MEMBER_STATE != 'ONLINE';
 " 2>/dev/null && echo "⚠️ 有异常成员!" || echo "✅ 所有成员正常"
@@ -205,7 +214,18 @@ systemctl enable proxysql
 systemctl start proxysql
 
 echo "配置后端MySQL..."
-mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 << 'SQL'
+# 创建ProxySQL临时凭证文件
+PROXYSQL_CNF=$(mktemp /tmp/proxysql.cnf.XXXXXX)
+chmod 600 "${PROXYSQL_CNF}"
+cat > "${PROXYSQL_CNF}" << CNFEOF
+[client]
+user=admin
+password=${PROXYSQL_ADMIN_PASSWORD}
+host=127.0.0.1
+port=6032
+CNFEOF
+trap 'rm -f "${PROXYSQL_CNF}" "${MYSQL_CNF}"' EXIT
+mysql --defaults-extra-file=${PROXYSQL_CNF} << 'SQL'
 -- 添加MySQL服务器
 INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight, max_connections, max_replication_lag)
 VALUES
@@ -256,8 +276,8 @@ SAVE MYSQL USERS TO DISK;
 SQL
 
 echo "✅ ProxySQL配置完成"
-echo "管理端口: 6032 (${PROXYSQL_ADMIN_PASSWORD}/${PROXYSQL_ADMIN_PASSWORD})"
-echo "服务端口: 6033 (app_user/${APP_USER_PASSWORD})"
+echo "管理端口: 6032 (admin/*****)"
+echo "服务端口: 6033 (app_user/*****)"
 ```
 
 ---
@@ -287,7 +307,7 @@ echo "获取LSN..."
 
 echo "备份binlog..."
 # 使用--defaults-extra-file避免命令行密码暴露
-CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW MASTER STATUS" --skip-column-names 2>/dev/null | awk '{print $1}')
+CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW BINARY LOG STATUS" --skip-column-names 2>/dev/null | awk '{print $1}')
 mysqlbinlog --read-from-remote-server --raw --to-last-log --defaults-extra-file=${MYSQL_CNF} \
   --host=127.0.0.1 \
   ${CURRENT_BINLOG} \
@@ -545,7 +565,7 @@ START GROUP_REPLICATION;
 ```bash
 # 数据一致性校验(必须执行)
 echo "执行数据一致性校验..."
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   -- 检查是否有未同步的事务
   SELECT MEMBER_ID, MEMBER_STATE, COUNT_TRANSACTIONS_IN_QUEUE
   FROM performance_schema.replication_group_member_stats
@@ -696,18 +716,18 @@ MySQL服务器内存分配(64GB):
 echo "========== MySQL日常巡检 =========="
 
 # 1. 实例状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION(); SELECT UPTIME;"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION(); SELECT UPTIME;"
 
 # 2. 连接数
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Threads_connected';"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW STATUS LIKE 'Threads_connected';"
 
 # 3. 复制状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;"
 
 # 4. 慢查询数量
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Slow_queries';"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW STATUS LIKE 'Slow_queries';"
 
 # 5. 磁盘空间
 df -h /data/mysql
@@ -782,7 +802,7 @@ mysql-ha-cluster/
 **根因分析**:
 ```bash
 # 查看复制状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SHOW REPLICA STATUS\G
 " | grep -E "Seconds_Behind_Master|Slave_SQL_Running|Exec_Master_Log_Pos"
 
@@ -828,7 +848,7 @@ DELETE FROM logs WHERE created_at < '2023-01-01' LIMIT 10000;
 **根因分析**:
 ```bash
 # 查看从库线程状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SHOW REPLICA STATUS\G
 " | grep -E "Slave_IO_Running|Slave_SQL_Running|Last_Error"
 
@@ -842,7 +862,7 @@ iostat -x 1 5
 # 发现: 磁盘IO利用率达到98%，写延迟高
 
 # 查看InnoDB状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SHOW ENGINE INNODB STATUS\G
 " | grep -A5 "SEMAPHORES"
 
@@ -875,7 +895,7 @@ SET GLOBAL replica_preserve_commit_order = 1;
 **根因分析**:
 ```bash
 # 查看锁等待
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT 
     r.trx_id waiting_trx_id,
     r.trx_mysql_thread_id waiting_thread,
@@ -926,7 +946,7 @@ pt-online-schema-change \
 ```bash
 # 查看binlog大小
 ls -lh /data/mysql/mysql-bin.*
-# $(mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW BINARY LOGS" -N | tail -1 | awk "{print \$1}")  200G
+# $(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW BINARY LOGS" -N | tail -1 | awk "{print \$1}")  200G
 # mysql-bin.000002  50G
 # 发现: 一个批量更新操作产生了大量binlog
 
@@ -973,7 +993,7 @@ tail -100 /data/mysql/error.log | grep -i "access denied"
 # [Note] Access denied for user 'app_user'@'10.10.30.21'. (Using password: YES)
 
 # 检查密码过期策略
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT user, host, password_expired, password_lifetime 
   FROM mysql.user WHERE user='app_user';
 "
@@ -1203,7 +1223,7 @@ echo "========== 跨机房故障切换 =========="
 
 # 1. 确认主库不可用
 echo "检查机房A MySQL状态..."
-mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1" 2>/dev/null
+mysql -h 10.10.30.11 --defaults-extra-file=${MYSQL_CNF} -e "SELECT 1" 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "❌ 主库仍可用，无需切换"
     exit 1
@@ -1213,7 +1233,7 @@ echo "⚠️ 主库不可用，开始切换..."
 
 # 2. 将机房B的Secondary提升为Primary
 echo "提升MySQL-04为Primary..."
-mysql -h 10.10.40.14 -uroot -p${MYSQL_ROOT_PASSWORD} << 'SQL'
+mysql -h 10.10.40.14 --defaults-extra-file=${MYSQL_CNF} << 'SQL'
 STOP GROUP_REPLICATION;
 SET GLOBAL group_replication_bootstrap_group = ON;
 START GROUP_REPLICATION;
@@ -1222,7 +1242,18 @@ SQL
 
 # 3. 更新ProxySQL配置
 echo "更新ProxySQL路由..."
-mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 << 'SQL'
+# 创建ProxySQL临时凭证文件
+PROXYSQL_CNF=$(mktemp /tmp/proxysql.cnf.XXXXXX)
+chmod 600 "${PROXYSQL_CNF}"
+cat > "${PROXYSQL_CNF}" << CNFEOF
+[client]
+user=admin
+password=${PROXYSQL_ADMIN_PASSWORD}
+host=127.0.0.1
+port=6032
+CNFEOF
+trap 'rm -f "${PROXYSQL_CNF}" "${MYSQL_CNF}"' EXIT
+mysql --defaults-extra-file=${PROXYSQL_CNF} << 'SQL'
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=10 WHERE hostname='10.10.30.11';
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=20 WHERE hostname='10.10.30.12';
 UPDATE mysql_servers SET hostname='10.10.40.14', hostgroup_id=20 WHERE hostname='10.10.30.13';
@@ -1237,7 +1268,7 @@ echo "更新DNS记录..."
 
 # 5. 验证
 echo "验证切换..."
-mysql -h 10.10.40.14 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql -h 10.10.40.14 --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
@@ -1346,7 +1377,12 @@ spec:
             - "--collect.slave_status"
           env:
             - name: DATA_SOURCE_NAME
-              value: "exporter:Exporter@2024@(10.10.30.11:3306)/"
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-exporter-secret
+                  key: data-source-name
+                  # Secret示例: exporters:Exporter@2024@(10.10.50.100:6033)/
+                  # 注意: 连接ProxySQL(6033)而非MySQL Primary(3306)，避免监控影响主库性能
           ports:
             - containerPort: 9104
               name: metrics
@@ -1492,29 +1528,29 @@ groups:
 echo "========== MySQL日常巡检 =========="
 
 # 1. 实例状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION(); SELECT UPTIME;"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION(); SELECT UPTIME;"
 
 # 2. 连接数
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT 
     (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Threads_connected') as current_conn,
     (SELECT VARIABLE_VALUE FROM performance_schema.global_variables WHERE VARIABLE_NAME='max_connections') as max_conn;
 "
 
 # 3. MGR集群状态
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_PORT, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
 
 # 4. 复制延迟
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW REPLICA STATUS\G" | grep Seconds_Behind_Master
 
 # 5. 慢查询数量
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW STATUS LIKE 'Slow_queries';"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW STATUS LIKE 'Slow_queries';"
 
 # 6. InnoDB缓冲池命中率
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT 
     ROUND((1 - (
       (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Innodb_buffer_pool_reads') /
@@ -1612,7 +1648,7 @@ echo "4. 扩容磁盘"
 
 ```bash
 # 1. 检查当前版本
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION();"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION();"
 
 # 2. 查看兼容性矩阵
 # https://dev.mysql.com/doc/refman/8.0/en/upgrading-from-previous-series.html
@@ -1624,12 +1660,12 @@ mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION();"
 mysqlcheck --all-databases --check-upgrade
 
 # 5. 禁用MGR自动重启
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   STOP GROUP_REPLICATION;
 "
 
 # 6. 停止ProxySQL监控
-mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
+mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
   UPDATE global_variables SET variable_value=0 WHERE variable_name='mysql-monitor_enabled';
   LOAD MYSQL VARIABLES TO RUNTIME;
   SAVE MYSQL VARIABLES TO DISK;
@@ -1648,7 +1684,7 @@ yum install -y mysql-community-server-8.0.36
 systemctl start mysqld
 
 # 等待从库启动
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT VERSION();"
+mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION();"
 
 # 2. 升级从库MySQL-02
 echo "升级MySQL-02..."
@@ -1659,14 +1695,14 @@ systemctl start mysqld
 # 3. 升级主库MySQL-01
 echo "升级MySQL-01..."
 # 先将MGR切换到MySQL-02(force_members在MySQL 8.0.27+已废弃，使用unreachable_majority_timeout)
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SET GLOBAL group_replication_unreachable_majority_timeout = 10;
   STOP GROUP_REPLICATION;
   START GROUP_REPLICATION;
 "
 
 # 等待新Primary就绪
-mysql -h 10.10.30.12 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql -h 10.10.30.12 --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ROLE FROM performance_schema.replication_group_members;
 "
 
@@ -1676,7 +1712,7 @@ yum install -y mysql-community-server-8.0.36
 systemctl start mysqld
 
 # 将MySQL-01重新加入集群
-mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql -h 10.10.30.11 --defaults-extra-file=${MYSQL_CNF} -e "
   CHANGE REPLICATION SOURCE TO
     SOURCE_USER='repl_user',
     SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}',
@@ -1686,7 +1722,7 @@ mysql -h 10.10.30.11 -uroot -p${MYSQL_ROOT_PASSWORD} -e "
 "
 
 # 4. 启用ProxySQL监控
-mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
+mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
   UPDATE global_variables SET variable_value=1 WHERE variable_name='mysql-monitor_enabled';
   LOAD MYSQL VARIABLES TO RUNTIME;
   SAVE MYSQL VARIABLES TO DISK;
@@ -1697,27 +1733,27 @@ mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
 
 ```bash
 # 1. 验证所有节点版本
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
 
 # 2. 验证MGR集群健康
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT CHANNEL_NAME, MEMBER_STATE, COUNT_TRANSACTIONS_IN_QUEUE
   FROM performance_schema.replication_group_member_stats;
 "
 
 # 3. 验证ProxySQL路由
-mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -h127.0.0.1 -P6032 -e "
+mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
   SELECT * FROM stats_mysql_connection_pool;
 "
 
 # 4. 验证应用连接
-mysql -uapp_user -p${APP_USER_PASSWORD} -h127.0.0.1 -P6033 -e "SELECT 1"
+mysql -uapp_user --defaults-extra-file=${MYSQL_CNF} -h127.0.0.1 -P6033 -e "SELECT 1"
 
 # 5. 运行压力测试
-mysqlslap --user=app_user --password=${APP_USER_PASSWORD} \
+mysqlslap --user=app_user --defaults-extra-file=${MYSQL_CNF} \
   --host=127.0.0.1 --port=6033 \
   --auto-generate-sql \
   --auto-generate-sql-load-type=read \
@@ -1745,7 +1781,7 @@ systemctl start mysqld
 /usr/local/bin/mysql_restore.sh
 
 # 5. 验证集群恢复
-mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "
+mysql --defaults-extra-file=${MYSQL_CNF} -e "
   SELECT MEMBER_ID, MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE
   FROM performance_schema.replication_group_members;
 "
@@ -1809,7 +1845,7 @@ vrrp_instance VI_1 {
 }
 
 vrrp_script check_proxysql {
-  script "/usr/bin/mysql -uadmin -p${PROXYSQL_ADMIN_PASSWORD} -P6032 -e 'SELECT 1' -h127.0.0.1"
+  script "/usr/bin/mysql --defaults-extra-file=/etc/mysql/proxysql.cnf -e 'SELECT 1' -h127.0.0.1"
   interval 2
   weight -20
   fall 3

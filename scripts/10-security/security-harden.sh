@@ -129,7 +129,7 @@ maxretry = 3
 bantime = 86400
 F2BEOF
 # 注入管理IP白名单(防止Ansible控制机被封禁)
-sed -i "s/ADMIN_IP_PLACEHOLDER/${ADMIN_IP}/" /etc/fail2ban/jail.local
+sed -i "s|ADMIN_IP_PLACEHOLDER|${ADMIN_IP}|" /etc/fail2ban/jail.local
 systemctl enable fail2ban 2>/dev/null || true
 systemctl start fail2ban 2>/dev/null || true
 

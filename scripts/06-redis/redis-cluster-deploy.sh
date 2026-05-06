@@ -78,7 +78,9 @@ for node in ${NODES}; do
     cat > /etc/redis/redis_${PORT}.conf << REDISCONF
 # === 基础配置 ===
 port ${PORT}
-bind 0.0.0.0
+# [安全] 绑定内网IP而非0.0.0.0，避免暴露到公网
+# 如需绑定所有接口，请确保有防火墙/安全组限制访问
+bind ${node} 127.0.0.1
 daemonize yes
 pidfile /var/run/redis_${PORT}.pid
 logfile /var/log/redis/redis_${PORT}.log

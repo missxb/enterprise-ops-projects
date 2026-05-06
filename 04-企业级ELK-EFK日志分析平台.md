@@ -56,7 +56,8 @@ data:
     #   warm角色:    env: [{name: NODE_ROLES, value: "data_warm"}]
     #   cold角色:    env: [{name: NODE_ROLES, value: "data_cold"}]
     #   coordinating: env: [{name: NODE_ROLES, value: ""}]
-    node.roles: ${NODE_ROLES:master}  # 通过env注入，ConfigMap本身无法区分节点角色
+    # 通过环境变量${NODE_ROLES}注入，ConfigMap本身无法区分节点角色
+    node.roles: ${NODE_ROLES:master}  # [已废弃] bash变量在ConfigMap中无效，必须通过env注入
     path.data: /usr/share/elasticsearch/data
     path.logs: /usr/share/elasticsearch/logs
     network.host: 0.0.0.0
@@ -127,6 +128,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: NODE_ROLES
+              value: "master"
             - name: ES_JAVA_OPTS
               value: "-Xms4g -Xmx4g"
             - name: ELASTIC_PASSWORD
@@ -551,11 +554,11 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 50Gi
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
 ---
 apiVersion: v1
 kind: Service

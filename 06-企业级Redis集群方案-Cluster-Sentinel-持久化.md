@@ -163,7 +163,9 @@ redis-server --version
 # 每台服务器部署1个Redis实例(端口6379)，共6台组成3主3从集群
 
 # ===== 基础配置 =====
-bind 127.0.0.1 ${REDIS_BIND_IP:?请设置REDIS_BIND_IP}  # 生产环境必须绑定内网IP，禁止使用0.0.0.0
+# 注意: 以下变量需通过 envsubst 模板化处理后再写入 redis.conf:
+#   envsubst '${REDIS_BIND_IP}' < redis.conf.template > /etc/redis/redis.conf
+bind 127.0.0.1 ${REDIS_BIND_IP}  # 生产环境必须绑定内网IP，禁止使用0.0.0.0
 port 6379                           # 第二个实例改为6380
 daemonize yes
 pidfile /var/run/redis/redis_6379.pid
@@ -464,7 +466,7 @@ ${REDIS_CMD} --bigkeys
 
 echo ""
 echo "========== 内存分析 =========="
-${REDIS_CMD} memory usage <key> SAMPLES 5
+${REDIS_CMD} memory usage test:key:1 SAMPLES 5
 
 echo ""
 echo "========== 内存统计 =========="

@@ -42,7 +42,7 @@ xtrabackup --backup --defaults-extra-file=${MYSQL_CNF} \
   --target-dir=${BACKUP_DIR}/full/${DATE}
 
 echo "=== 备份binlog ==="
-CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW MASTER STATUS" --skip-column-names 2>/dev/null | awk '{print $1}')
+CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW BINARY LOG STATUS" --skip-column-names 2>/dev/null | awk '{print $1}')
 mysqlbinlog --read-from-remote-server --raw --to-last-log --defaults-extra-file=${MYSQL_CNF} \
   --host=127.0.0.1 \
   ${CURRENT_BINLOG} \

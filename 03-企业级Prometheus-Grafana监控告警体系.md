@@ -78,7 +78,7 @@ data:
         # Prometheus A: replica: prometheus-a
         # Prometheus B: replica: prometheus-b
         # 通过Downward API注入: --label replica="$(POD_NAME)"
-        replica: 'prometheus'  # 替换为实际实例标识
+        replica: 'prometheus'  # 已废弃! 必须使用Downward API注入唯一值，见StatefulSet env配置
     
     # 告警规则文件
     rule_files:
@@ -92,432 +92,6 @@ data:
                 - alertmanager-01:9093
                 - alertmanager-02:9093
     
-    ```
-
-### Thanos Sidecar (独立Deployment)
-
-> Thanos Sidecar是独立的Deployment资源，不属于上方ConfigMap。
-
-```yaml
-# thanos-sidecar-deployment.yaml
-# 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: thanos-sidecar
-  namespace: monitoring
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: thanos-sidecar
-  template:
-    metadata:
-      labels:
-        app: thanos-sidecar
-    spec:
-      containers:
-      - name: thanos-sidecar
-        image: quay.io/thanos/thanos:v0.34.0
-        args:
-        - sidecar
-        - --log.level=info
-        - --prometheus.url=http://localhost:9090
-        - --tsdb.path=/prometheus
-        - --objstore.config-file=/etc/thanos/bucket.yml
-        ports:
-        - name: grpc-sidecar
-          containerPort: 10901
-        - name: http-sidecar
-          containerPort: 10902
-        volumeMounts:
-        - name: prometheus-data
-          mountPath: /prometheus
-          readOnly: true
-        - name: thanos-config
-          mountPath: /etc/thanos
-      volumes:
-      - name: prometheus-data
-        persistentVolumeClaim:
-          claimName: prometheus-data
-      - name: thanos-config
-        configMap:
-          name: thanos-config
-```
-    
-### Thanos Query (全局查询入口)
-
-Thanos Query是Thanos架构的查询层，提供全局统一查询视图。
-
-```yaml
-# thanos-query-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: thanos-query
-  namespace: monitoring
-spec:
-  replicas: 2  # HA: 2副本避免单点故障
-  # 外部数据库配置(推荐): 使用RDS PostgreSQL或自建PG
-  # external_labels:
-  #   cluster: prod-cluster
-  # remote_write:
-  #   - url: http://thanos-receive:19291/api/v1/receive
-  selector:
-    matchLabels:
-      app: thanos-query
-  template:
-    metadata:
-      labels:
-        app: thanos-query
-    spec:
-      containers:
-      - name: thanos-query
-        image: quay.io/thanos/thanos:v0.34.0
-        args:
-        - query
-        - --log.level=info
-        - --grpc-address=0.0.0.0:10901
-        - --http-address=0.0.0.0:10902
-        - --store=prometheus-0.prometheus.monitoring.svc.cluster.local:10901
-        - --store=prometheus-1.prometheus.monitoring.svc.cluster.local:10901
-        - --store=thanos-store-gateway.monitoring.svc.cluster.local:10901
-        - --query.replica-label=replica
-        ports:
-        - name: grpc
-          containerPort: 10901
-        - name: http
-          containerPort: 10902
-        resources:
-          requests:
-            cpu: "1"
-            memory: 2Gi
-          limits:
-            cpu: "2"
-            memory: 4Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: thanos-query
-  namespace: monitoring
-spec:
-  selector:
-    app: thanos-query
-  ports:
-  - name: http
-    port: 9090
-    targetPort: 10902
-  - name: grpc
-    port: 10901
-    targetPort: 10901
-```
-
-### Thanos Store Gateway (对象存储网关)
-
-Thanos Store Gateway从对象存储(S3/MinIO)查询历史数据。
-
-```yaml
-# thanos-store-gateway-statefulset.yaml
----
-# thanos-objstore-config-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: thanos-objstore-config
-  namespace: monitoring
-data:
-  objstore.yml: |
-    type: S3
-    config:
-      bucket: thanos
-      # [安全要求] ConfigMap不适合存储凭证，生产环境应使用Secret
-      # 推荐: kubectl create secret generic thanos-objstore-secret --from-literal=access_key=<KEY> --from-literal=secret_key=<SECRET>
-      access_key: ${MINIO_ACCESS_KEY}
-      secret_key: ${MINIO_SECRET_KEY}
-      insecure: true
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: thanos-store-gateway
-  namespace: monitoring
-spec:
-  serviceName: thanos-store-gateway
-  replicas: 2  # 双副本实现高可用，避免单点故障
-  selector:
-    matchLabels:
-      app: thanos-store-gateway
-  template:
-    metadata:
-      labels:
-        app: thanos-store-gateway
-    spec:
-      containers:
-      - name: thanos-store-gateway
-        image: quay.io/thanos/thanos:v0.34.0
-        args:
-        - store
-        - --log.level=info
-        - --data-dir=/thanos-store
-        - --objstore.config-file=/etc/thanos/objstore.yml
-        - --index-cache-size=500MB
-        - --chunk-pool-size=2GB
-        ports:
-        - name: http
-          containerPort: 10902
-        - name: grpc
-          containerPort: 10901
-        volumeMounts:
-        - name: store-data
-          mountPath: /thanos-store
-        - name: objstore-config
-          mountPath: /etc/thanos
-        resources:
-          requests:
-            cpu: "1"
-            memory: 2Gi
-          limits:
-            cpu: "2"
-            memory: 4Gi
-      volumes:
-      - name: objstore-config
-        configMap:
-          name: thanos-objstore-config
-  volumeClaimTemplates:
-  - metadata:
-      name: store-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 50Gi
-```
-
-### MinIO对象存储(Thanos后端)
-
-Thanos Store Gateway依赖MinIO/S3存储长期数据。如已有对象存储可跳过此节。
-
-```yaml
-# minio-statefulset.yaml
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  namespace: monitoring
-type: Opaque
-stringData:
-  MINIO_ROOT_USER: "${MINIO_ROOT_USER}"        # 必须通过Secret提供，不要使用默认值
-  MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}" # 生产环境必须使用强随机密码
-
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: minio
-  namespace: monitoring
-spec:
-  serviceName: minio
-  replicas: 1  # 单节点开发环境；生产使用MinIO分布式模式或阿里云OSS
-  selector:
-    matchLabels:
-      app: minio
-  template:
-    metadata:
-      labels:
-        app: minio
-    spec:
-      containers:
-      - name: minio
-        image: minio/minio:RELEASE.2024-11-07T00-52-20Z
-        command:
-        - /bin/sh
-        - -c
-        - |
-          mkdir -p /data/thanos
-          minio server /data --console-address ":9001"
-        env:
-        - name: MINIO_ROOT_USER
-          valueFrom:
-            secretKeyRef:
-              name: minio-secret
-              key: MINIO_ROOT_USER
-        - name: MINIO_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: minio-secret
-              key: MINIO_ROOT_PASSWORD
-        ports:
-        - containerPort: 9000
-          name: api
-        - containerPort: 9001
-          name: console
-        resources:
-          requests:
-            cpu: 250m
-            memory: 512Mi
-          limits:
-            cpu: "1"
-            memory: 2Gi
-        volumeMounts:
-        - name: data
-          mountPath: /data
-        readinessProbe:
-          httpGet:
-            path: /minio/health/ready
-            port: 9000
-          initialDelaySeconds: 10
-          periodSeconds: 10
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      storageClassName: local-ssd
-      resources:
-        requests:
-          storage: 2Ti
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: minio
-  namespace: monitoring
-spec:
-  selector:
-    app: minio
-  ports:
-  - port: 9000
-    name: api
-  - port: 9001
-    name: console
-
----
-# 初始化Thanos bucket
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: minio-init-bucket
-  namespace: monitoring
-spec:
-  template:
-    spec:
-      containers:
-      - name: mc
-        image: minio/mc:latest
-        command:
-        - /bin/sh
-        - -c
-        - |
-          mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
-          mc mb myminio/thanos --ignore-existing
-          mc mb myminio/thanos-metrics --ignore-existing
-        env:
-        - name: MINIO_ROOT_USER
-          valueFrom:
-            secretKeyRef:
-              name: minio-secret
-              key: MINIO_ROOT_USER
-        - name: MINIO_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: minio-secret
-              key: MINIO_ROOT_PASSWORD
-      restartPolicy: OnFailure
-```
-
-Thanos配置中的MinIO地址:
-
-```yaml
-# objstore.yml (在thanos-objstore-config ConfigMap中)
-type: S3
-config:
-  bucket: thanos
-  endpoint: minio.monitoring:9000  # 使用K8s Service名称
-  access_key: ${MINIO_ACCESS_KEY}
-  secret_key: ${MINIO_SECRET_KEY}
-  insecure: true  # MinIO自签证书
-```
-
-### Thanos Compactor (数据压缩)
-
-Thanos Compactor对历史数据进行压缩和降采样，减少存储空间和查询延迟。
-
-```yaml
-# thanos-compactor-statefulset.yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: thanos-compactor
-  namespace: monitoring
-spec:
-  serviceName: thanos-compactor
-  replicas: 1  # [关键] 多实例会导致数据损坏不可恢复
-  selector:
-    matchLabels:
-      app: thanos-compactor
-  template:
-    metadata:
-      labels:
-        app: thanos-compactor
-    spec:
-      containers:
-      - name: thanos-compactor
-        image: quay.io/thanos/thanos:v0.34.0
-        args:
-        - compact
-        - --log.level=info
-        - --data-dir=/thanos-compactor
-        - --objstore.config-file=/etc/thanos/objstore.yml
-        - --retention.resolution-raw=30d
-        - --retention.resolution-5m=90d
-        - --retention.resolution-1h=365d
-        - --compact.concurrency=4
-        - --downsample.concurrency=4
-        ports:
-        - name: http
-          containerPort: 10902
-        volumeMounts:
-        - name: compactor-data
-          mountPath: /thanos-compactor
-        - name: objstore-config
-          mountPath: /etc/thanos
-        resources:
-          requests:
-            cpu: "1"
-            memory: 4Gi
-          limits:
-            cpu: "2"
-            memory: 8Gi
-      volumes:
-      - name: objstore-config
-        configMap:
-          name: thanos-objstore-config
-  volumeClaimTemplates:
-  - metadata:
-      name: compactor-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 100Gi
-```
-
-> **注意**: Thanos Compactor只能运行1个实例，多实例会导致数据损坏。
-
-### Thanos完整架构图
-
-```
-Prometheus A ──▶ Thanos Sidecar ──┐
-                                  ├──▶ Thanos Query (全局查询) ──▶ Grafana
-Prometheus B ──▶ Thanos Sidecar ──┘         │
-                                       Thanos Store Gateway ──▶ MinIO/S3
-                                       Thanos Compactor (压缩+降采样)
-```
-
-> **去重配置**: Thanos Query需要配置 `--query.replica-label` 来去除多Prometheus实例的重复数据。
-
     # 抓取配置
     scrape_configs:
       # Prometheus自身监控
@@ -1050,6 +624,462 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           
           - record: namespace:container_memory_working_set_bytes:sum
             expr: sum by(namespace) (container_memory_working_set_bytes{container!=""})
+    ```
+
+### Thanos Sidecar (独立Deployment)
+
+> Thanos Sidecar是独立的Deployment资源，不属于上方ConfigMap。
+
+```yaml
+# thanos-sidecar-deployment.yaml
+# 生产建议: 作为sidecar容器嵌入Prometheus StatefulSet
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-sidecar
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-sidecar
+  template:
+    metadata:
+      labels:
+        app: thanos-sidecar
+    spec:
+      containers:
+      - name: thanos-sidecar
+        image: quay.io/thanos/thanos:v0.34.0
+        args:
+        - sidecar
+        - --log.level=info
+        - --prometheus.url=http://prometheus.monitoring.svc.cluster.local:9090
+        - --tsdb.path=/prometheus
+        - --objstore.config-file=/etc/thanos/bucket.yml
+        ports:
+        - name: grpc-sidecar
+          containerPort: 10901
+        - name: http-sidecar
+          containerPort: 10902
+        volumeMounts:
+        - name: prometheus-data
+          mountPath: /prometheus
+          readOnly: true
+        - name: thanos-config
+          mountPath: /etc/thanos
+      volumes:
+      - name: prometheus-data
+        persistentVolumeClaim:
+          claimName: prometheus-data
+      - name: thanos-config
+        configMap:
+          name: thanos-config
+```
+    
+### Thanos Query (全局查询入口)
+
+Thanos Query是Thanos架构的查询层，提供全局统一查询视图。
+
+```yaml
+# thanos-query-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  replicas: 2  # HA: 2副本避免单点故障
+  # 外部数据库配置(推荐): 使用RDS PostgreSQL或自建PG
+  # external_labels:
+  #   cluster: prod-cluster
+  # remote_write:
+  #   - url: http://thanos-receive:19291/api/v1/receive
+  selector:
+    matchLabels:
+      app: thanos-query
+  template:
+    metadata:
+      labels:
+        app: thanos-query
+    spec:
+      containers:
+      - name: thanos-query
+        image: quay.io/thanos/thanos:v0.34.0
+        args:
+        - query
+        - --log.level=info
+        - --grpc-address=0.0.0.0:10901
+        - --http-address=0.0.0.0:10902
+        - --store=prometheus-0.prometheus.monitoring.svc.cluster.local:10901
+        - --store=prometheus-1.prometheus.monitoring.svc.cluster.local:10901
+        - --store=thanos-store-gateway.monitoring.svc.cluster.local:10901
+        - --query.replica-label=replica
+        ports:
+        - name: grpc
+          containerPort: 10901
+        - name: http
+          containerPort: 10902
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  namespace: monitoring
+spec:
+  selector:
+    app: thanos-query
+  ports:
+  - name: http
+    port: 9090
+    targetPort: 10902
+  - name: grpc
+    port: 10901
+    targetPort: 10901
+```
+
+### Thanos Store Gateway (对象存储网关)
+
+Thanos Store Gateway从对象存储(S3/MinIO)查询历史数据。
+
+```yaml
+# thanos-store-gateway-statefulset.yaml
+---
+# thanos-objstore-secret.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objstore-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  access_key: "${MINIO_ACCESS_KEY}"    # 通过kubectl create secret或Vault注入
+  secret_key: "${MINIO_SECRET_KEY}"    # 切勿在版本控制中存储真实值
+---
+# thanos-objstore-config-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thanos-objstore-config
+  namespace: monitoring
+data:
+  objstore.yml: |
+    type: S3
+    config:
+      bucket: thanos
+      # [安全] 凭证通过Secret挂载为环境变量，由init容器注入objstore.yml
+      access_key: placeholder  # 由init容器替换
+      secret_key: placeholder  # 由init容器替换
+      insecure: true
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-store-gateway
+  namespace: monitoring
+spec:
+  serviceName: thanos-store-gateway
+  replicas: 2  # 双副本实现高可用，避免单点故障
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  template:
+    metadata:
+      labels:
+        app: thanos-store-gateway
+    spec:
+      initContainers:
+      - name: init-objstore
+        image: busybox
+        command:
+        - /bin/sh
+        - -c
+        - |
+          sed -i "s/placeholder/${ACCESS_KEY}/" /etc/thanos/objstore.yml
+          sed -i "s/placeholder/${SECRET_KEY}/" /etc/thanos/objstore.yml
+        env:
+        - name: ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: thanos-objstore-secret
+              key: access_key
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: thanos-objstore-secret
+              key: secret_key
+        volumeMounts:
+        - name: objstore-config
+          mountPath: /etc/thanos
+      containers:
+      - name: thanos-store-gateway
+        image: quay.io/thanos/thanos:v0.34.0
+        args:
+        - store
+        - --log.level=info
+        - --data-dir=/thanos-store
+        - --objstore.config-file=/etc/thanos/objstore.yml
+        - --index-cache-size=500MB
+        - --chunk-pool-size=2GB
+        ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        volumeMounts:
+        - name: store-data
+          mountPath: /thanos-store
+        - name: objstore-config
+          mountPath: /etc/thanos
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+      volumes:
+      - name: objstore-config
+        configMap:
+          name: thanos-objstore-config
+  volumeClaimTemplates:
+  - metadata:
+      name: store-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+```
+
+### MinIO对象存储(Thanos后端)
+
+Thanos Store Gateway依赖MinIO/S3存储长期数据。如已有对象存储可跳过此节。
+
+```yaml
+# minio-statefulset.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: "${MINIO_ROOT_USER}"        # 必须通过Secret提供，不要使用默认值
+  MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}" # 生产环境必须使用强随机密码
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: monitoring
+spec:
+  serviceName: minio
+  replicas: 1  # 单节点开发环境；生产使用MinIO分布式模式或阿里云OSS
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /data/thanos
+          minio server /data --console-address ":9001"
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_PASSWORD
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: local-ssd
+      resources:
+        requests:
+          storage: 2Ti
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: monitoring
+spec:
+  selector:
+    app: minio
+  ports:
+  - port: 9000
+    name: api
+  - port: 9001
+    name: console
+
+---
+# 初始化Thanos bucket
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init-bucket
+  namespace: monitoring
+spec:
+  template:
+    spec:
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+          mc mb myminio/thanos --ignore-existing
+          mc mb myminio/thanos-metrics --ignore-existing
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_USER
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ROOT_PASSWORD
+      restartPolicy: OnFailure
+```
+
+Thanos配置中的MinIO地址:
+
+```yaml
+# objstore.yml (在thanos-objstore-config ConfigMap中)
+type: S3
+config:
+  bucket: thanos
+  endpoint: minio.monitoring:9000  # 使用K8s Service名称
+  access_key: ${MINIO_ACCESS_KEY}
+  secret_key: ${MINIO_SECRET_KEY}
+  insecure: true  # MinIO自签证书
+```
+
+### Thanos Compactor (数据压缩)
+
+Thanos Compactor对历史数据进行压缩和降采样，减少存储空间和查询延迟。
+
+```yaml
+# thanos-compactor-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-compactor
+  namespace: monitoring
+spec:
+  serviceName: thanos-compactor
+  replicas: 1  # [关键] 多实例会导致数据损坏不可恢复
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+    spec:
+      containers:
+      - name: thanos-compactor
+        image: quay.io/thanos/thanos:v0.34.0
+        args:
+        - compact
+        - --log.level=info
+        - --data-dir=/thanos-compactor
+        - --objstore.config-file=/etc/thanos/objstore.yml
+        - --retention.resolution-raw=30d
+        - --retention.resolution-5m=90d
+        - --retention.resolution-1h=365d
+        - --compact.concurrency=4
+        - --downsample.concurrency=4
+        ports:
+        - name: http
+          containerPort: 10902
+        volumeMounts:
+        - name: compactor-data
+          mountPath: /thanos-compactor
+        - name: objstore-config
+          mountPath: /etc/thanos
+        resources:
+          requests:
+            cpu: "1"
+            memory: 4Gi
+          limits:
+            cpu: "2"
+            memory: 8Gi
+      volumes:
+      - name: objstore-config
+        configMap:
+          name: thanos-objstore-config
+  volumeClaimTemplates:
+  - metadata:
+      name: compactor-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+```
+
+> **注意**: Thanos Compactor只能运行1个实例，多实例会导致数据损坏。
+
+### Thanos完整架构图
+
+```
+Prometheus A ──▶ Thanos Sidecar ──┐
+                                  ├──▶ Thanos Query (全局查询) ──▶ Grafana
+Prometheus B ──▶ Thanos Sidecar ──┘         │
+                                       Thanos Store Gateway ──▶ MinIO/S3
+                                       Thanos Compactor (压缩+降采样)
 ```
 
 ---
@@ -1086,9 +1116,15 @@ kind: StatefulSet
             - '--storage.tsdb.retention.size=200GB'
             - '--web.enable-lifecycle'
             - '--web.enable-admin-api'
+            - '--label=replica=$(POD_NAME)'
             # [注意] --web.enable-remote-write-receiver在Prometheus 2.47+已废弃
             # Sidecar模式直接读取本地TSDB，不需要remote-write-receiver
             # 如需remote-write请使用Thanos Receive组件
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - containerPort: 9090
           volumeMounts:

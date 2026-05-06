@@ -49,7 +49,7 @@ echo "Step 2: 恢复etcd数据..."
 ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
   --data-dir=/var/lib/etcd-restore \
   --name=$(hostname) \
-  --initial-cluster="${ETCD_CLUSTER:-etcd-0=https://127.0.0.1:2380}" \
+  --initial-cluster="${ETCD_CLUSTER:?请设置ETCD_CLUSTER(如etcd-0=https://10.10.10.11:2380,etcd-1=https://10.10.10.12:2380,etcd-2=https://10.10.10.13:2380)}" \
   --initial-advertise-peer-urls="https://127.0.0.1:2380" \
   --initial-cluster-token="etcd-cluster"
 

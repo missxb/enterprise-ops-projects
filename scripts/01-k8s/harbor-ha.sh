@@ -269,7 +269,7 @@ echo ""
 # 配置Nginx upstream代理Harbor后端
 HARBOR_BACKENDS=""
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
-  HARBOR_BACKENDS="${HARBOR_BACKENDS}    server ${node}:443 ssl;\n"
+  HARBOR_BACKENDS="    server ${node}:443;\\n"
 done
 
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
@@ -292,6 +292,10 @@ server {
 
     location / {
         proxy_pass https://harbor_backend;
+        # [注意] proxy_ssl_verify off仅适用于自签证书环境
+        # 生产环境应使用正式CA证书并保持ssl_verify on:
+        #   proxy_ssl_verify on;
+        #   proxy_ssl_trusted_certificate /opt/harbor/cert/ca.crt;
         proxy_ssl_verify off;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;

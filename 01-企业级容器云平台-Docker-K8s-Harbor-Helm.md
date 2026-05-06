@@ -276,7 +276,7 @@ defaults
 
 # Kubernetes API Server 负载均衡
 frontend k8s_apiserver_bind
-    bind *:6443
+    bind ${VIP}:6443
     default_backend k8s_apiserver
 
 backend k8s_apiserver
@@ -1279,7 +1279,8 @@ helm install elasticsearch elastic/elasticsearch \
   --set nodes.hot.replicas=1 \
   --set nodes.warm.replicas=1 \
   --set nodes.cold.replicas=1 \
-  --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \  # 替换为实际环境的StorageClass名称
+  # 替换为实际环境的StorageClass名称
+  --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \
   --namespace logging --create-namespace \
   --set replicas=3 \
   --set resources.requests.cpu=1 \
@@ -2041,6 +2042,7 @@ etcdctl endpoint health --endpoints=https://127.0.0.1:2379 \
   --key=/etc/kubernetes/pki/etcd/server.key
 
 echo "✅ etcd恢复完成"
+```
 
 ### 故障切换SOP
 
