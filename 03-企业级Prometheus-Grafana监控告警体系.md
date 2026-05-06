@@ -157,7 +157,7 @@ metadata:
   name: thanos-query
   namespace: monitoring
 spec:
-  replicas: 1  # Thanos HA通过Sidecar实现，无需多副本
+  replicas: 2  # HA: 2副本避免单点故障
   # 外部数据库配置(推荐): 使用RDS PostgreSQL或自建PG
   # external_labels:
   #   cluster: prod-cluster
@@ -173,7 +173,7 @@ spec:
     spec:
       containers:
       - name: thanos-query
-        image: thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.34.0
         args:
         - query
         - --log.level=info
@@ -254,7 +254,7 @@ spec:
     spec:
       containers:
       - name: thanos-store-gateway
-        image: thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.34.0
         args:
         - store
         - --log.level=info
@@ -329,7 +329,7 @@ spec:
     spec:
       containers:
       - name: minio
-        image: minio/minio:RELEASE.2024-01-18T00-31-37Z
+        image: minio/minio:RELEASE.2024-11-07T00-52-20Z
         command:
         - /bin/sh
         - -c
@@ -464,7 +464,7 @@ spec:
     spec:
       containers:
       - name: thanos-compactor
-        image: thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.34.0
         args:
         - compact
         - --log.level=info
@@ -887,7 +887,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           
           # 复制延迟
           - alert: MySQLReplicationLag
-            expr: mysql_slave_status_seconds_behind_master > 30
+            expr: mysql_replica_status_seconds_behind_source > 30
             for: 5m
             labels:
               severity: warning
@@ -897,7 +897,7 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
           
           # 复制线程停止
           - alert: MySQLReplicationStopped
-            expr: mysql_slave_status_slave_io_running == 0 or mysql_slave_status_slave_sql_running == 0
+            expr: mysql_replica_status_replica_io_running == 0 or mysql_replica_status_replica_sql_running == 0
             for: 2m
             labels:
               severity: critical
@@ -1078,7 +1078,7 @@ kind: StatefulSet
       containers:
         # Prometheus主容器
         - name: prometheus
-          image: prom/prometheus:v2.50.0
+          image: prom/prometheus:v2.53.0
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
@@ -1106,7 +1106,7 @@ kind: StatefulSet
         
         # Thanos Sidecar
         - name: thanos-sidecar
-          image: thanos/thanos:v0.34.0  # [已修复] 统一Thanos版本和镜像仓库名
+          image: quay.io/thanos/thanos:v0.34.0  # [已修复] 统一Thanos版本和镜像仓库名
           args:
             - sidecar
             - --tsdb.path=/prometheus
@@ -1163,7 +1163,7 @@ data:
     type: S3
     config:
       bucket: thanos
-      endpoint: minio-01:9000
+      endpoint: minio.monitoring:9000
       access_key: ${MINIO_ACCESS_KEY}
       secret_key: ${MINIO_SECRET_KEY}
       insecure: true
@@ -1190,7 +1190,7 @@ spec:
     spec:
       containers:
         - name: grafana
-          image: grafana/grafana:10.2.0
+          image: grafana/grafana:11.4.0
           env:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
@@ -1297,7 +1297,7 @@ data:
       smtp_from: 'alertmanager@company.com'
       smtp_smarthost: 'smtp.feishu.cn:465'  # 465=SMTPS隐式TLS
       smtp_auth_username: 'alertmanager@company.com'
-      smtp_auth_password: 'smtp-password'
+      smtp_auth_password: '${SMTP_PASSWORD}'  # 通过Secret注入，不要明文存储
       smtp_require_tls: false  # 465端口是隐式TLS，不需要STARTTLS
       # [备选] 使用587端口(显式TLS):
       # smtp_smarthost: 'smtp.feishu.cn:587'
@@ -1333,6 +1333,7 @@ data:
         - match_re:
             alertname: 'MySQL.*|Redis.*'
           receiver: 'dba-dingtalk'
+          group_wait: 10s
           repeat_interval: 2h
         
         # K8s告警
@@ -1549,12 +1550,12 @@ echo "Step 6: 部署Thanos..."
 kubectl apply -f thanos/
 
 echo "Step 7: 配置Helm (可选)..."
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm install kube-prometheus prometheus-community/kube-prometheus-stack \
-  --version 65.1.0 \
-  --namespace monitoring \
-  --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \
-  --set prometheus.retention=15d
+echo "  [注意] 已通过YAML方式部署Prometheus/Grafana/AlertManager，"
+echo "  不要同时使用Helm安装kube-prometheus-stack，否则会产生资源冲突。"
+echo "  如需使用Helm，请先删除YAML部署的资源，然后运行:"
+echo "  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts"
+echo "  helm install kube-prometheus prometheus-community/kube-prometheus-stack \\"
+echo "    --version 65.1.0 --namespace monitoring"
 
 echo ""
 echo "================================================"
@@ -1970,7 +1971,7 @@ spec:
     spec:
       containers:
       - name: victoria-metrics
-        image: victoriametrics/victoria-metrics:latest
+        image: victoriametrics/victoria-metrics:v1.106.1
         args:
           - '--storageDataPath=/victoria-metrics-data'
           - '--retentionPeriod=90d'

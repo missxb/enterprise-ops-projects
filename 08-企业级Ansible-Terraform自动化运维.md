@@ -303,7 +303,7 @@ terraform {
   required_providers {
     alicloud = {
       source  = "aliyun/alicloud"
-      version = ">= 2.0, < 3.0"  # 明确版本范围，避免自动升级到不兼容版本
+      version = "~> 2.0"  # 悲观约束: 允许2.x小版本升级，禁止3.0大版本升级
     }
   }
   backend "oss" {
@@ -523,7 +523,9 @@ plan:
 	cd terraform && terraform plan
 
 apply:
-	cd terraform && terraform apply -input=false  # [注意] 生产环境应先执行terraform plan并人工审批
+	@echo "⚠️  即将应用Terraform变更，请确认已执行terraform plan并审批"
+	@read -p "请输入 'yes' 确认应用: " CONFIRM && [ "$$CONFIRM" = "yes" ] || (echo "已取消" && exit 1)
+	cd terraform && terraform apply -input=false
 
 destroy:
 	cd terraform && terraform destroy  # [注意] 生产环境不要用-auto-approve
@@ -709,6 +711,9 @@ fact_caching_timeout = 86400
 
 # 日志
 log_path = /var/log/ansible.log
+
+# Vault密码文件(生产环境必须配置)
+vault_password_file = .vault_pass
 
 [ssh_connection]
 # pipelining减少SSH连接数
