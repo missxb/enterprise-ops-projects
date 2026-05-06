@@ -468,6 +468,7 @@ MASTER_NAME=$1
 EVENT=$2
 DETAILS=$3
 
+LOG_FILE="/var/log/redis/notify.log"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] MASTER=${MASTER_NAME} EVENT=${EVENT} DETAILS=${DETAILS}" >> ${LOG_FILE}
 
 # 钉钉通知
@@ -1103,7 +1104,7 @@ rdb := redis.NewClusterClient(&redis.ClusterOptions{
 })
 ```
 
-### 12.3 连接池参数建议
+### 13.3 连接池参数建议
 
 | 参数 | 开发环境 | 生产环境(8C/32G) | 说明 |
 |------|----------|-------------------|------|

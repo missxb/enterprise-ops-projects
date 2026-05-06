@@ -1570,7 +1570,7 @@ module "vpc" {
   source = "./modules/vpc"
   
   vpc_name   = "production-vpc"
-  cidr_block = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/16"  # [注意] 实际部署时根据项目IP规划调整(如10.10.0.0/16)
   az_count   = 3
 }
 
