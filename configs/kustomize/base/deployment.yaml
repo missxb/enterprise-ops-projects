@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: app:latest
+          image: app:1.0.0  # 生产环境使用具体版本号
           ports:
             - containerPort: 8080
           resources:
