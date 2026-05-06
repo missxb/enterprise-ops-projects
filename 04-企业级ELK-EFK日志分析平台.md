@@ -365,8 +365,8 @@ spec:
           image: elastic/filebeat:8.11.3
           args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsUser: 0
+            runAsGroup: 0  # root required for hostPath log access
           resources:
             requests:
               cpu: 100m
