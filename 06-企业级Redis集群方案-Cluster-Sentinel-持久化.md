@@ -181,10 +181,10 @@ tcp-keepalive 300
 tcp-user-timeout 60
 
 # ===== 内存配置 =====
-# [优化建议] 8C/32G服务器建议部署2个Redis实例
-# 每个实例maxmemory设为物理内存的35-40%，预留系统开销
-# 例: 32G服务器→2个实例→各用10G(maxmemory=10gb)
-maxmemory 10gb
+# [优化建议] 8C/32G服务器部署1个Redis实例
+# maxmemory设为物理内存的60%，预留系统开销
+# 例: 32G服务器→1个实例→用20G(maxmemory=20gb)
+maxmemory 20gb
 maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
 maxmemory-samples 10           # LRU采样数，越大越精确
 
@@ -568,7 +568,7 @@ lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
 lazyfree-lazy-expire yes   # 异步过期，减少阻塞
 
 # ===== 内存层调优 =====
-maxmemory 10gb
+maxmemory 20gb
 maxmemory-policy allkeys-lru   # 缓存场景推荐allkeys-lru(所有key均可淘汰，防止OOM)
 maxmemory-samples 10           # LRU采样数，越大越精确
 
@@ -878,7 +878,8 @@ echo "Step 4: 恢复旧Master为从节点..."
 ssh root@10.10.40.11 "systemctl start redis@6379"
 
 echo "Step 5: 重新加入集群..."
-redis-cli -c -h 10.10.40.11 CLUSTER REPLICATE <new-master-id>
+NEW_MASTER_ID=$(redis-cli -c -h 10.10.40.12 cluster nodes | grep master | grep -v "10.10.40.11" | head -1 | awk '{print $1}')
+redis-cli -c -h 10.10.40.11 CLUSTER REPLICATE "${NEW_MASTER_ID}"
 
 echo ""
 echo "演练结果:"
@@ -929,9 +930,9 @@ echo "  - 业务影响: 无感知"
 
 ---
 
-## 十、Redis Cluster扩缩容方案
+## 十一、Redis Cluster扩缩容方案
 
-### 10.1 添加节点(扩容)
+### 11.1 添加节点(扩容)
 
 ```bash
 # 1. 启动新节点(例如10.10.40.17:6379)
@@ -951,7 +952,7 @@ redis-cli --cluster reshard 10.10.40.11:6379 \
 redis-cli --cluster check 10.10.40.11:6379
 ```
 
-### 10.2 移除节点(缩容)
+### 11.2 移除节点(缩容)
 
 ```bash
 # 1. 迁移该节点的slot到其他节点
@@ -968,7 +969,7 @@ redis-cli --cluster del-node 10.10.40.11:6379 <node-to-remove-id>
 ssh root@10.10.40.17 "systemctl stop redis@6379"
 ```
 
-### 10.3 Slot分配规划
+### 11.3 Slot分配规划
 
 | 节点 | Slot范围 | 负责数据 |
 |------|----------|----------|
@@ -978,9 +979,9 @@ ssh root@10.10.40.17 "systemctl stop redis@6379"
 
 ---
 
-## 十一、Sentinel迁移到Cluster方案
+## 十二、Sentinel迁移到Cluster方案
 
-### 11.1 迁移前提
+### 12.1 迁移前提
 
 ```bash
 # Sentinel和Cluster可以并行运行(Redis 7.0+)
@@ -989,7 +990,7 @@ ssh root@10.10.40.17 "systemctl stop redis@6379"
 # 如果需要从Sentinel迁移到Cluster，应先完成迁移再下线Sentinel
 ```
 
-### 11.2 迁移步骤
+### 12.2 迁移步骤
 
 ```bash
 # 1. 在Cluster中导入Sentinel数据
@@ -1009,9 +1010,9 @@ redis-cli -h 10.10.40.11 -p 6379 dbsize
 
 ---
 
-## 十二、客户端连接池配置
+## 十三、客户端连接池配置
 
-### 12.1 Java (Jedis/Lettuce)
+### 13.1 Java (Jedis/Lettuce)
 
 ```java
 // Jedis连接池配置
@@ -1045,7 +1046,7 @@ spring:
         max-wait: 3000ms
 ```
 
-### 12.2 Go (go-redis)
+### 13.2 Go (go-redis)
 
 ```go
 rdb := redis.NewClusterClient(&redis.ClusterOptions{
@@ -1073,9 +1074,9 @@ rdb := redis.NewClusterClient(&redis.ClusterOptions{
 
 ---
 
-## 十三、运维SOP
+## 十四、运维SOP
 
-### 13.1 日常巡检
+### 14.1 日常巡检
 
 ```bash
 #!/bin/bash
@@ -1131,7 +1132,7 @@ echo "========== 集群状态 =========="
 redis-cli -c -h 10.10.40.11 cluster info 2>/dev/null | grep -E "cluster_state|cluster_slots|cluster_known_nodes"
 ```
 
-### 13.2 周度维护
+### 14.2 周度维护
 
 ```bash
 #!/bin/bash
@@ -1175,9 +1176,9 @@ echo "✅ 周度维护完成"
 
 ---
 
-## 十四、应急预案
+## 十五、应急预案
 
-### 14.1 Redis不可用
+### 15.1 Redis不可用
 
 ```
 1. 立即检查:
@@ -1196,7 +1197,7 @@ echo "✅ 周度维护完成"
    - 记录故障报告
 ```
 
-### 14.2 数据丢失
+### 15.2 数据丢失
 
 ```
 1. 立即停止写入
@@ -1208,7 +1209,7 @@ echo "✅ 周度维护完成"
 
 ---
 
-## 十五、监控告警
+## 十六、监控告警
 
 ```yaml
 # prometheus-redis-alerts.yaml
@@ -1260,7 +1261,7 @@ groups:
 
 ---
 
-## 十六、项目文件清单
+## 十七、项目文件清单
 
 ```
 redis-cluster/
@@ -1288,7 +1289,7 @@ redis-cluster/
 
 ---
 
-## 十七、关键要点总结
+## 十八、关键要点总结
 
 ### 17.1 架构要点
 - **Cluster**: 6节点起步，3主3从，16384个slot均匀分配

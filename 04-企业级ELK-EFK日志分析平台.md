@@ -57,7 +57,7 @@ data:
     #   cold角色:    env: [{name: NODE_ROLES, value: "data_cold"}]
     #   coordinating: env: [{name: NODE_ROLES, value: ""}]
     # 通过环境变量${NODE_ROLES}注入，ConfigMap本身无法区分节点角色
-    node.roles: ${NODE_ROLES:master}  # [已废弃] bash变量在ConfigMap中无效，必须通过env注入
+    # node.roles 通过各StatefulSet/Deployment的env字段按角色注入(NODE_ROLES)
     path.data: /usr/share/elasticsearch/data
     path.logs: /usr/share/elasticsearch/logs
     network.host: 0.0.0.0
@@ -131,7 +131,7 @@ spec:
             - name: NODE_ROLES
               value: "master"
             - name: ES_JAVA_OPTS
-              value: "-Xms4g -Xmx4g"
+              value: "-Xms4g -Xmx4g"  # [注意] 此值覆盖上方jvm.options中的-Xms/-Xmx，生产环境需保持一致
             - name: ELASTIC_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -661,6 +661,10 @@ spec:
 
 ### 9.1 JVM调优
 
+> **[统一说明]** JVM堆配置在本文档多处出现(ConfigMap jvm.options、StatefulSet ES_JAVA_OPTS、本节)。
+> 生产环境请统一以本节推荐值为准，确保所有位置的 -Xms/-Xmx 一致。
+> ES_JAVA_OPTS 环境变量优先级高于 jvm.options 文件。
+
 ```bash
 # /etc/elasticsearch/jvm.options
 # 堆内存: 不超过物理内存的50%，不超过32GB(压缩指针上限)
@@ -917,7 +921,7 @@ echo "========== ELK日常巡检 =========="
 curl -s -k 'https://es-master:9200/_cluster/health?pretty' | grep -E "status|number_of_nodes|unassigned_shards"
 
 # 2. 索引统计
-curl -
+curl -s -k 'https://es-master:9200/_cat/indices?v&s=store.size:desc&h=index,health,status,docs.count,store.size' | head -20
 
 ... [OUTPUT TRUNCATED - 545 chars omitted out of 50545 total] ...
 
@@ -1319,7 +1323,7 @@ G1GC参数推荐:
 # /etc/sysctl.conf
 # 内存管理
 vm.max_map_count=262144
-vm.swappiness=1
+vm.swappiness=1  # [生产建议] 应设为0或执行swapoff -a完全关闭swap，避免Redis数据被换出到磁盘
 vm.overcommit_memory=1
 vm.dirty_ratio=15
 vm.dirty_background_ratio=5

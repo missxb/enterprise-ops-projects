@@ -84,7 +84,7 @@ echo ">>> 检查SSH免密连接..."
 for node in ${MASTER_NODES} ${BACKUP_NODES} ${LOAD_BALANCER}; do
   if ! ssh -o BatchMode=yes -o ConnectTimeout=5 root@${node} echo ok &>/dev/null; then
     echo "  ⚠️  ${node} SSH免密未配置，正在配置..."
-    ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q 2>/dev/null || true
+    [ -f ~/.ssh/id_rsa ] || ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
     ssh-copy-id -o StrictHostKeyChecking=no root@${node}
   else
     echo "  ✅ ${node} SSH免密已配置"
@@ -269,7 +269,7 @@ echo ""
 # 配置Nginx upstream代理Harbor后端
 HARBOR_BACKENDS=""
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
-  HARBOR_BACKENDS="    server ${node}:443;\\n"
+  HARBOR_BACKENDS="${HARBOR_BACKENDS}    server ${node}:443;\\n"
 done
 
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do

@@ -355,8 +355,12 @@ chown -R mysql:mysql /data/mysql
 systemctl start mysqld
 
 echo "Step 5: 应用binlog到目标时间点..."
-for sql_file in ${BACKUP_DIR}/binlog/binlog-*.sql; do
-  [ -f "${sql_file}" ] && mysql --defaults-extra-file=${MYSQL_CNF} < "${sql_file}" 2>/dev/null || true
+for binlog_file in ${BACKUP_DIR}/binlog/binlog-*; do
+  if [ -f "${binlog_file}" ] && [[ ! "${binlog_file}" == *.sql ]]; then
+    mysqlbinlog --start-position=0 "${binlog_file}" | mysql --defaults-extra-file=${MYSQL_CNF} 2>/dev/null || true
+  elif [ -f "${binlog_file}" ]; then
+    mysql --defaults-extra-file=${MYSQL_CNF} < "${binlog_file}" 2>/dev/null || true
+  fi
 done
 
 echo "Step 6: 重启MySQL确保干净状态..."
@@ -688,6 +692,8 @@ MySQL服务器内存分配(64GB):
 - innodb_log_buffer_size: 64MB
 - sort_buffer_size: 4MB × max_connections
 - join_buffer_size: 4MB × max_connections
+> **[说明]** sort_buffer_size/join_buffer_size 是每个连接在需要排序/JOIN时分配的缓冲区，
+> 并非所有连接同时占用。实际内存峰值远小于 4MB × max_connections，但仍需预留足够空间。
 - 操作系统+其他: ~15GB
 ```
 
@@ -1017,8 +1023,11 @@ SHOW VARIABLES LIKE 'validate_password%';
 -- validate_password.number_count = 1
 -- validate_password.special_char_count = 1
 
--- 4. 设置密码永不过期(全局)
-SET GLOBAL default_password_lifetime = 90;  # 等保要求密码90天过期
+-- 4. 设置密码有效期(等保要求密码90天过期，与步骤2的永不过期矛盾需根据场景选择)
+--   等保合规场景:
+SET GLOBAL default_password_lifetime = 90;
+--   应用账号场景(避免业务中断):
+-- SET GLOBAL default_password_lifetime = 0;
 
 -- 5. 创建密码轮换脚本
 -- 每月检查密码过期时间，提前30天提醒
@@ -1817,7 +1826,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "
 
 ### 问题: ProxySQL单点故障
 
-当前只部署1台ProxySQL(10.10.30.22)，宕机则所有数据库连接中断。
+当前只部署1台ProxySQL(10.10.30.21)，宕机则所有数据库连接中断。
 
 ### 解决方案: 双ProxySQL + Keepalived
 
@@ -1834,7 +1843,7 @@ vrrp_instance VI_1 {
   advert_int 1
   authentication {
     auth_type PASS
-    auth_pass CHANGEME
+    auth_pass ${KEEPALIVED_AUTH_PASS:?请设置KEEPALIVED密码}
   }
   virtual_ipaddress {
     10.10.30.20/24 dev eth0

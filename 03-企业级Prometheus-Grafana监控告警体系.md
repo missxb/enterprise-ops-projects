@@ -624,7 +624,6 @@ data:
           
           - record: namespace:container_memory_working_set_bytes:sum
             expr: sum by(namespace) (container_memory_working_set_bytes{container!=""})
-    ```
 
 ### Thanos Sidecar (独立Deployment)
 
@@ -1091,12 +1090,12 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-  metadata:
-    name: prometheus
-    namespace: monitoring
-  spec:
-    serviceName: prometheus
-    replicas: 2  # 双副本HA，与架构图(Prometheus-01/02)一致; Thanos Sidecar去重聚合
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  serviceName: prometheus
+  replicas: 2  # 双副本HA，与架构图(Prometheus-01/02)一致; Thanos Sidecar去重聚合
   selector:
     matchLabels:
       app: prometheus
@@ -1322,6 +1321,15 @@ data:
 # alertmanager-deployment.yaml
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-smtp-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  smtp-password: "${SMTP_PASSWORD}"
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: alertmanager-config
@@ -1333,7 +1341,7 @@ data:
       smtp_from: 'alertmanager@company.com'
       smtp_smarthost: 'smtp.feishu.cn:465'  # 465=SMTPS隐式TLS
       smtp_auth_username: 'alertmanager@company.com'
-      smtp_auth_password: '${SMTP_PASSWORD}'  # 通过Secret注入，不要明文存储
+      smtp_auth_password: '/etc/alertmanager/secrets/smtp-password'  # 从Secret挂载
       smtp_require_tls: false  # 465端口是隐式TLS，不需要STARTTLS
       # [备选] 使用587端口(显式TLS):
       # smtp_smarthost: 'smtp.feishu.cn:587'

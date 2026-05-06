@@ -201,7 +201,7 @@ build-java:
     - if: $CI_COMMIT_BRANCH == "develop"
 build-go:
   stage: build
-  image: golang:1.21-alpine
+  image: golang:1.23-alpine
   script:
     - echo "Go构建..."
     - go mod tidy
@@ -691,7 +691,7 @@ rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2024.key
 yum install -y java-17-openjdk java-17-openjdk-devel
 
 # 安装Jenkins
-yum install -y jenkins-2.479.1  # 升级到最新LTS版本
+yum install -y jenkins-2.479.1  # [注意] 请检查 https://www.jenkins.io/download/ 获取最新LTS版本
 
 # 配置Jenkins
 cat > /etc/sysconfig/jenkins << EOF
@@ -1978,7 +1978,7 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
+      maxUnavailable: 0  # HA必须0，避免发布时服务中断
   selector:
     matchLabels:
       app: jenkins

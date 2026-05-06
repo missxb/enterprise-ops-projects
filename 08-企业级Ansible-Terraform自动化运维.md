@@ -150,11 +150,11 @@ k8s-worker-03 ansible_host=10.10.10.23
         - br_netfilter
     
     - name: 配置内核参数
-      sysctl:
+      ansible.posix.sysctl:
         name: "{{ item.name }}"
         value: "{{ item.value }}"
-        sysctl_set: yes
         reload: yes
+        state: present
       loop:
         - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
         - { name: 'net.ipv4.ip_forward', value: '1' }
@@ -262,7 +262,7 @@ k8s-worker-03 ansible_host=10.10.10.23
 ```
 
 ```json
-// roles/docker/templates/daemon.json.j2
+# roles/docker/templates/daemon.json.j2
 {
   "data-root": "/data/docker",
   "storage-driver": "overlay2",
@@ -276,8 +276,6 @@ k8s-worker-03 ansible_host=10.10.10.23
   ],
   "insecure-registries": [
     "harbor.internal.com"
-    # [安全修复] insecure-registries使用HTTP传输，存在中间人攻击风险
-    # 生产环境应为Harbor配置TLS证书，然后移除此配置
   ],
   "max-concurrent-downloads": 10,
   "max-concurrent-uploads": 5,
@@ -548,7 +546,7 @@ ansible-all:
 
 ## 五、Ansible高级用法
 
-### 4.1 Ansible Vault加密
+### 5.1 Ansible Vault加密
 
 ```bash
 # 创建加密文件
@@ -577,7 +575,7 @@ api_key: !vault |
   616263...
 ```
 
-### 4.2 Ansible Galaxy角色管理
+### 5.2 Ansible Galaxy角色管理
 
 ```bash
 # 安装社区角色
@@ -604,7 +602,7 @@ collections:
     version: "7.0.0"  # [修复] 使用精确版本锁定避免不兼容升级
 ```
 
-### 4.3 动态Inventory
+### 5.3 动态Inventory
 
 ```python
 #!/usr/bin/env python3
@@ -658,7 +656,7 @@ if __name__ == "__main__":
     print(json.dumps(get_inventory(), indent=2))
 ```
 
-### 4.4 Callback插件
+### 5.4 Callback插件
 
 ```yaml
 # callback_plugins/slack_notify.py
@@ -689,7 +687,7 @@ class CallbackModule(CallbackBase):
         urllib.request.urlopen(req)
 ```
 
-### 4.5 性能优化
+### 5.5 性能优化
 
 ```ini
 # ansible.cfg
@@ -730,7 +728,7 @@ ssh_timeout = 30
 
 ## 六、Terraform高级用法
 
-### 5.1 Module化
+### 6.1 Module化
 
 ```hcl
 # modules/ecs-cluster/main.tf
@@ -759,7 +757,7 @@ module "k8s_cluster" {
 }
 ```
 
-### 5.2 Workspace管理环境
+### 6.2 Workspace管理环境
 
 ```bash
 # 创建环境
@@ -1621,8 +1619,8 @@ terraform apply -target=alicloud_instance.worker
 # 使用-refresh=false跳过刷新(加速plan)
 terraform plan -refresh=false
 
-# 使用-auto-approve跳过确认
-terraform apply -auto-approve  # [注意] 生产环境应先执行terraform plan并人工审批 -input=false
+# 生产环境应先执行terraform plan并人工审批
+terraform apply  # [注意] 生产环境不要使用-auto-approve
 ```
 
 ```bash
@@ -1825,7 +1823,7 @@ PROMETHEUS_URL="http://prometheus.internal:9090"
 
 # 记录apply耗时
 START_TIME=$(date +%s)
-terraform apply -auto-approve  # [注意] 生产环境应先执行terraform plan并人工审批 -input=false
+terraform apply  # [注意] 生产环境不要使用-auto-approve，应先plan并人工审批
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 

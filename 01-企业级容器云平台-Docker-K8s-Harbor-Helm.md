@@ -190,7 +190,7 @@ server = "https://docker.io"
 EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
 
-# [已修复] 镜像加速已迁移到certs.d目录'
+# [已修复] 镜像加速已迁移到certs.d目录
 
 systemctl daemon-reload
 systemctl enable containerd
@@ -1418,12 +1418,12 @@ spec:
 
 ## 十六、完整部署流程
 
+```bash
 # ===== 前置条件: SSH密钥分发 =====
 # ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 # for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id -i ~/.ssh/id_ed25519.pub root@${ip}; done
 # ===== 验证SSH连通性 =====
 # for ip in 10.10.10.{11..13,21..25}; do ssh root@${ip} "echo OK"; done
-```bash
 #!/bin/bash
 # [前置条件] 需要先配置SSH密钥分发:
 # for ip in 10.10.10.{11..13,21..25}; do ssh-copy-id root@${ip}; done
@@ -1538,7 +1538,7 @@ enterprise-container-platform/
 ### 18.2 性能优化
 - **containerd**: SystemdCgroup + 镜像加速
 - **内核**: tcp_keepalive + somaxconn + inotify优化
-- **etcd: 4GB配额 + 自动压缩
+- **etcd**: 4GB配额 + 自动压缩
 - **Pod调度**: 节点亲和性 + 反亲和性 + 拓扑分布约束
 
 ### 18.3 安全加固

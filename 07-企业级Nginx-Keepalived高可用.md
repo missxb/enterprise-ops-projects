@@ -686,14 +686,14 @@ server {
 
 ```conf
 # /etc/nginx/modsecurity/main.conf
-SecRuleEngine On
+# [注意] SecRuleEngine只应设置一次，重复设置会被后者覆盖
+# 生产环境建议先用DetectionOnly观察，稳定后改为On
+SecRuleEngine DetectionOnly
 SecRequestBodyAccess On
 SecResponseBodyAccess Off
 
 # SQL注入防护
 # [注意] 正则仅匹配高风险模式，避免误拦截包含SQL关键字的正常请求
-# 建议先在DetectionOnly模式测试，确认无误后再改为deny
-SecRuleEngine DetectionOnly  # 初期用DetectionOnly观察，稳定后改为On
 SecRule REQUEST_URI|REQUEST_HEADERS|REQUEST_BODY   "@rx (?i:(?:union\s+(?:all\s+)?select|select\s+[\s\S]{1,50}\s+from\s+[\s\S]{1,50}\s+where|insert\s+into\s+\w+\s*\(|delete\s+from\s+\w+\s+where|drop\s+(?:table|database)\s+\w+))"   "id:1001,phase:1,pass,status:200,log,msg:'SQL Injection Detected (review needed)'"
 
 # XSS防护
@@ -1360,7 +1360,7 @@ events {
     worker_connections 65535;
     multi_accept on;
     accept_mutex off;       # 高并发场景关闭互斥锁
-    accept_mutex_delay 100ms;
+    # accept_mutex_delay已废弃(nginx 1.11.13+)，不再需要此指令
 }
 ```
 
@@ -1996,8 +1996,7 @@ cp -r /etc/nginx/conf.d/ ${BACKUP_DIR}/
 
 # Step 2: 检查新配置语法
 echo "Step 2: 检查新配置语法"
-nginx -t
-if [ $? -ne 0 ]; then
+if ! nginx -t 2>&1; then
     echo "❌ 配置语法检查失败，终止发布"
     exit 1
 fi
