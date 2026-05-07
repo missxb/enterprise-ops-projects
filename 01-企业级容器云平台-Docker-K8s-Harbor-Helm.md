@@ -1093,9 +1093,6 @@ set -euo pipefail
 echo "部署Elasticsearch..."
 # 替换为实际环境的StorageClass名称
 helm install elasticsearch elastic/elasticsearch \
-  
-  
-  
   --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \
   --namespace logging --create-namespace \
   --set replicas=3 \

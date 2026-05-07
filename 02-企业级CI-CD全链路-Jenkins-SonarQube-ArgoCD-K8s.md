@@ -504,7 +504,7 @@ USER appuser
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+  CMD curl -sf http://localhost:8080/actuator/health || exit 1
 
 # 元数据标签
 LABEL maintainer="platform-team@company.com" \
