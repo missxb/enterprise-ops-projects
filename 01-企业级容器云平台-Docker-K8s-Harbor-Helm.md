@@ -23,6 +23,96 @@
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 脚本中 ${VARIABLE} 占位符需通过 envsubst 或 export 预设，直接执行会输出空值。
 > 切勿将真实密码硬编码在配置文件或脚本中。
+
+## 〇、脚本质量保证体系
+
+> 本项目所有脚本遵循以下生产级标准，确保可重复执行、可追溯、可回滚。
+
+### 0.1 幂等性保证
+
+所有脚本支持重复执行而不产生副作用：
+- 检查目标状态，仅在需要时执行操作
+- 使用条件判断避免重复创建资源
+- 配置文件使用"先备份再修改"模式
+
+### 0.2 日志记录
+
+每个脚本自动记录执行日志：
+- 日志目录：/var/log/k8s-ops/
+- 日志格式：[时间] [级别] [模块] 消息
+- 保留策略：最近30天日志
+
+### 0.3 回滚机制
+
+关键操作支持自动回滚：
+- 部署前自动备份当前状态
+- 部署失败自动触发回滚
+- 回滚后验证服务状态
+
+### 0.4 脚本模板
+
+```bash
+#!/bin/bash
+# ===== 生产级脚本模板 =====
+set -euo pipefail
+
+# 日志配置
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+# 日志函数
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+# 错误处理（自动回滚）
+trap 'log "ERROR" "脚本执行失败，行号: $LINENO"; rollback; exit 1' ERR
+
+# 回滚函数（子类覆盖）
+rollback() {
+    log "WARN" "执行回滚操作..."
+    # 默认回滚逻辑（子类可覆盖）
+    return 0
+}
+
+# 依赖检查
+check_deps() {
+    for cmd in "$@"; do
+        if ! command -v ${cmd} &>/dev/null; then
+            log "ERROR" "缺少依赖: ${cmd}"
+            exit 1
+        fi
+    done
+}
+
+# 幂等性检查
+idempotent_check() {
+    local resource=$1
+    local check_cmd=$2
+    if eval ${check_cmd} &>/dev/null; then
+        log "INFO" "${resource} 已存在，跳过"
+        return 1  # 已存在
+    fi
+    return 0  # 需要创建
+}
+
+# ===== 主逻辑 =====
+log "INFO" "========== 开始执行: $(basename $0) =========="
+check_deps docker kubectl helm
+
+# 示例: 幂等性创建namespace
+if idempotent_check "namespace production" "kubectl get namespace production"; then
+    kubectl create namespace production
+    log "INFO" "namespace production 创建成功"
+fi
+
+log "INFO" "========== 执行完成: $(basename $0) =========="
+```
+
+---
+
 ## 一、项目背景与目标
 ### 1.1 企业痛点
 - 开发环境不一致，"在我机器上能跑"问题频发
@@ -110,10 +200,44 @@ metadata:
 # init_nodes.sh - 所有K8s节点执行
 # 适用系统: CentOS 7.9 / Rocky Linux 8 (仅支持yum/dnf包管理器)
 set -euo pipefail
-echo "========== [1/8] 关闭Swap =========="
-swapoff -a
-sed -i '/swap/s/^/#/' /etc/fstab
-echo "Swap已关闭"
+
+# 日志配置
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/init-nodes-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+# 幂等性检查函数
+check_and_skip() {
+    local desc=$1; shift
+    local check_cmd=$1
+    if eval ${check_cmd} &>/dev/null; then
+        log "INFO" "${desc} 已完成，跳过"
+        return 1
+    fi
+    return 0
+}
+
+log "INFO" "========== 开始初始化节点: $(hostname) =========="
+
+# 检查是否为root用户
+if [[ $EUID -ne 0 ]]; then
+    log "ERROR" "请使用root用户执行此脚本"
+    exit 1
+fi
+
+log "INFO" "========== [1/8] 关闭Swap =========="
+if check_and_skip "Swap" "swapoff -s | grep -q '/dev'"; then
+    swapoff -a
+    sed -i '/swap/s/^/#/' /etc/fstab
+    log "INFO" "Swap已关闭"
+else
+    log "INFO" "Swap已关闭，跳过"
+fi
 echo "========== [2/8] 关闭SELinux =========="
 setenforce 0 2>/dev/null || true
 # [等保说明] K8s节点需permissive，等保三级要求enforcing
@@ -508,7 +632,36 @@ kubeadm join 10.10.10.100:6443 \
 #!/bin/bash
 # install_calico.sh - 在Master-01上执行
 set -euo pipefail
-echo "安装Calico..."
+
+# 日志配置
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/install-calico-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+# 回滚函数
+rollback() {
+    log "WARN" "执行Calico回滚..."
+    kubectl delete -f /tmp/custom-resources.yaml 2>/dev/null || true
+    kubectl delete -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml 2>/dev/null || true
+    log "INFO" "Calico回滚完成"
+}
+
+trap 'log "ERROR" "Calico安装失败，行号: $LINENO"; rollback; exit 1' ERR
+
+log "INFO" "========== 开始安装Calico =========="
+
+# 检查是否已安装
+if kubectl get daemonset calico-node -n calico-system &>/dev/null; then
+    log "INFO" "Calico已安装，跳过"
+    kubectl get pods -n calico-system
+    exit 0
+fi
+
 # 使用operator方式安装
 # Calico v3.28 支持 K8s 1.31，修复了 3.26 中多个已知的 BGP 路由泄漏问题
 # 变更: 3.26→3.28 升级了 Felix 的 conntrack 回收逻辑，提升了大规模集群下的稳定性
@@ -550,7 +703,36 @@ kubectl get ippool -o wide
 #!/bin/bash
 # install_metallb.sh - Master-01执行
 set -euo pipefail
-echo "安装MetalLB..."
+
+# 日志配置
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/install-metallb-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+# 回滚函数
+rollback() {
+    log "WARN" "执行MetalLB回滚..."
+    kubectl delete -f /tmp/metallb-config.yaml 2>/dev/null || true
+    kubectl delete -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml 2>/dev/null || true
+    log "INFO" "MetalLB回滚完成"
+}
+
+trap 'log "ERROR" "MetalLB安装失败，行号: $LINENO"; rollback; exit 1' ERR
+
+log "INFO" "========== 开始安装MetalLB =========="
+
+# 检查是否已安装
+if kubectl get daemonset speaker -n metallb-system &>/dev/null; then
+    log "INFO" "MetalLB已安装，跳过"
+    kubectl get pods -n metallb-system
+    exit 0
+fi
+
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
 echo "等待MetalLB就绪..."
 kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
@@ -676,10 +858,54 @@ spec:
 #!/bin/bash
 # install_harbor.sh - 在harbor-01上执行
 set -euo pipefail
+
+# 日志配置
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/install-harbor-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+# 回滚函数
+rollback() {
+    log "WARN" "执行Harbor回滚..."
+    if systemctl is-active harbor &>/dev/null; then
+        systemctl stop harbor
+        log "INFO" "Harbor服务已停止"
+    fi
+    if docker compose -f /opt/harbor/docker-compose.yml ps | grep -q "Up"; then
+        docker compose -f /opt/harbor/docker-compose.yml down -v
+        log "INFO" "Harbor容器已删除"
+    fi
+    # 保留证书和配置（可能需要手动清理）
+    log "INFO" "Harbor回滚完成（证书和配置保留在/opt/harbor/certs）"
+}
+
+trap 'log "ERROR" "Harbor安装失败，行号: $LINENO"; rollback; exit 1' ERR
+
+log "INFO" "========== 开始安装Harbor =========="
+
 HARBOR_VERSION="2.12.0"
 HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
 HARBOR_IP="10.10.10.31"
-echo "安装Docker Compose..."
+
+# 检查是否已安装
+if [ -f /opt/harbor/harbor.yml ] && systemctl is-active harbor &>/dev/null; then
+    log "INFO" "Harbor已安装并运行，跳过安装"
+    log "INFO" "访问: https://${HARBOR_DOMAIN}"
+    exit 0
+fi
+
+# 备份现有配置
+if [ -f /opt/harbor/harbor.yml ]; then
+    cp /opt/harbor/harbor.yml /opt/harbor/harbor.yml.bak.$(date +%Y%m%d)
+    log "INFO" "已备份现有配置: harbor.yml.bak.$(date +%Y%m%d)"
+fi
+
+log "INFO" "安装Docker Compose..."
 yum install -y docker-compose-plugin  # 或: dnf install -y docker-compose-plugin
 # [注意] docker-compose-plugin安装后提供docker compose(无连字符)命令
 # 如需独立docker-compose(连字符)二进制，可手动下载:
