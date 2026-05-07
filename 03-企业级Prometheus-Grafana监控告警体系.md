@@ -1630,6 +1630,198 @@ echo "================================================"
 
 ---
 
+## ServiceMonitor RBAC配置
+
+> ServiceMonitor/PodMonitor需要专门的RBAC权限才能发现目标
+
+```yaml
+# serviceMonitor-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-servicemonitor
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-servicemonitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-servicemonitor
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+
+---
+# 示例ServiceMonitor - 监控MySQL Exporter
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mysql-exporter
+  namespace: monitoring
+  labels:
+    release: prometheus  # 必须匹配Prometheus的serviceMonitorSelector
+spec:
+  namespaceSelector:
+    matchNames:
+      - database
+  selector:
+    matchLabels:
+      app: mysql-exporter
+  endpoints:
+    - port: metrics
+      interval: 15s
+      scrapeTimeout: 10s
+```
+
+---
+
+## Thanos Query健康检查
+
+```bash
+#!/bin/bash
+# check_thanos.sh - Thanos健康检查脚本
+set -euo pipefail
+
+THANOS_QUERY="http://thanos-query:10902"
+
+echo "===== Thanos健康检查 ====="
+
+# 1. 检查Thanos Query状态
+echo "1. Thanos Query状态:"
+curl -s ${THANOS_QUERY}/-/healthy && echo " ✅ 健康" || echo " ❌ 不健康"
+
+# 2. 检查存储端点
+echo "2. 存储端点:"
+curl -s ${THANOS_QUERY}/api/v1/stores | jq '.data.active | length' 
+
+# 3. 检查全局指标查询
+echo "3. 全局指标查询测试:"
+curl -s "${THANOS_QUERY}/api/v1/query?query=up" | jq '.data.result | length' 
+
+# 4. 检查Alertmanager状态
+echo "4. Alertmanager集群状态:"
+curl -s http://alertmanager:9093/api/v2/status | jq '.cluster.peers | length'
+
+# 5. 检查Prometheus TSDB
+echo "5. Prometheus TSDB状态:"
+curl -s http://prometheus:9090/api/v1/status/tsdb | jq '.data.seriesCountByMetricName | length'
+```
+
+---
+
+## AlertManager HA Gossip配置
+
+> AlertManager使用Gossip协议实现集群HA，需要配置peers发现
+
+```yaml
+# alertmanager-ha.yaml - AlertManager高可用配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      
+    # Gossip集群配置(3节点)
+    cluster:
+      cluster_bind_address: 0.0.0.0:9094
+      cluster_advertise_address: 0.0.0.0:9094
+      peers:
+        - alertmanager-0.alertmanager.monitoring.svc:9094
+        - alertmanager-1.alertmanager.monitoring.svc:9094
+        - alertmanager-2.alertmanager.monitoring.svc:9094
+      
+    route:
+      group_by: ['alertname', 'severity']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'webhook-default'
+      
+    receivers:
+      - name: 'webhook-default'
+        webhook_configs:
+          - url: 'http://webhook-receiver:8080/alert'
+            
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'instance']
+
+---
+# StatefulSet部署(确保固定身份用于Gossip)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+  namespace: monitoring
+spec:
+  serviceName: alertmanager
+  replicas: 3
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.0
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+            - '--cluster.listen-address=0.0.0.0:9094'
+            - '--cluster.peer=alertmanager-0.alertmanager.monitoring.svc:9094'
+            - '--cluster.peer=alertmanager-1.alertmanager.monitoring.svc:9094'
+            - '--cluster.peer=alertmanager-2.alertmanager.monitoring.svc:9094'
+          ports:
+            - containerPort: 9093
+              name: web
+            - containerPort: 9094
+              name: cluster
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: aliyun-disk-ssd
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+---
+
 > 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: Prometheus HA + Thanos + 50+告警规则 + Grafana + AlertManager
 
