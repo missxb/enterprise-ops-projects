@@ -14,6 +14,8 @@
 
 ```
 开发者 ──push──▶ GitLab ──webhook──▶ Jenkins ──构建──▶ Harbor ──同步──▶ ArgoCD ──部署──▶ K8s
+
+> **职责边界**: Jenkins负责CI(构建/测试/扫描), ArgoCD负责CD(GitOps部署)
                     │                    │                    │
                     ▼                    ▼                    ▼
                代码评审             SonarQube            Trivy扫描
@@ -42,6 +44,7 @@
 | Jenkins | 10.10.20.12 | 8C/16G/200G | CI引擎 |
 | SonarQube | 10.10.20.13 | 8C/16G/100G | 代码质量 |
 | Harbor | 10.10.10.31 | 8C/16G/2T | 镜像仓库 (2.12.0, 详见文件1) |
+> **制品管理建议**: Harbor主要用于容器镜像,生产环境建议额外部署Nexus/Artifactory管理Maven/PyPI/npm等制品
 | ArgoCD | 10.10.10.11(K8s) | - | GitOps部署 |
 | K8s集群 | 10.10.10.x | - | 运行环境 |
 
@@ -855,6 +858,12 @@ spec:
 ---
 
 ## 七、ArgoCD GitOps部署
+
+> **企业级配置建议**:
+> - RBAC: 按项目隔离(production/staging/development)
+> - SSO: 集成LDAP/OIDC实现统一认证
+> - 资源配额: 限制每个项目的同步频率和资源使用
+> - 审计日志: 记录所有同步操作用于合规审计
 
 ```bash
 #!/bin/bash
