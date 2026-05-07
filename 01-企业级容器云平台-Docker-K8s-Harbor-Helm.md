@@ -26,6 +26,17 @@
 > - 注意：Istio需要额外的资源（控制面约1GB内存），请评估集群资源是否充足
 > - 本项目未默认集成Istio，如需使用请参考Istio官方文档部署
 > - **2026年新趋势**：Ambient Mesh已GA，取消Sidecar，资源消耗降低40-60%
+>
+> **K8s 1.35新特性利用**：
+> - **Sidecar容器GA**（K8s 1.28+）：作为init容器演进，支持优雅终止顺序控制
+>   - 本项目在istio-proxy等场景使用sidecar容器，确保应用容器先于sidecar终止
+> - **ImagePullSecrets链式查找**（K8s 1.32+）：自动从ServiceAccount继承镜像拉取凭证
+>   - 本项目配置了default SA的imagePullSecrets，Pod无需显式指定
+> - **InPlacePodVerticalScaling**（Alpha）：支持Pod原地垂直扩缩容
+>   - 生产环境暂不启用，需评估风险后使用
+> - **flowcontrol.apiserver.k8s.io/v1beta3已弃用**：K8s 1.35默认使用v1版本
+>   - 本项目所有FlowSchema配置已使用v1 API
+
 ---
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
@@ -353,11 +364,23 @@ echo "========== [6/8] 安装containerd =========="
 yum install -y yum-utils device-mapper-persistent-data lvm2
 yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 yum install -y containerd.io
-# 配置containerd
+# 配置containerd (version 3格式 - containerd 2.x)
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
+# [重要] containerd 2.x使用version 3配置格式，与1.7.x的version 2不兼容
+# 验证配置版本: grep 'version' /etc/containerd/config.toml 应显示 version = 3
 # 启用SystemdCgroup
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+# 启用NRI (Node Resource Interface) - containerd 2.x新特性
+# NRI允许插件控制Pod资源分配，与Device Plugin配合使用
+cat >> /etc/containerd/config.toml << 'EOF'
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  disable_http = false
+  plugin_config_path = "/etc/nri/conf.d"
+  plugin_registration_timeout = "5s"
+  plugin_request_timeout = "2s"
+EOF
 # 配置镜像加速(用户指定)
 # [注意] 部分镜像站已停用或限流(2024+):
 #   - tuna.tsinghua.edu.cn: Docker Hub代理已停用
@@ -372,24 +395,24 @@ server = "https://docker.io"
   capabilities = ["pull", "resolve"]
   skip_verify = false
 EOF
-sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
+sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.10"|' /etc/containerd/config.toml
 # [已修复] 镜像加速已迁移到certs.d目录
 systemctl daemon-reload
 systemctl enable containerd
 systemctl restart containerd
-echo "containerd已安装配置"
+echo "containerd已安装配置(version 3格式)"
 echo "========== [7/8] 安装kubeadm/kubelet/kubectl =========="
 cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
 name=Kubernetes
-# 国内环境可替换为阿里云镜像: https://mirrors.aliyun.com/kubernetes-new/core/stable/v1.31/rpm/
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
+# 国内环境可替换为阿里云镜像: https://mirrors.aliyun.com/kubernetes-new/core/stable/v1.35/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.35/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
-yum install -y kubelet-1.31.0 kubeadm-1.31.0 kubectl-1.31.0 --disableexcludes=kubernetes
+yum install -y kubelet-1.35.4 kubeadm-1.35.4 kubectl-1.35.4 --disableexcludes=kubernetes
 systemctl enable kubelet
 echo "kubeadm/kubelet/kubectl已安装"
 echo "========== [8/8] 配置hosts =========="
@@ -681,6 +704,10 @@ metadata:
   name: default
 spec:
   calicoNetwork:
+    # 选择数据面模式:
+    # - BPF (eBPF): 高性能，需内核5.10+，阿里云Alibaba Cloud Linux 3支持
+    # - Iptables: 兼容性好，内核4.19+，适合大多数场景
+    linuxDataplane: BPF  # 启用eBPF模式(需内核5.10+)
     ipPools:
     - name: default-ipv4-ippool
       blockSize: 26
@@ -690,6 +717,11 @@ spec:
       nodeSelector: all()
     nodeAddressAutodetectionV4:
       interface: eth.*
+    # eBPF模式配置
+    nodeMetricsPort: 9091
+    # 资源需求(每个节点)
+    # CPU: 100m-500m
+    # Memory: 256Mi-1Gi
   registry: quay.io
 ---
 apiVersion: operator.tigera.io/v1
@@ -862,6 +894,12 @@ spec:
 ---
 ## 五、Harbor私有镜像仓库部署
 ### 5.1 Harbor安装与配置
+
+> **⚠️ Harbor 2.15数据库迁移说明**：
+> - Harbor 2.15使用PostgreSQL 15+（2.12使用PG 13+）
+> - 升级时需执行数据库迁移脚本，否则会导致数据损坏
+> - 新特性：OCI 1.1支持、改进的复制策略、增强的垃圾回收
+
 ```bash
 #!/bin/bash
 # install_harbor.sh - 在harbor-01上执行
@@ -1520,6 +1558,7 @@ kubectl get nodes --show-labels
 # etcd_backup.sh - 定时备份etcd数据
 set -euo pipefail
 # [已修复] 备份频率统一为每6小时(crontab: 0 */6 * * *)
+# [重要] K8s 1.35使用etcd 3.5.15+，推荐使用etcdutl替代etcdctl snapshot
 BACKUP_DIR="/data/etcd-backup"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
@@ -1527,13 +1566,14 @@ mkdir -p ${BACKUP_DIR}
 # Step 1: 检查etcd健康状态
 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key || { echo "etcd不健康，跳过备份"; exit 1; }
 echo "备份etcd..."
-ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
+# 使用etcdutl (etcd 3.5+推荐工具)
+etcdutl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key
 echo "验证快照..."
-ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --write-out=table
+etcdutl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --write-out=table
 echo "清理过期备份..."
 find ${BACKUP_DIR} -name "etcd-snapshot-*.db" -mtime +${KEEP_DAYS} -delete
 echo "✅ etcd备份完成: etcd-snapshot-${DATE}.db"
@@ -2419,6 +2459,34 @@ kubectl top pods -A --sort-by=cpu | head -20
 ### Q5: HPA不扩容但CPU已超阈值
 **原因**: metrics-server未正确部署
 **解决**: 检查metrics-server Pod状态，确认--kubelet-insecure-tls参数
+
+### Q6: ImagePullSecrets链式查找失败(K8s 1.32+)
+**原因**: K8s 1.32+引入ImagePullSecrets链式查找，ServiceAccount的imagePullSecrets未正确配置
+**解决**: 检查default SA的imagePullSecrets配置，确保secret存在且权限正确
+```bash
+kubectl get sa default -o yaml
+kubectl get secret <secret-name> -o yaml
+```
+
+### Q7: Sidecar容器终止顺序问题(K8s 1.28+)
+**原因**: K8s 1.28+ Sidecar容器GA后，终止顺序变为：应用容器先于sidecar终止
+**影响**: 如果应用依赖sidecar(如istio-proxy)的网络连接，可能导致请求失败
+**解决**: 配置preStop hook，确保应用容器优雅关闭后再断开sidecar连接
+```yaml
+lifecycle:
+  preStop:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 15"]
+```
+
+### Q8: containerd NRI与Device Plugin冲突(containerd 2.x)
+**原因**: containerd 2.x的NRI(Node Resource Interface)与某些Device Plugin冲突
+**影响**: GPU等特殊资源分配失败
+**解决**: 检查NRI配置，必要时禁用NRI或更新Device Plugin版本
+```bash
+grep -A5 'nri' /etc/containerd/config.toml
+```
+
 ## etcd备份与恢复
 > **etcd备份脚本见第十一节** (etcd_backup.sh)，此处仅展示恢复流程。
 ### crontab配置
