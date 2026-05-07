@@ -81,6 +81,11 @@ Dev环境(开发) ──▶ Staging环境(预发) ──▶ Production环境(生
 | ArgoCD | 10.10.10.11(K8s) | - | GitOps部署 |
 | K8s集群 | 10.10.10.x | - | 运行环境 |
 
+> **网络连通性**: GitLab/Jenkins/SonarQube(10.10.20.0/24)与Harbor/K8s(10.10.10.0/24)需要互通:
+> - 防火墙: 放行10.10.20.0/24→10.10.10.31:443(Harbor),10.10.10.0/24:6443(K8s API)
+> - 路由: 确保两个网段三层路由可达(非NAT)
+> - 验证: 在Jenkins节点执行curl https://harbor.internal.com/v2/ 确认连通
+
 > **制品管理建议**: Harbor主要用于容器镜像,生产环境建议额外部署Nexus/Artifactory管理Maven/PyPI/npm等制品
 
 ### 1.2 Nexus制品仓库配置
@@ -127,6 +132,18 @@ EOF
 
 echo "Nexus部署完成: https://nexus.internal.com"
 echo "默认密码: admin (首次登录后修改)"
+```
+
+### Nexus与Jenkins集成
+在Jenkins的Maven settings.xml中配置Nexus:
+```xml
+<mirrors>
+  <mirror>
+    <id>nexus</id>
+    <mirrorOf>*</mirrorOf>
+    <url>http://10.10.20.13:8081/repository/maven-public/</url>
+  </mirror>
+</mirrors>
 ```
 
 ### 1.3 Vault密钥管理配置
@@ -191,7 +208,7 @@ metadata:
 spec:
   provider:
     vault:
-      server: "http://vault.internal:8200"
+      server: "https://vault.internal:8200"
       path: "secret"
       version: "v2"
       auth:
@@ -516,6 +533,7 @@ trivy-scan:
 # ========================================
 # 阶段7: 部署到Staging
 # ========================================
+> **GitOps原则**: CI只更新Git仓库,ArgoCD负责同步到K8s,避免部署冲突
 deploy-staging:
   stage: deploy-staging
   image: bitnami/kubectl:latest
@@ -525,7 +543,11 @@ deploy-staging:
   script:
     - echo "部署到Staging环境..."
     - kubectl config use-context staging
-    - kubectl apply -k configs/kustomize/overlays/staging
+    # 更新Git仓库中的镜像标签(ArgoCD自动同步)
+    - cd configs/kustomize/overlays/staging
+    - kustomize edit set image app=${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - git add . && git commit -m "chore: update staging image to ${CI_COMMIT_SHA}"
+    - git push origin main
     - kubectl rollout status deployment/${CI_PROJECT_NAME} -n staging --timeout=300s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
@@ -557,9 +579,13 @@ verify-staging:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
+> **正确流程**: Staging验证→灰度发布(自动)→观察期(指标检查)→全量发布(人工审批)
+> 灰度验证应基于自动指标(错误率<5%,P99延迟<500ms),而非仅人工确认
+
 # ========================================
 # 阶段9: 部署到生产
 # ========================================
+> **GitOps原则**: CI只更新Git仓库,ArgoCD负责同步到K8s,避免部署冲突
 deploy-production:
   stage: deploy-production
   image: bitnami/kubectl:latest
@@ -569,7 +595,11 @@ deploy-production:
   script:
     - echo "部署到生产环境..."
     - kubectl config use-context production
-    - kubectl apply -k configs/kustomize/overlays/production
+    # 更新Git仓库中的镜像标签(ArgoCD自动同步)
+    - cd configs/kustomize/overlays/production
+    - kustomize edit set image app=${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - git add . && git commit -m "chore: update production image to ${CI_COMMIT_SHA}"
+    - git push origin main
     - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=600s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
@@ -621,6 +651,14 @@ rollback-production:
       when: manual
 ```
 
+### 自动回滚触发条件
+| 指标 | 阈值 | 动作 |
+|------|------|------|
+| 错误率 | >5% | 自动回滚 |
+| P99延迟 | >500ms | 告警+人工确认 |
+| Pod重启 | >3次/5分钟 | 自动回滚 |
+| 健康检查 | 连续3次失败 | 自动回滚 |
+
 ---
 
 ## 四、Dockerfile最佳实践
@@ -639,6 +677,8 @@ RUN mvn clean package -DskipTests -B
 
 # Stage 2: 运行
 FROM eclipse-temurin:17-jre-jammy AS runtime  # Ubuntu(jammy)
+
+> **2026建议**: 使用Ubuntu 24.04(noble)或Alpine减小镜像体积
 
 # 安全: 创建非root用户(Ubuntu语法)
 RUN groupadd -r appgroup && useradd -r -g appgroup -s /bin/false appuser
@@ -660,6 +700,9 @@ USER appuser
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -sf http://localhost:8080/actuator/health || exit 1
+
+> **注意**: 确保镜像中安装了curl,或使用wget替代:
+> HEALTHCHECK --interval=30s --timeout=5s CMD wget -q --spider http://localhost:8080/actuator/health || exit 1
 
 # 元数据标签
 LABEL maintainer="platform-team@company.com" \
@@ -698,7 +741,8 @@ set -euo pipefail
 
 echo "安装PostgreSQL..."
 # [生产建议] 使用外部PostgreSQL(阿里云RDS或已有PG集群)，避免本地安装
-yum install -y postgresql-server postgresql
+# [冲突警告] GitLab Omnibus已内置PostgreSQL,无需额外安装! 此行应删除或注释
+# yum install -y postgresql-server postgresql  # [已禁用] GitLab Omnibus内置PG
 postgresql-setup --initdb
 systemctl enable postgresql
 systemctl start postgresql
@@ -711,8 +755,9 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE sonarqube TO sonarqub
 sed -i 's/^local.*all.*all.*peer/local   all             all                                     md5/' /var/lib/pgsql/data/pg_hba.conf
 
 echo "安装SonarQube..."
+> SonarQube 2024年后改用年份版本号(20xx.x),10.x为旧版本号体系
 cd /opt
-SONAR_VERSION="10.7.0.96107"  # 升级到10.7 LTS版本
+SONAR_VERSION="2026.2.0"  # SonarQube 2026年版本(Community Edition)
 wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-${SONAR_VERSION}.zip
 unzip sonarqube-${SONAR_VERSION}.zip
 ln -sf sonarqube-${SONAR_VERSION} sonarqube
@@ -730,6 +775,10 @@ sonar.search.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
 sonar.core.serverBaseURL=https://sonar.internal.com
 sonar.authenticator.downcased=true
 EOF
+
+> **内存警告**: SonarQube总内存需求约8G,占16G机器50%。建议:
+> 1. 将SonarQube部署到独立节点(8C/16G)
+> 2. 或降低CE内存: sonar.ce.javaAdditionalOpts=-Xms512m -Xmx2g
 
 # 内核参数（SonarQube需要）
 echo "vm.max_map_count=524288" >> /etc/sysctl.d/99-sonarqube.conf
@@ -839,20 +888,21 @@ echo "[安全提醒] SonarQube 10.x要求首次登录强制修改密码"
 set -euo pipefail
 
 echo "安装Jenkins..."
+> Jenkins 2.555+需要Java 21
 wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
 rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2024.key
 # [注意] GPG key每年更新，如安装失败请检查 https://www.jenkins.io/download/ 获取最新key
 
 # 安装JDK
-yum install -y java-17-openjdk java-17-openjdk-devel
+yum install -y java-21-openjdk java-21-openjdk-devel
 
 # 安装Jenkins
-yum install -y jenkins-2.479.1  # [注意] 请检查 https://www.jenkins.io/download/ 获取最新LTS版本
+yum install -y jenkins-2.555.3  # Jenkins 2.555.x LTS
 
 # 配置Jenkins
 cat > /etc/sysconfig/jenkins << EOF
 JENKINS_PORT=8080
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 JAVA_OPTS="-Xms2g -Xmx4g -Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"
 EOF
 
@@ -983,11 +1033,11 @@ spec:
                 steps {
                     container('kubectl') {
                         sh """
-                            kubectl set image deployment/${cfg.appName} \
-                              ${cfg.appName}=${IMAGE_NAME}:${env.BUILD_NUMBER} \
-                              -n ${cfg.k8sNamespace}
-                            kubectl rollout status deployment/${cfg.appName} \
-                              -n ${cfg.k8sNamespace} --timeout=300s
+                            # GitOps: 更新Git仓库中的镜像标签(ArgoCD自动同步)
+                            cd ${cfg.kustomizePath || "configs/kustomize/overlays/${cfg.k8sNamespace}"}
+                            kustomize edit set image app=${IMAGE_NAME}:${env.BUILD_NUMBER}
+                            git add . && git commit -m "chore: update ${cfg.appName} image to ${env.BUILD_NUMBER}"
+                            git push origin main
                         """
                     }
                 }
@@ -1492,6 +1542,8 @@ webhook:
         - SCAN_COMPLETED
         - QUARANTINE
 ```
+
+> **安全**: 生产环境必须配置Webhook Secret,防止伪造请求触发构建
 
 ---
 
