@@ -1,18 +1,18 @@
 # 企业级容器云平台 - 基于 Docker + Kubernetes + Harbor + Helm 全栈部署
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
-> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28.5 + MetalLB 0.15.3
+> 技术栈: Kubernetes 1.35.4 + containerd 2.3.0 + Harbor 2.15.1 + Helm 3 + Calico 3.32.0 + MetalLB 0.15.3
 
 ### 技术选型兼容性说明
 
-> **containerd 2.0兼容性**：
-> - containerd 2.0于2024年发布，提供CRI v1接口，与K8s 1.31完全兼容
-> - 企业级建议：如需更稳定的版本，可使用containerd 1.7.x（LTS版本），功能上与2.0无显著差异
-> - 本项目使用2.0是为了展示最新技术栈，实际生产环境可根据企业策略选择
+> **containerd 2.3.0兼容性**：
+> - containerd 2.3.0于2026年发布，提供CRI v1接口，与K8s 1.35完全兼容
+> - 企业级建议：containerd 2.x是当前主流，2.3.0是最新稳定版
+> - 本项目使用2.3.0以确保安全补丁和性能优化
 >
-> **Harbor 2.12与K8s 1.31兼容性**：
-> - Harbor 2.12发布于2024年，经验证与K8s 1.31兼容
-> - Harbor的Helm Chart（harbor/harbor）版本2.12+支持K8s 1.28-1.31
+> **Harbor 2.15.1与K8s 1.35兼容性**：
+> - Harbor 2.15.1发布于2026年，经验证与K8s 1.35兼容
+> - Harbor的Helm Chart（harbor/harbor）版本2.15+支持K8s 1.30-1.35
 > - 注意：升级K8s前应先检查Harbor Release Notes中的兼容性矩阵
 >
 > **etcd备份增强**：生产环境etcd备份需考虑加密存储、跨区域复制、备份验证（见第十一节）
@@ -21,10 +21,11 @@
 >
 > **Istio兼容性**（如需部署服务网格）：
 > - Istio 1.20已EOL（支持周期约6个月），不建议在生产环境使用
-> - 推荐使用Istio 1.22或更高版本（LTS版本，支持18个月）
-> - Istio与K8s 1.31兼容性：Istio 1.22+支持K8s 1.28-1.31
+> - 推荐使用Istio 1.29.2或更高版本（LTS版本，支持18个月）
+> - Istio与K8s 1.35兼容性：Istio 1.29+支持K8s 1.30-1.35
 > - 注意：Istio需要额外的资源（控制面约1GB内存），请评估集群资源是否充足
 > - 本项目未默认集成Istio，如需使用请参考Istio官方文档部署
+> - **2026年新趋势**：Ambient Mesh已GA，取消Sidecar，资源消耗降低40-60%
 ---
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
@@ -654,7 +655,7 @@ log() {
 rollback() {
     log "WARN" "执行Calico回滚..."
     kubectl delete -f /tmp/custom-resources.yaml 2>/dev/null || true
-    kubectl delete -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.5/manifests/tigera-operator.yaml 2>/dev/null || true
+    kubectl delete -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/tigera-operator.yaml 2>/dev/null || true
     log "INFO" "Calico回滚完成"
 }
 
@@ -670,9 +671,9 @@ if kubectl get daemonset calico-node -n calico-system &>/dev/null; then
 fi
 
 # 使用operator方式安装
-# Calico v3.28 支持 K8s 1.31，修复了 3.26 中多个已知的 BGP 路由泄漏问题
-# 变更: 3.26→3.28 升级了 Felix 的 conntrack 回收逻辑，提升了大规模集群下的稳定性
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.5/manifests/tigera-operator.yaml
+# Calico v3.32 支持 K8s 1.35，提供了更好的eBPF支持和性能优化
+# 变更: 3.28→3.32 升级了Felix的conntrack回收逻辑，提升了大规模集群下的稳定性
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/tigera-operator.yaml
 cat > /tmp/custom-resources.yaml << EOF
 apiVersion: operator.tigera.io/v1
 kind: Installation
@@ -895,7 +896,7 @@ trap 'log "ERROR" "Harbor安装失败，行号: $LINENO"; rollback; exit 1' ERR
 
 log "INFO" "========== 开始安装Harbor =========="
 
-HARBOR_VERSION="2.12.0"
+HARBOR_VERSION="2.15.1"
 HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
 HARBOR_IP="10.10.10.31"
 

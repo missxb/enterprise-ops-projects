@@ -2,11 +2,16 @@
 
 > 完整实现Redis高可用方案，覆盖Cluster 6节点集群、Sentinel哨兵、持久化策略、内存优化、分布式锁
 > **方案说明**: 本文档同时展示Cluster和Sentinel两种方案，供读者根据实际场景二选一参考。Cluster适合大数据量分片场景，Sentinel适合中小规模简单高可用场景。
-> [注意] Redis 7.0+起Sentinel支持监控Cluster节点(本项目使用Redis 7.2)。两种方案通常不混合使用，实际部署时选择其中一种即可:
+> [注意] Redis 7.0+起Sentinel支持监控Cluster节点(本项目使用Redis 8.6)。两种方案通常不混合使用，实际部署时选择其中一种即可:
 > - Cluster: 适合大数据量、高并发场景，数据自动分片
 > - Sentinel: 适合小数据量、简单高可用场景，数据不分片
 > 适用于: 电商、社交、游戏等高并发场景
-> 技术栈: Redis 7.2 Cluster + Sentinel 3节点 + Prometheus监控
+> 技术栈: Redis 8.6 Cluster + Sentinel 3节点 + Prometheus监控
+
+> **⚠️ 版本说明**：本文档基于Redis 8.6（2026年5月发布）编写。Redis 7.2 Active Support已结束，建议升级到8.x。
+> - Redis 8.6包含性能优化和新特性（如Redis Functions增强、ACL v2改进）
+> - 升级注意：RDB/AOF兼容，但需测试应用兼容性
+> - 回滚方案：保留7.2数据目录，可回滚
 
 ---
 

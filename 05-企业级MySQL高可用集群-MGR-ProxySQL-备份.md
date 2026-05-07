@@ -2,6 +2,11 @@
 
 > 完整实现MySQL高可用方案，覆盖MGR集群、读写分离、自动备份、PITR恢复、慢查询优化
 
+> **⚠️ 版本说明**：本文档基于MySQL 8.4 LTS（2026年4月发布）编写。MySQL 8.0已于2026-04-30 EOL，必须升级到8.4 LTS。
+> - MySQL 8.4 LTS支持周期8年（至2032年），是生产环境首选
+> - 主要变化：认证插件默认caching_sha2_password、SQL Mode更严格、MGR增强
+> - 升级工具：mysqlsh util.checkForServerUpgrade() 预检兼容性
+
 ---
 
 ## 一、架构
