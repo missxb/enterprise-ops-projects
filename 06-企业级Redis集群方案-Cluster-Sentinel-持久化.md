@@ -46,6 +46,7 @@
 - 数据量 < 10GB，简单高可用 → Sentinel (3节点Sentinel + 1主1从)
 - 数据量 > 10GB，需要分片 → Cluster (6+节点，3主3从)
 - 需要多key事务(MULTI/EXEC) → Sentinel (Cluster不支持跨slot事务)
+- Cluster支持同slot的MULTI/EXEC事务(使用hash tag保证key在同一slot)
 - 需要Pub/Sub大规模广播 → Cluster (广播到所有节点)
 
 ### 1.3 我们的选择: Redis Cluster
@@ -91,7 +92,7 @@
 |------|------|
 | 10.10.40.0/24 | Redis节点管理网络 |
 | 内网带宽 | 10Gbps (集群内部通信) |
-| 客户端连接 | 通过VIP或DNS轮询 |
+| 客户端连接 | Redis Cluster客户端直接连接所有节点(如JedisCluster/Lettuce),不支持VIP负载均衡 |
 
 ---
 
@@ -110,6 +111,7 @@ echo never > /sys/kernel/mm/transparent_hugepage/enabled
 echo never > /sys/kernel/mm/transparent_hugepage/defrag
 # 持久化
 cat >> /etc/rc.local << 'EOF'
+> 现代Linux发行版(systemd)可能不支持rc.local,推荐使用systemd service替代
 echo never > /sys/kernel/mm/transparent_hugepage/enabled
 echo never > /sys/kernel/mm/transparent_hugepage/defrag
 EOF
@@ -141,6 +143,13 @@ net.ipv4.tcp_rmem = 4096 87380 16777216
 net.ipv4.tcp_wmem = 4096 65536 16777216
 EOF
 sysctl --system
+
+echo "========== 防火墙配置 =========="
+firewall-cmd --permanent --add-port=6379/tcp
+firewall-cmd --permanent --add-port=16379/tcp
+firewall-cmd --reload
+> Redis需要6379(服务端口)和16379(Cluster总线端口)
+> K8s节点建议permissive,非K8s节点建议enforcing(等保要求)
 
 echo "========== 3. 设置系统限制 =========="
 cat >> /etc/security/limits.conf << 'EOF'
@@ -210,6 +219,7 @@ maxmemory-samples 10           # LRU采样数，越大越精确
 save 900 1
 save 300 10
 save 60 10000
+> save 60 10000在高并发场景可能过于频繁(每分钟fork一次)。建议: save 300 10000
 stop-writes-on-bgsave-error yes
 rdbcompression yes
 rdbchecksum yes
@@ -245,6 +255,7 @@ activedefrag yes
 active-defrag-ignore-bytes 100mb       # 碎片超过100MB才整理
 active-defrag-threshold-lower 10       # 碎片率超过10%开始整理
 active-defrag-threshold-upper 100      # 碎片率超过100%全速整理
+> 生产建议: 碎片系数1.2-1.3为正常范围。1.5过于保守
 active-defrag-cycle-min 1              # 最低CPU使用率1%
 active-defrag-cycle-max 25             # 最高CPU使用率25%
 
@@ -256,6 +267,7 @@ slowlog-max-len 128
 maxclients 10000
 client-output-buffer-limit normal 0 0 0
 client-output-buffer-limit replica 256mb 64mb 60
+> 256MB对于大key同步可能不足。如果存在大key(>100MB),建议增大到512MB
 client-output-buffer-limit pubsub 32mb 8mb 60
 
 # ===== 安全配置 =====
@@ -428,6 +440,17 @@ sentinel parallel-syncs mymaster 1
 sentinel notification-script mymaster /opt/scripts/redis-notify.sh
 sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
 
+```bash
+#!/bin/bash
+# redis-notify.sh - Redis故障转移通知
+# 参数: $1=实例名称 $2=事件类型
+INSTANCE=$1
+EVENT=$2
+curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"Redis故障转移: ${INSTANCE} ${EVENT}\"}}"
+```
+
 # === 脚本内容示例 ===
 # --- /opt/scripts/redis-notify.sh ---
 # #!/bin/bash
@@ -502,7 +525,7 @@ LOG_FILE="/var/log/redis/notify.log"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] MASTER=${MASTER_NAME} EVENT=${EVENT} DETAILS=${DETAILS}" >> ${LOG_FILE}
 
 # 钉钉通知
-DINGTALK_TOKEN="your-dingtalk-webhook-token"
+DINGTALK_TOKEN="${DINGTALK_TOKEN:?请设置钉钉Token}"
 curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}"   -H 'Content-Type: application/json'   -d "{
     "msgtype": "markdown",
     "markdown": {
@@ -541,6 +564,7 @@ REDIS_CMD="redis-cli -h 10.10.40.11 -p 6379"
 
 echo "========== 扫描大Key =========="
 ${REDIS_CMD} --bigkeys
+> --bigkeys是阻塞命令,生产环境应在业务低峰期执行
 
 echo ""
 echo "========== 内存分析 =========="
@@ -554,6 +578,7 @@ echo ""
 echo "========== 内存碎片率诊断 =========="
 FRAG_RATIO=$(${REDIS_CMD} info memory | grep mem_fragmentation_ratio | cut -d: -f2 | tr -d '\r')
 if (( $(echo "${FRAG_RATIO} > 1.5" | bc -l) )); then
+> 脚本使用bc进行浮点运算。安装: yum install -y bc (CentOS)
   echo "⚠️ 碎片率过高 (${FRAG_RATIO})，建议执行 MEMORY PURGE"
   ${REDIS_CMD} memory purge
 elif (( $(echo "${FRAG_RATIO} < 1.0" | bc -l) )); then
@@ -642,6 +667,7 @@ aof-use-rdb-preamble yes  # AOF文件包含RDB头+增量AOF
 ```ini
 # ===== 网络层调优 =====
 tcp-backlog 511            # TCP连接队列，高并发时增大
+> tcp-backlog受net.core.somaxconn限制。建议: sysctl -w net.core.somaxconn=65535
 tcp-keepalive 300          # 保活探测间隔
 timeout 300                # 空闲连接超时
 
@@ -704,6 +730,7 @@ redis-cli -c -h 10.10.40.11 cluster info | grep cluster_state
 
 # 2. 手动完成迁移
 redis-cli -c -h 10.10.40.11   CLUSTER SETSLOT <slot> NODE <target-node-id>
+> 获取node-id: redis-cli -c -h <node> CLUSTER MYID
 
 # 3. 设置集群允许降级读取
 redis-cli -c -h 10.10.40.11   CONFIG SET cluster-allow-reads-when-down yes
@@ -754,6 +781,8 @@ redis-cli -c -h 10.10.40.11 --eval "
   until cursor == 0
 " , 0
 
+> Lua脚本中的所有key必须在同一slot。使用hash tag确保: SET {user:1001}:name "Alice"
+
 # 3. 调整淘汰策略
 redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy allkeys-lru
 
@@ -779,6 +808,7 @@ redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy allkeys-lru
 **根因分析**:
 - 网络分区导致部分节点无法通信
 - `cluster-node-timeout` 设置过短(5秒)
+> 案例中的5秒是错误配置,正确值应为15秒以上(15000ms)
 - Cluster内部gossip协议误判主节点下线，触发failover
 - 旧master恢复后，出现双主
 
@@ -1133,7 +1163,7 @@ Set<HostAndPort> nodes = new HashSet<>();
 nodes.add(new HostAndPort("10.10.40.11", 6379));
 nodes.add(new HostAndPort("10.10.40.12", 6379));
 nodes.add(new HostAndPort("10.10.40.13", 6379));
-JedisCluster cluster = new JedisCluster(nodes, 3000, 3000, 3, "password", poolConfig);
+JedisCluster cluster = new JedisCluster(nodes, 3000, 3000, 3, "${REDIS_PASSWORD}", poolConfig);
 ```
 
 ```java
@@ -1148,6 +1178,13 @@ spring:
         max-idle: 64
         min-idle: 16
         max-wait: 3000ms
+
+lettuce:
+  cluster:
+    refresh:
+      adaptive: true
+      period: 30s
+> 集群拓扑刷新确保客户端感知节点变化
 ```
 
 ### 13.2 Go (go-redis)
@@ -1340,6 +1377,7 @@ groups:
       - alert: RedisClusterState
         expr: redis_cluster_state != 1
         for: 1m
+> redis_cluster_state指标需要redis_exporter支持。如果不存在,可使用redis_connected_slaves < 2
         labels:
           severity: critical
         annotations:
@@ -1376,6 +1414,7 @@ spec:
     - alert: RedisClusterNodeDown
       expr: redis_cluster_state != 1
       for: 1m
+> redis_cluster_state指标需要redis_exporter支持。如果不存在,可使用redis_connected_slaves < 2
       labels:
         severity: critical
     - alert: RedisHighMemory
@@ -1418,6 +1457,7 @@ redis-cluster/
 │   └── redis-exporter.yaml          # Exporter部署
 └── README.md
 ```
+> 本项目文件清单已针对Redis集群定制
 
 ---
 
