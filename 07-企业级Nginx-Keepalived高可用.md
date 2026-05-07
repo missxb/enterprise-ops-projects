@@ -359,6 +359,34 @@ certbot renew --quiet --deploy-hook "systemctl reload nginx"
 # 0 3 * * * /opt/scripts/ssl_renew.sh >> /var/log/ssl-renew.log 2>&1
 ```
 
+### 4.1 K8s环境: cert-manager自动证书管理
+
+```yaml
+# cert-manager安装
+helm repo add jetstack https://charts.jetstack.io
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set crds.enabled=true
+
+# ClusterIssuer配置 (Let's Encrypt)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+```
+
+> cert-manager自动处理证书签发和续期，无需手动crontab。支持ACME HTTP-01和DNS-01验证。
+
 ---
 
 > 本项目基于官方文档、技术博客和社区实践编写
@@ -379,7 +407,7 @@ certbot renew --quiet --deploy-hook "systemctl reload nginx"
 | 健康检查 | 被动 | 主动+被动 | 主动+被动 |
 | 配置热加载 | ✅ reload | ✅ reload | ✅ xDS API |
 | 动态权重 | ❌ 需reload | ✅ 运行时调整 | ✅ xDS API |
-| WAF集成 | ModSecurity | ❌ 需第三方 | Istio WasmPlugin |
+| WAF集成 | ModSecurity/Coraza | ❌ 需第三方 | Istio WasmPlugin |
 | 服务网格 | ❌ | ❌ | ✅ Istio数据面 |
 | 学习曲线 | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
 | 社区生态 | 最大 | 较大 | 快速增长 |
@@ -390,6 +418,8 @@ certbot renew --quiet --deploy-hook "systemctl reload nginx"
 - 纯TCP/HTTP负载均衡 → HAProxy
 - 微服务架构 + Service Mesh → Envoy
 - 本项目选择: Nginx(前端) + Keepalived(VIP) + HAProxy(后端TCP)
+
+**2026年推荐**: Coraza是ModSecurity的现代替代品，兼容OWASP CRS规则，维护成本更低
 
 ### 5.2 负载均衡算法对比
 
@@ -439,6 +469,8 @@ upstream backend_consistent {
     server 10.10.50.12:8080;
 }
 ```
+
+> **2026年趋势**: Kubernetes Gateway API正在逐步替代Ingress。Gateway API提供更丰富的流量管理能力(Header匹配、流量拆分、请求改写)。新项目建议直接使用Gateway API，存量Ingress可渐进迁移。
 
 ---
 
