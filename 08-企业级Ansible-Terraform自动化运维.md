@@ -111,10 +111,12 @@ k8s-master-02 ansible_host=10.10.10.12
 k8s-master-03 ansible_host=10.10.10.13
 
 [k8s_workers]
-k8s-worker-01 ansible_host=10.10.10.21
-k8s-worker-02 ansible_host=10.10.10.22
-k8s-worker-03 ansible_host=10.10.10.23
+k8s-worker-01 ansible_host=10.10.30.21
+k8s-worker-02 ansible_host=10.10.30.22
+k8s-worker-03 ansible_host=10.10.30.23
 ```
+
+> **IP规划**: Web服务器(10.10.10.x)与K8s Worker(10.10.30.x)使用不同网段,避免冲突
 
 ### 2.2 基础配置Playbook
 
@@ -144,12 +146,18 @@ k8s-worker-03 ansible_host=10.10.10.23
     - name: 关闭SELinux
       selinux:
         state: disabled
+    # > **等保冲突**: SELinux disabled违反等保三级要求。生产建议:
+    # > - K8s节点: 保持permissive(容器运行时需要)
+    # > - 非K8s节点: 使用enforcing(等保要求)
     
     - name: 关闭防火墙
       systemd:
         name: firewalld
         state: stopped
         enabled: no
+    # > **等保冲突**: 关闭防火墙违反等保要求。生产建议:
+    # > - K8s节点: 使用iptables白名单(替代firewalld)
+    # > - 非K8s节点: 启用firewalld并配置白名单规则
     
     - name: 加载内核模块
       modprobe:
@@ -204,6 +212,7 @@ k8s-worker-03 ansible_host=10.10.10.23
         # for ip in $(cat ips.txt); do ssh-copy-id root@${ip}; done
         # 确保密钥认证可用后再禁用密码登录
         - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        # > **等保要求**: 等保三级建议禁止root远程登录(PermitRootLogin no)。当前配置允许root密钥登录,适用于运维场景。
         - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
         - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
         - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
@@ -249,6 +258,9 @@ k8s-worker-03 ansible_host=10.10.10.23
     baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
     gpgcheck: yes
     gpgkey: https://download.docker.com/linux/centos/gpg
+  # 国内加速(可选)
+  # yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+  # > 国内环境建议使用阿里云Docker镜像加速安装
 
 - name: 安装Docker
   yum:
@@ -439,7 +451,7 @@ resource "alicloud_instance" "k8s_worker" {
 # RDS MySQL
 resource "alicloud_db_instance" "mysql" {
   engine               = "MySQL"
-  engine_version       = "8.0"
+  engine_version       = "8.4"  # MySQL 8.0已于2026-04-30 EOL,生产环境应使用8.4 LTS
   instance_type        = "rds.mysql.s3.large"  # 8C/32G
   instance_storage     = 500
   instance_charge_type = "Postpaid"
@@ -460,7 +472,8 @@ resource "alicloud_kvstore_instance" "redis" {
   db_instance_name = "production-redis"
   instance_class   = "redis.master.small.default"
   instance_type    = "Redis"
-  engine_version   = "7.0"
+  engine_version   = "8.6"
+  # > 与项目06 Redis集群版本保持一致
   vswitch_id       = alicloud_vswitch.web[0].id
   security_ips     = ["10.0.0.0/16"]
   
@@ -498,7 +511,7 @@ variable "admin_cidr" {
 variable "allowed_cidr" {
   description = "允许访问HTTP/HTTPS的CIDR"
   type        = string
-  default     = "10.10.0.0/16"  # 生产环境应使用CDN或SLB的CIDR
+  default     = "10.0.0.0/12"  # allowed_cidr应与VPC CIDR一致,10.0.0.0/12包含所有子网
 }
 
 # outputs.tf
@@ -549,6 +562,7 @@ plan:
 apply:
 	@echo "⚠️  即将应用Terraform变更，请确认已执行terraform plan并审批"
 	@read -p "请输入 'yes' 确认应用: " CONFIRM && [ "$$CONFIRM" = "yes" ] || (echo "已取消" && exit 1)
+	# > **注意**: Makefile中的read需要交互式终端。CI/CD环境可使用TF_VAR_environment环境变量跳过确认。
 	cd terraform && terraform apply
 
 destroy:
@@ -638,7 +652,8 @@ import sys
 import urllib.request
 import urllib.error
 
-CMDB_URL = "http://cmdb.internal.com/api/v1/hosts"
+CMDB_URL = os.environ.get('CMDB_URL', 'http://cmdb.internal.com/api/v1/hosts')
+# > 生产环境应使用环境变量配置CMDB地址
 
 def get_inventory():
     try:
@@ -698,6 +713,7 @@ class CallbackModule(CallbackBase):
     def __init__(self):
         super().__init__()
         self.webhook_url = "https://hooks.slack.com/services/xxx"
+        # > 生产环境应使用环境变量: SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:?请设置Slack Webhook URL}
     
     def v2_playbook_on_stats(self, stats):
         hosts = sorted(stats.processed.keys())
