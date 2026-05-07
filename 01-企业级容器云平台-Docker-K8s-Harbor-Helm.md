@@ -484,6 +484,18 @@ systemctl daemon-reload
 systemctl enable containerd
 systemctl restart containerd
 echo "containerd已安装配置(version 3格式)"
+# [安全加固] 禁用Docker bridge网络（docker0）
+# 安装containerd后建议禁用docker0桥接网卡，避免节点上产生非预期的容器网络
+# 注意：K8s使用CNI（Calico）管理Pod网络，docker0桥接网络仅在Docker Engine场景使用
+# 若节点同时安装了Docker CE，需执行以下操作禁用docker0：
+# cat > /etc/docker/daemon.json << 'EOF'
+# {
+#   "bridge": "none"
+# }
+# EOF
+# systemctl restart docker
+# 或直接删除docker0桥接: ip link set docker0 down && ip link delete docker0
+# [警告] 禁用docker0前请确认所有容器运行时已切换为containerd，否则Docker启动的容器将受影响
 echo "========== [7/8] 安装kubeadm/kubelet/kubectl =========="
 cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
@@ -956,6 +968,13 @@ mountOptions:
 EOF
 kubectl apply -f /tmp/storageclass-nfs.yaml
 
+# [生产环境警告] NFS StorageClass不适用于生产环境：
+# - 性能: NFS延迟高(5-20ms)，无法满足数据库、消息队列等IO密集型应用需求
+# - 可靠性: NFS为单点故障，NFS服务器宕机会导致所有挂载的PV不可用
+# - 并发: NFS v4.1在高并发写入场景下性能急剧下降
+# - 建议: 生产环境使用Ceph-RBD、云盘(阿里云ESSD/AWS EBS)或分布式存储(Longhorn)
+# - 如必须使用NFS，请配合高可用NFS集群(NFS-GanesHA)和SSD存储
+
 # 验证StorageClass
 kubectl get sc
 ```
@@ -1137,6 +1156,12 @@ https:
   certificate: /opt/harbor/certs/harbor.crt
   private_key: /opt/harbor/certs/harbor.key
 harbor_admin_password: ${HARBOR_ADMIN_PASSWORD}
+# [密码安全要求] Harbor admin密码必须满足以下条件：
+# - 最少8个字符
+# - 建议16位以上，包含大小写字母、数字和特殊字符
+# - 切勿使用默认密码（如Harbor12345）
+# - 生产环境必须通过密钥管理工具注入（Vault / K8s Secrets / 环境变量）
+# 验证示例: [ "${#HARBOR_ADMIN_PASSWORD}" -lt 8 ] && echo "密码过短" && exit 1
 database:
   password: ${HARBOR_DB_PASSWORD}
   max_idle_conns: 100
@@ -1148,6 +1173,11 @@ storage_service:
   s3:
     disabled: true
 # 生产环境启用OSS(替代本地存储):
+# [存储后端说明] Harbor使用S3协议兼容接口连接对象存储
+# - AWS S3: 直接使用S3配置
+# - 阿里云OSS: Harbor通过S3兼容API连接OSS（需使用regionendpoint指定OSS端点）
+# - MinIO: 同样兼容S3协议，私有云环境推荐使用
+# - 关键区别: OSS的regionendpoint是必须的（如https://oss-cn-hangzhou.aliyuncs.com）
 # storage_service:
 #   s3:
 #     accesskey: ${OSS_ACCESS_KEY}
@@ -2611,6 +2641,63 @@ groups:
         for: 10m
         labels: { severity: warning }
 ```
+
+# [AlertManager路由与接收器配置说明]
+# 以上Prometheus规则定义了告警条件，但告警需要AlertManager进行路由和通知
+# 完整的AlertManager配置需要包含route（路由）和receivers（接收器）两部分：
+
+# route: 定义告警路由树，决定哪些告警发送到哪个接收器
+#   - match: 根据标签匹配告警（如severity=critical发送到oncall频道）
+#   - group_by: 告警分组（如按namespace分组，避免告警风暴）
+#   - group_wait: 首次告警等待时间（默认30s，等同组告警一起发送）
+#   - repeat_interval: 重复发送间隔（如4h，避免频繁骚扰）
+#
+# receivers: 定义告警通知方式
+#   - 企业微信: 通过webhook发送到企业微信群
+#   - 钉钉: 通过webhook发送到钉钉群
+#   - 邮件: SMTP配置发送邮件通知
+#   - PagerDuty: 适用于国际化团队的oncall系统
+#
+# 示例路由配置:
+# route:
+#   group_by: ['alertname', 'namespace']
+#   group_wait: 30s
+#   group_interval: 5m
+#   repeat_interval: 4h
+#   receiver: 'default-webhook'
+#   routes:
+#   - match:
+#       severity: critical
+#     receiver: 'oncall-pagerduty'
+#   - match:
+#       namespace: 'production'
+#     receiver: 'production-webhook'
+
+# [AlertManager抑制规则说明]
+# inhibition_rules（抑制规则）用于在特定告警触发时静默低优先级告警，减少告警噪音
+# 典型使用场景：
+#   - 当NodeNotReady(critical)触发时，抑制该节点上所有warning级别告警
+#   - 当集群级别告警触发时，抑制该节点上所有Pod级别告警
+#   - 避免一个根因故障产生大量衍生告警
+#
+# 示例抑制规则:
+# inhibit_rules:
+# - source_match:
+#     alertname: NodeNotReady
+#   target_match_re:
+#     severity: warning
+#   equal: ['node']
+# - source_match:
+#     severity: critical
+#   target_match:
+#     severity: warning
+#   equal: ['namespace']
+
+# [生产环境提示] 以上为Prometheus AlertingRule配置示例
+# 完整部署需同时配置:
+# 1. Prometheus ServiceMonitor (自动发现监控目标)
+# 2. AlertManager StatefulSet + ConfigMap (告警路由)
+# 3. 通知渠道Webhook (企业微信/钉钉/邮件)
 ---
 ## 完整运维SOP
 ### 日常巡检
