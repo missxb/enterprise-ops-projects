@@ -4,6 +4,49 @@
 
 ---
 
+## 〇、核心链路声明
+
+> 生产环境CI/CD到部署的完整链路，每个节点都不可跳过：
+
+```
+代码提交 → GitLab Webhook → Jenkins Pipeline → SonarQube代码扫描 → 质量门禁(覆盖率>80%)
+    │                                                      │
+    │                                                      ▼
+    │                                              阻断构建(不通过)
+    │
+    ▼
+Docker构建 → Trivy镜像扫描 → 漏洞门禁(无HIGH/CRITICAL)
+    │                              │
+    │                              ▼
+    │                      阻断推送(不通过)
+    │
+    ▼
+推送Harbor → 镜像签名(Cosign) → 更新GitOps仓库(ArgoCD ApplicationSet)
+    │                                                      │
+    │                                                      ▼
+    │                                              ArgoCD Sync
+    │                                                      │
+    │                                                      ▼
+    │                                              K8s部署(渐进式发布)
+    │                                                      │
+    │                                                      ▼
+    │                                              灰度验证 Canary/Blue-Green
+    │                                                      │
+    │                                                      ▼
+    │                                              全量发布
+    │
+    ▼
+制品仓库(Nexus/Artifactory) ← JAR/WAR/npm包归档
+```
+
+> **关键节点说明**：
+> - **质量门禁**：SonarQube质量阈值（覆盖率>80%，重复率<3%，Bug=0）不通过则阻断构建
+> - **漏洞门禁**：Trivy扫描发现HIGH/CRITICAL漏洞则阻断推送，不允许进入生产环境
+> - **灰度发布**：K8s Deployment使用Canary或Blue-Green策略，先部署10%流量验证
+> - **配置管理**：K8s部署使用ConfigMap/Secret分离配置，GitOps仓库管理所有配置
+
+---
+
 ## 一、整体架构数据流
 
 ```
@@ -400,7 +443,194 @@ webhooks:
 
 ---
 
-## 六、CI/CD到K8s数据流
+## 五点五、组件技术细节补充
+
+### 5.5.1 Calico eBPF模式
+
+> **BGP模式**：默认模式，适用于内核4.19+，生产环境推荐
+> **eBPF模式**：高性能模式，需内核5.10+，阿里云Alibaba Cloud Linux 3支持
+
+```yaml
+# calico-ebpf.yaml - eBPF模式配置
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    linuxDataplane: BPF  # 启用eBPF模式
+    ipPools:
+    - name: default-ipv4-ippool
+      blockSize: 26
+      cidr: 10.244.0.0/16
+      encapsulation: None
+      natOutgoing: true
+      nodeSelector: all()
+    nodeAddressAutodetectionV4:
+      interface: eth.*
+  # eBPF需要的内核参数
+  nodeMetricsPort: 9091
+  # 资源需求(每个节点)
+  # CPU: 100m-500m
+  # Memory: 256Mi-1Gi
+```
+
+> **eBPF vs BGP选择**：
+> - BGP：兼容性好，内核4.19+，适合大多数场景
+> - eBPF：性能更高（减少iptables规则），需内核5.10+，适合大规模集群
+
+### 5.5.2 Harbor Helm Chart部署
+
+> **Harbor Helm Chart配置复杂性**：生产环境必须使用外部PG/Redis/S3
+
+```bash
+# harbor-values.yaml - Harbor Helm Chart生产配置
+expose:
+  type: ingress
+  ingress:
+    hosts:
+      core: harbor.internal.com
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"  # 无限制上传
+    tls:
+      - secretName: harbor-tls
+        hosts:
+          - harbor.internal.com
+
+# 外部数据库(必须)
+database:
+  type: external
+  external:
+    host: "postgresql.internal"
+    port: "5432"
+    username: "harbor"
+    password: "${HARBOR_DB_PASSWORD}"
+    coreDatabase: "harbor"
+
+# 外部Redis(必须)
+redis:
+  type: external
+  external:
+    addr: "redis-cluster.internal:6379"
+    password: "${REDIS_PASSWORD}"
+
+# 外部存储(必须)
+persistence:
+  imageChartStorage:
+    type: s3
+    s3:
+      region: cn-beijing
+      bucket: harbor-registry
+      accesskey: ${AWS_ACCESS_KEY_ID}
+      secretkey: ${AWS_SECRET_ACCESS_KEY}
+    # 跨区域复制(可选)
+    # s3:
+    #   regionendpoint: https://s3.cn-north-1.amazonaws.com.cn
+
+# 资源配置
+harborAdminPassword: "${HARBOR_ADMIN_PASSWORD}"
+```
+
+### 5.5.3 Thanos长期存储
+
+> **Thanos组件**：Prometheus长期存储和全局查询
+> - **Sidecar**：与Prometheus部署在一起，上传数据到对象存储
+> - **Store Gateway**：查询对象存储中的历史数据
+> - **Compactor**：压缩和降采样历史数据（资源消耗大户）
+> - **Query**：全局查询入口，聚合多Prometheus数据
+
+```yaml
+# thanos-sidecar.yaml - 与Prometheus部署
+spec:
+  containers:
+    - name: thanos-sidecar
+      image: quay.io/thanos/thanos:v0.34.0
+      args:
+        - sidecar
+        - --tsdb.path=/prometheus
+        - --prometheus.url=http://localhost:9090
+        - --objstore.config-file=/etc/thanos/bucket.yml
+      ports:
+        - name: grpc
+          containerPort: 10901
+        - name: http
+          containerPort: 10902
+
+# thanos-compactor.yaml - 独立部署(资源需求高)
+spec:
+  containers:
+    - name: thanos-compactor
+      image: quay.io/thanos/thanos:v0.34.0
+      args:
+        - compact
+        - --data-dir=/data
+        - --objstore.config-file=/etc/thanos/bucket.yml
+        - --retention.resolution-raw=30d
+        - --retention.resolution-5m=90d
+        - --retention.resolution-1h=365d
+      resources:
+        requests:
+          cpu: 2
+          memory: 4Gi
+        limits:
+          cpu: 4
+          memory: 8Gi
+```
+
+### 5.5.4 混合云K8s联邦
+
+> **⚠️ 重要**：Kubefed已停止维护，生产环境使用Cluster API + ArgoCD ApplicationSet
+
+```yaml
+# cluster-api-config.yaml - Cluster API配置
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: production-cluster
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["10.244.0.0/16"]
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: control-plane
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    kind: AWSCluster
+    name: production-cluster
+
+# argocd-applicationset.yaml - 跨集群部署
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: production-apps
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            environment: production
+  template:
+    metadata:
+      name: '{{name}}-app'
+    spec:
+      project: production
+      source:
+        repoURL: https://git.internal.com/argocd-apps.git
+        targetRevision: main
+        path: apps/{{metadata.labels.environment}}
+      destination:
+        server: '{{server}}'
+        namespace: production
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+```
 
 ### 6.1 完整流水线
 
@@ -742,40 +972,78 @@ spec:
 
 ## 十、项目间接口定义
 
-### 10.1 项目依赖关系
+### 10.1 项目依赖关系与联动规则
+
+> **重要安全规则**：监控告警→自动修复必须经过人工审批，禁止直接自动化执行。
 
 ```
 01-容器云平台 ─────────────────────────────────────────────────┐
     │                                                          │
     ├──▶ 02-CI/CD全链路 ──▶ 01-容器云平台(镜像仓库)           │
+    │   │                                                      │
+    │   ├──▶ Trivy镜像扫描(构建时触发，非安全项目驱动)        │
+    │   ├──▶ SonarQube质量门禁(覆盖率>80%)                    │
+    │   └──▶ ArgoCD ApplicationSet(渐进式发布)                │
     │                                                          │
     ├──▶ 03-监控告警体系 ◀── 01-容器云平台(Prometheus)         │
+    │   │                                                      │
+    │   ├──▶ Exporter: MySQL/Redis/Nginx/Kong/Calico           │
+    │   ├──▶ 告警→PagerDuty→人工确认→Ansible修复              │
+    │   └──▶ 与ELK并行关系(非上下游)                          │
     │                                                          │
     ├──▶ 04-ELK日志平台 ◀── 01-容器云平台(Filebeat)           │
+    │   │                                                      │
+    │   ├──▶ Nginx日志→Filebeat(JSON格式)→Logstash→ES         │
+    │   ├──▶ MySQL慢查询→Filebeat→Logstash→ES                 │
+    │   └──▶ K8s Pod日志→Filebeat→Logstash→ES                 │
     │                                                          │
     ├──▶ 05-MySQL高可用 ◀── 01-容器云平台(数据库服务)         │
+    │   │                                                      │
+    │   └──▶ MySQL Operator + Patroni(PG HA)                  │
     │                                                          │
     ├──▶ 06-Redis集群 ◀── 01-容器云平台(缓存服务)             │
+    │   │                                                      │
+    │   └──▶ Redis Operator + Sentinel自动故障转移             │
     │                                                          │
     ├──▶ 07-Nginx高可用 ◀── 01-容器云平台(反向代理)           │
+    │   │                                                      │
+    │   └──▶ Nginx→Filebeat(JSON)→ELK(日志采集链路)           │
     │                                                          │
     ├──▶ 08-自动化运维 ◀── 所有项目(Ansible/Terraform)        │
+    │   │                                                      │
+    │   ├──▶ ⚠️ 禁止监控直接触发Ansible自动修复              │
+    │   └──▶ 正确流程: 告警→PagerDuty→人工确认→执行Playbook   │
     │                                                          │
     ├──▶ 09-微服务网关 ◀── 01-容器云平台(Kong部署)            │
+    │   │                                                      │
+    │   └──▶ Kong Ingress→K8s Service→微服务Pod               │
     │                                                          │
     └──▶ 10-安全加固 ◀── 所有项目(安全策略)                   │
+        │                                                      │
+        ├──▶ CI/CD安全扫描由Jenkins触发(非安全项目驱动)       │
+        └──▶ Admission Controller验证镜像签名                 │
 ```
 
-### 10.2 接口契约
+### 10.2 联动规则详解
 
-| 接口 | 提供方 | 消费方 | 协议 | 端口 |
-|------|--------|--------|------|------|
-| MySQL | 05-MySQL高可用 | 01-K8s微服务 | TCP | 3306 |
-| Redis | 06-Redis集群 | 01-K8s微服务 | TCP | 6379 |
-| Prometheus | 03-监控告警 | 所有Exporter | HTTP | 9090 |
-| Elasticsearch | 04-ELK日志 | Filebeat | HTTP | 9200 |
-| Harbor | 01-容器云平台 | Jenkins/ArgoCD | HTTPS | 443 |
-| Kong | 09-微服务网关 | 外部客户端 | HTTPS | 443 |
+| 联动关系 | 正确流程 | 错误流程 | 安全风险 |
+|----------|----------|----------|----------|
+| 03-监控→08-Ansible | 告警→PagerDuty→人工确认→执行Playbook | 告警→直接触发Ansible | 误杀/级联故障 |
+| 04-ELK→03-监控 | 并行关系(独立告警) | ELK→Prometheus | 逻辑混乱 |
+| 10-安全→02-CI/CD | Jenkins触发Trivy扫描 | 安全项目驱动CI/CD | 顺序颠倒 |
+| 07-Nginx→04-ELK | Nginx→Filebeat(JSON)→Logstash→ES | 直接写入ES | 缺少采集配置 |
+
+### 10.3 接口契约
+
+| 接口 | 提供方 | 消费方 | 协议 | 端口 | 日志格式 |
+|------|--------|--------|------|------|----------|
+| MySQL | 05-MySQL高可用 | 01-K8s微服务 | TCP | 3306 | slow.log |
+| Redis | 06-Redis集群 | 01-K8s微服务 | TCP | 6379 | redis.log |
+| Prometheus | 03-监控告警 | 所有Exporter | HTTP | 9090 | metrics |
+| Elasticsearch | 04-ELK日志 | Filebeat | HTTP | 9200 | JSON |
+| Harbor | 01-容器云平台 | Jenkins/ArgoCD | HTTPS | 443 | JSON |
+| Kong | 09-微服务网关 | 外部客户端 | HTTPS | 443 | combined |
+| Nexus | 制品仓库 | Jenkins | HTTPS | 8081 | JSON |
 
 ---
 
