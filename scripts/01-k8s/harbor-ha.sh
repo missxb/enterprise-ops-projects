@@ -173,8 +173,8 @@ redis:
 # === OSS对象存储 ===
 storage_service:
   s3:
-    accesskey: \${OSS_ACCESS_KEY}
-    secretkey: \${OSS_SECRET_KEY}
+    accesskey: ${OSS_ACCESS_KEY}
+    secretkey: ${OSS_SECRET_KEY}
     region: cn-hangzhou
     bucket: ${OSS_BUCKET}
     regionendpoint: ${OSS_ENDPOINT}
@@ -274,7 +274,7 @@ done
 
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << LB_EOF
-cat > /etc/nginx/conf.d/harbor-ha.conf << CONF
+cat > /etc/nginx/conf.d/harbor-ha.conf << 'CONF'
 upstream harbor_backend {
     # Harbor HA后端
 $(echo -e "${HARBOR_BACKENDS}")

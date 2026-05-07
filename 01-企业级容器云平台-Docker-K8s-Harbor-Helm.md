@@ -722,7 +722,7 @@ HARBORYML
 
 echo "安装Harbor..."
 # [已修复] Harbor 2.9+已废弃chartmuseum，移除--with-chartmuseum参数
-./install.sh --with-trivy --with-tooltip
+./install.sh --with-trivy
 
 echo "配置开机自启..."
 cat > /etc/systemd/system/harbor.service << EOF

@@ -51,7 +51,7 @@ UPSTREAM_CONF+=$(printf "}")
 # 部署配置到所有节点
 for node in ${NODES}; do
   ssh root@${node} bash << NGINX_EOF
-cat > /etc/nginx/conf.d/app.conf << CONF
+cat > /etc/nginx/conf.d/app.conf << 'CONF'
 # === Nginx生产级负载均衡配置 ===
 
 ${UPSTREAM_CONF}
@@ -79,9 +79,9 @@ server {
         limit_req zone=api burst=20 nodelay;
         limit_conn conn 100;
         proxy_pass http://app_backend;
-        proxy_set_header Host \\$host;
-        proxy_set_header X-Real-IP \\$remote_addr;
-        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_connect_timeout 5s;
@@ -98,8 +98,8 @@ server {
     # === 默认代理 ===
     location / {
         proxy_pass http://app_backend;
-        proxy_set_header Host \\$host;
-        proxy_set_header X-Real-IP \\$remote_addr;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
     }
