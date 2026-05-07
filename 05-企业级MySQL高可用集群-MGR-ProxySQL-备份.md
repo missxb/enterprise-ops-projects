@@ -277,6 +277,14 @@ VALUES
   (2, 1, '^SELECT', 20, 1),                   -- 普通SELECT → 读组
   (3, 1, '.*', 10, 1);                         -- 其他 → 写组
 
+-- 特殊查询路由(必须走写组)
+INSERT INTO mysql_query_rules(rule_id, active, match_pattern, destination_hostgroup, apply)
+VALUES
+  (4, 1, '^SELECT LAST_INSERT_ID', 10, 1),
+  (5, 1, '^SELECT @@session', 10, 1),
+  (6, 1, '^SET SESSION', 10, 1);
+> 这些查询必须路由到写组,否则可能读到旧数据
+
 -- 添加用户
 INSERT INTO mysql_users(username, password, default_hostgroup, max_connections)
 VALUES ('app_user', '${APP_USER_PASSWORD}', 10, 2000);
@@ -330,6 +338,11 @@ mysqlbinlog --read-from-remote-server --raw --to-last-log --defaults-extra-file=
   --host=127.0.0.1 \
   ${CURRENT_BINLOG} \
   --result-file=${BACKUP_DIR}/binlog/binlog-${DATE}_
+
+> **生产建议**: --to-last-log会下载所有binlog,生产环境应:
+> 1. 记录上次备份的最后一个binlog位置
+> 2. 只备份新增的binlog
+> 3. 或使用FLUSH BINARY LOGS后备份旧binlog
 
 echo "清理过期备份..."
 find ${BACKUP_DIR}/full -maxdepth 1 -type d -mtime +${KEEP_DAYS} -exec rm -rf {} +
@@ -396,6 +409,30 @@ systemctl restart mysqld
 
 echo "✅ PITR恢复完成，已恢复到: ${TARGET_TIME}"
 ```
+
+### PITR后重新加入MGR
+
+```sql
+-- 1. 停止组复制
+STOP GROUP_REPLICATION;
+
+-- 2. 清理GTID
+RESET MASTER;
+
+-- 3. 清理复制配置
+RESET SLAVE ALL;
+
+-- 4. 使用CLONE PLUGIN从其他节点克隆数据
+SET GLOBAL clone_valid_donor_list = 'other_node:3306';
+CLONE INSTANCE FROM 'clone_user'@'other_node' IDENTIFIED BY 'password';
+
+-- 5. 或重新初始化MGR
+-- change master to master_user='repl', master_password='xxx' \
+--   for channel 'group_replication_recovery';
+-- start group_replication;
+```
+
+> PITR恢复后节点需要重新加入MGR集群,CLONE PLUGIN是最简单的方式
 
 ---
 
@@ -754,6 +791,18 @@ SAVE MYSQL SERVERS TO DISK;
 | 备份频率 | 每天全量 + 每小时增量 | xtrabackup |
 | 备份保留 | 7天 | 自动清理 |
 
+### 11.1.1 增量备份示例
+
+```bash
+# 增量备份示例
+INCREMENTAL_DIR=${BACKUP_DIR}/incremental/$(date +%Y%m%d%H%M)
+LATEST_FULL=$(ls -td ${BACKUP_DIR}/full/*/ | head -1)
+xtrabackup --backup --incremental --target-dir=${INCREMENTAL_DIR} \
+  --incremental-basedir=${LATEST_FULL} --defaults-extra-file=${MYSQL_CNF}
+```
+
+> 增量备份基于全量备份,每次只备份变化的页,大幅减少备份时间和存储
+
 ### 11.2 备份验证
 
 ```bash
@@ -929,8 +978,10 @@ SHOW PROCESSLIST;
 
 -- 2. 临时跳过该事务(危险操作，需确认数据一致性)
 STOP REPLICA;
-SET GLOBAL replica_skip_counter = 1;
+SET GLOBAL sql_replica_skip_counter = 1;
 START REPLICA;
+
+> MySQL 8.0.26+推荐使用sql_replica_前缀(旧语法已废弃)
 
 -- 3. 验证复制状态
 SHOW REPLICA STATUS\G
@@ -943,7 +994,8 @@ DELETE FROM logs WHERE created_at < '2023-01-01' LIMIT 10000;
 -- 5. 设置大事务告警
 -- 在my.cnf中添加:
 -- binlog_transaction_dependency_tracking = WRITESET
--- transaction_write_set_extraction = XXHASH64
+transaction_write_set_extraction = XXHASH64
+> MGR必需配置,使用XXHASH64算法计算事务写集合指纹
 ```
 
 **预防措施**:
@@ -1080,7 +1132,8 @@ SET GLOBAL max_binlog_size = 256M;  -- 每个文件最大256MB
 
 -- 4. 对大表使用Row模式优化
 -- 在my.cnf中添加:
--- binlog_row_image = MINIMAL  -- 只记录变化的列
+binlog_row_image = MINIMAL  -- 只记录变化的列
+> MINIMAL模式只记录变化的列,可减少binlog大小30-50%
 -- binlog_row_metadata = MINIMAL
 
 -- 5. 使用pt-heartbeat监控复制延迟
@@ -1182,6 +1235,9 @@ innodb_log_file_size=2G
 # innodb_log_files_in_group: redo log文件组数量
 # MySQL 8.0.30+ 默认4个文件
 innodb_log_files_in_group=4
+
+> **MySQL 8.4注意**: innodb_log_files_in_group已废弃,由innodb_redo_log_capacity自动管理。建议使用:
+> innodb_redo_log_capacity = 8589934592  # 8GB
 
 # innodb_log_buffer_size: 日志缓冲区
 # 写密集型: 64-256MB
@@ -1316,7 +1372,8 @@ SELECT * FROM sys.schema_redundant_indexes;
 # 跨机房复制延迟监控
 # Prometheus告警规则
 # alert: MySQLCrossDatacenterLag
-# expr: mysql_slave_status_seconds_behind_master > 5
+# expr: mysql_replica_status_seconds_behind_source > 5
+> MySQL 8.0.26+推荐使用replica前缀(旧语法已废弃)
 # for: 1m
 # labels:
 #   severity: warning
@@ -1472,6 +1529,7 @@ spec:
       containers:
         - name: mysql-exporter
           image: prom/mysqld-exporter:v0.15.1
+> 生产环境应使用最新稳定版,查看https://github.com/prometheus/mysqld_exporter/releases
           args:
             - "--collect.auto_increment.columns"
             - "--collect.binlog_size"
@@ -1550,7 +1608,7 @@ groups:
 
       # 复制延迟告警
       - alert: MySQLReplicationLag
-        expr: mysql_slave_status_seconds_behind_master > 30  # 新版exporter使用mysql_replica_status_seconds_behind_source
+        expr: mysql_replica_status_seconds_behind_source > 30
         for: 5m
         labels:
           severity: warning
@@ -1559,7 +1617,7 @@ groups:
           description: "实例 {{ $labels.instance }} 复制延迟 {{ $value }}秒"
 
       - alert: MySQLReplicationLagCritical
-        expr: mysql_slave_status_seconds_behind_master > 300
+        expr: mysql_replica_status_seconds_behind_source > 300
         for: 2m
         labels:
           severity: critical
@@ -1569,7 +1627,7 @@ groups:
 
       # 复制线程告警
       - alert: MySQLReplicationStopped
-        expr: mysql_slave_status_slave_sql_running == 0 or mysql_slave_status_slave_io_running == 0
+        expr: mysql_replica_status_slave_sql_running == 0 or mysql_replica_status_slave_io_running == 0
         for: 1m
         labels:
           severity: critical
@@ -1770,7 +1828,8 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION();"
 /usr/local/bin/mysql_backup.sh
 
 # 4. 检查兼容性
-mysqlcheck --all-databases --check-upgrade
+mysqlsh root@localhost -- util.checkForServerUpgrade()
+> mysqlcheck在MySQL 8.4中已废弃,使用mysqlsh替代
 
 # 5. 禁用MGR自动重启
 mysql --defaults-extra-file=${MYSQL_CNF} -e "
