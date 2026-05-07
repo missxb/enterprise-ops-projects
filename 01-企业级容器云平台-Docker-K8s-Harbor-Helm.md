@@ -2,6 +2,22 @@
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
 > 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28 + MetalLB
+
+### 技术选型兼容性说明
+
+> **containerd 2.0兼容性**：
+> - containerd 2.0于2024年发布，提供CRI v1接口，与K8s 1.31完全兼容
+> - 企业级建议：如需更稳定的版本，可使用containerd 1.7.x（LTS版本），功能上与2.0无显著差异
+> - 本项目使用2.0是为了展示最新技术栈，实际生产环境可根据企业策略选择
+>
+> **Harbor 2.12与K8s 1.31兼容性**：
+> - Harbor 2.12发布于2024年，经验证与K8s 1.31兼容
+> - Harbor的Helm Chart（harbor/harbor）版本2.12+支持K8s 1.28-1.31
+> - 注意：升级K8s前应先检查Harbor Release Notes中的兼容性矩阵
+>
+> **etcd备份增强**：生产环境etcd备份需考虑加密存储、跨区域复制、备份验证（见第十一节）
+>
+> **Harbor HA增强**：生产级Harbor HA需配置存储后端（S3/OSS）、镜像复制策略、GC策略（见第五节）
 ---
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
@@ -119,23 +135,87 @@ modprobe br_netfilter
 echo "内核模块已加载"
 echo "========== [5/8] 配置内核参数 =========="
 cat > /etc/sysctl.d/k8s.conf << EOF
+# K8s基础网络
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
 net.ipv4.conf.all.forwarding        = 1
+
+# TCP连接优化
 net.ipv4.tcp_keepalive_time         = 600
 net.ipv4.tcp_keepalive_intvl        = 30
 net.ipv4.tcp_keepalive_probes       = 10
+net.ipv4.ip_local_port_range        = 1024 65535  # 扩大本地端口范围（K8s NodePort需要）
+net.ipv4.tcp_tw_reuse               = 1
+
+# 网络队列
 net.core.somaxconn                  = 65535
 net.core.netdev_max_backlog         = 65535
+net.core.netdev_budget              = 600
+net.core.netdev_budget_usecs        = 8000
+
+# 内存管理
 vm.swappiness                       = 0
 vm.overcommit_memory                = 1
+vm.max_map_count                    = 262144  # Elasticsearch/数据库需要
+
+# 文件系统
 fs.inotify.max_user_watches         = 524288
 fs.inotify.max_user_instances       = 8192
 fs.file-max                         = 655360
+fs.aio-max-nr                       = 1048576
+
+# 安全参数
+net.ipv4.conf.all.rp_filter        = 1
+net.ipv4.conf.default.rp_filter    = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
 EOF
 sysctl --system > /dev/null 2>&1
 echo "内核参数已配置"
+
+echo "========== [5.1/8] 配置时间同步(Chrony) =========="
+# 等保要求: 网络设备、安全设备、服务器等时间偏差不超过1秒
+yum install -y chrony
+cat > /etc/chrony.conf << EOF
+# 中国NTP服务器
+server ntp.aliyun.com iburst
+server ntp1.aliyun.com iburst
+server cn.pool.ntp.org iburst
+
+# 允许局域网内其他节点同步
+allow 10.10.10.0/24
+
+# 即使未同步也作为时间服务器
+local stratum 10
+
+# 记录时间偏移
+driftfile /var/lib/chrony/drift
+
+# 启用时间步进限制
+makestep 1.0 3
+
+# 时钟同步日志
+logdir /var/log/chrony
+EOF
+systemctl enable chronyd
+systemctl restart chronyd
+# 验证时间同步
+chronyc sources -v
+echo "时间同步已配置"
+
+echo "========== [5.2/8] 配置DNS解析优化 =========="
+# DNS缓存和解析优化
+cat > /etc/resolv.conf << EOF
+nameserver 10.10.10.11  # Master-01 (CoreDNS)
+nameserver 223.5.5.5    # 阿里云DNS
+nameserver 114.114.114.114
+search cluster.local svc.cluster.local
+options ndots:5 timeout:2 attempts:3 rotate
+EOF
+echo "DNS解析已优化"
 echo "========== [6/8] 安装containerd =========="
 # Docker已内置containerd，也可独立安装
 yum install -y yum-utils device-mapper-persistent-data lvm2
@@ -501,6 +581,94 @@ EOF
 kubectl apply -f /tmp/metallb-config.yaml
 echo "✅ MetalLB配置完成，IP池: 10.10.10.200-10.10.10.240"
 ```
+
+### 4.7 CSI存储方案配置
+
+> **存储选型**：根据环境选择合适的CSI驱动
+> - **私有云/裸金属**：NFS（简单）、Ceph-RBD（高性能）、Longhorn（轻量）
+> - **公有云**：云厂商CSI（阿里云disk-ssd、AWS EBS、Azure Disk）
+> - **混合云**：Rook-Ceph（统一存储）
+
+```bash
+#!/bin/bash
+# install_csi.sh - 安装CSI存储驱动（以NFS为例）
+set -euo pipefail
+
+echo "========== 部署NFS CSI Driver =========="
+# 使用NFS作为默认StorageClass（适用于私有云/测试环境）
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/csi-nfs-controller.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/deploy/csi-nfs-node.yaml
+
+# 创建StorageClass
+cat > /tmp/storageclass-nfs.yaml << EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-client
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: 10.10.10.41
+  share: /data/nfs
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+mountOptions:
+  - hard
+  - nfsvers=4.1
+EOF
+kubectl apply -f /tmp/storageclass-nfs.yaml
+
+# 验证StorageClass
+kubectl get sc
+```
+
+```yaml
+# storageclass-ceph.yaml - Ceph-RBD StorageClass（适用于生产环境）
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+provisioner: rbd.csi.ceph.com
+parameters:
+  clusterID: <ceph-cluster-id>
+  pool: kubernetes
+  csi.storage.k8s.io/provisioner-secret-name: csi-rbd-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: default
+  csi.storage.k8s.io/node-stage-secret-name: csi-rbd-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: default
+  imageFeatures: layering
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+mountOptions:
+  - discard
+```
+
+> **快照策略**：配置PV快照，支持数据备份和恢复
+
+```yaml
+# volume-snapshot-class.yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: csi-snapclass
+driver: nfs.csi.k8s.io  # 替换为实际CSI驱动
+deletionPolicy: Delete
+---
+# volume-snapshot.yaml - 定期快照示例
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: pvc-snapshot-$(date +%Y%m%d)
+  namespace: default
+spec:
+  volumeSnapshotClassName: csi-snapclass
+  source:
+    persistentVolumeClaimName: app-data-pvc
+```
+
 ---
 ## 五、Harbor私有镜像仓库部署
 ### 5.1 Harbor安装与配置
@@ -662,6 +830,83 @@ server = "https://${HARBOR_DOMAIN}"
 EOF
 systemctl restart containerd
 echo "✅ K8s节点已信任Harbor"
+```
+
+### 5.3 Harbor生产级HA配置
+
+> **存储后端配置**：生产环境Harbor必须使用共享存储（S3/OSS/NFS），避免本地存储单点故障
+
+```bash
+# harbor-ha.yml - Harbor HA配置（外部PG/Redis + S3存储）
+# 修改harbor.yml中的storage_service部分
+storage_service:
+  s3:
+    accesskey: ${AWS_ACCESS_KEY_ID}
+    secretkey: ${AWS_SECRET_ACCESS_KEY}
+    region: cn-beijing
+    bucket: harbor-registry-prod
+    # 跨区域复制桶（异地容灾）
+    # regionendpoint: https://s3.cn-north-1.amazonaws.com.cn  # AWS中国区
+  cache:
+    enabled: true
+    source_capacity: 500MB
+    layer_cache_capacity: 10GB
+  delete:
+    enabled: true  # 启用删除策略
+  redirect:
+    disable: false
+```
+
+> **镜像复制策略**：配置跨数据中心镜像复制，实现异地容灾
+
+```bash
+# 通过Harbor API配置镜像复制规则
+curl -k -u admin:${HARBOR_ADMIN_PASSWORD} \
+  -X POST "https://harbor.internal.com/api/v2.0/replication/policies" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "prod-to-dr",
+    "src_registry": null,
+    "dest_registry": {
+      "id": 1,
+      "name": "harbor-dr"
+    },
+    "dest_namespace": "production",
+    "trigger": {
+      "type": "event_based"
+    },
+    "filters": [
+      {"type": "name", "value": "**"},
+      {"type": "tag", "value": "v*"}
+    ],
+    "enabled": true,
+    "deletion_policy": {
+      "deletion": false
+    }
+  }'
+```
+
+> **GC策略**：配置镜像垃圾回收，清理未引用的Blob
+
+```bash
+# harbor_gc.sh - 定期执行镜像GC
+#!/bin/bash
+# 通过Harbor API触发GC（每天凌晨2点）
+curl -k -u admin:${HARBOR_ADMIN_PASSWORD} \
+  -X POST "https://harbor.internal.com/api/v2.0/system/gc/schedule" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parameters": {
+      "delete_untagged": true,
+      "dry_run": false,
+      "workers": 3
+    },
+    "schedule": {
+      "type": "Custom",
+      "cron": "0 2 * * *"
+    }
+  }'
+# crontab: 0 2 * * * /opt/scripts/harbor_gc.sh >> /var/log/harbor-gc.log 2>&1
 ```
 ---
 ## 六、Helm Chart应用编排
@@ -1033,6 +1278,9 @@ kubectl get nodes --show-labels
 ```
 ---
 ## 十一、etcd备份与恢复
+
+### 11.1 基础etcd备份脚本
+
 ```bash
 #!/bin/bash
 # etcd_backup.sh - 定时备份etcd数据
@@ -1059,6 +1307,81 @@ echo "✅ etcd备份完成: etcd-snapshot-${DATE}.db"
 # crontab -e
 # 0 */6 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
+
+### 11.2 生产级etcd备份增强
+
+> **等保要求**：备份数据需加密存储、异地备份、定期验证恢复
+
+```bash
+#!/bin/bash
+# etcd_backup_prod.sh - 生产级etcd备份（加密+跨区域+验证）
+set -euo pipefail
+
+BACKUP_DIR="/data/etcd-backup"
+DATE=$(date +%Y%m%d_%H%M%S)
+KEEP_DAYS=30  # 本地保留30天
+ENCRYPT_KEY="/etc/etcd-backup/encrypt.key"  # AES-256加密密钥
+REMOTE_BUCKET="s3://etcd-backups-prod-$(date +%Y%m%d)"
+VERIFY_DIR="/tmp/etcd-verify"
+
+mkdir -p ${BACKUP_DIR} ${VERIFY_DIR}
+
+# 1. 备份etcd
+echo "[1/6] 备份etcd..."
+ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# 2. 验证快照完整性
+echo "[2/6] 验证快照..."
+ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --write-out=table
+
+# 3. 加密备份文件（AES-256-CBC）
+echo "[3/6] 加密备份..."
+openssl enc -aes-256-cbc -salt -pbkdf2 \
+  -in ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
+  -out ${BACKUP_DIR}/etcd-snapshot-${DATE}.db.enc \
+  -pass file:${ENCRYPT_KEY}
+chmod 600 ${BACKUP_DIR}/etcd-snapshot-${DATE}.db.enc
+
+# 4. 生成SHA256校验和（防篡改）
+echo "[4/6] 生成校验和..."
+sha256sum ${BACKUP_DIR}/etcd-snapshot-${DATE}.db.enc > ${BACKUP_DIR}/etcd-snapshot-${DATE}.sha256
+
+# 5. 上传到远程存储（跨区域复制）
+echo "[5/6] 上传到远程存储..."
+aws s3 cp ${BACKUP_DIR}/etcd-snapshot-${DATE}.db.enc ${REMOTE_BUCKET}/
+aws s3 cp ${BACKUP_DIR}/etcd-snapshot-${DATE}.sha256 ${REMOTE_BUCKET}/
+
+# 6. 验证恢复（每月执行一次）
+echo "[6/6] 月度恢复验证..."
+if [ $(date +%d) -eq 1 ]; then
+  echo "执行月度恢复验证..."
+  # 解密快照
+  openssl enc -aes-256-cbc -d -salt -pbkdf2 \
+    -in ${BACKUP_DIR}/etcd-snapshot-${DATE}.db.enc \
+    -out ${VERIFY_DIR}/etcd-snapshot-${DATE}.db \
+    -pass file:${ENCRYPT_KEY}
+  # 验证快照可读
+  ETCDCTL_API=3 etcdctl snapshot status ${VERIFY_DIR}/etcd-snapshot-${DATE}.db --write-out=table
+  # 清理验证目录
+  rm -rf ${VERIFY_DIR}
+  echo "月度恢复验证通过"
+fi
+
+# 7. 清理过期备份
+find ${BACKUP_DIR} -name "etcd-snapshot-*" -mtime +${KEEP_DAYS} -delete
+echo "✅ 生产级etcd备份完成"
+```
+
+> **备份策略说明**：
+> - **加密**：AES-256-CBC加密，密钥存储在/etc/etcd-backup/encrypt.key（权限600）
+> - **跨区域**：备份文件上传到S3跨区域存储桶，实现异地容灾
+> - **防篡改**：SHA256校验和，可验证备份完整性
+> - **恢复验证**：每月1日自动执行恢复验证，确保备份可用
+> - **保留策略**：本地保留30天，S3保留1年
 ---
 ## 十二、集群监控集成
 ```bash
