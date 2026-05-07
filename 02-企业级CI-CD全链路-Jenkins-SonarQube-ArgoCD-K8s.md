@@ -253,6 +253,7 @@ gitlab_rails['backup_keep_time'] = 604800  # 7天
 puma['worker_processes'] = 4
 sidekiq['max_concurrency'] = 20
 postgresql['shared_buffers'] = "2GB"
+postgresql['effective_cache_size'] = "10GB"  # 推荐: 物理内存的50-75%
 postgresql['work_mem'] = "16MB"
 postgresql['maintenance_work_mem'] = "512MB"
 
@@ -352,6 +353,7 @@ checkout:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
     - if: $CI_COMMIT_BRANCH =~ /^hotfix\/.*$/
+> **注意**: GitLab CI默认自动检出代码,checkout阶段可简化为仅需额外文件时使用
 
 # ========================================
 # 阶段2: 编译构建
@@ -362,6 +364,7 @@ build-java:
   script:
     - echo "Maven构建..."
     - mvn clean package -DskipTests -B
+> **说明**: -DskipTests跳过单元测试,后续unit-test阶段会执行测试。如需同时构建+测试,移除-DskipTests
     - mkdir -p target/docker
     - cp target/*.jar target/docker/app.jar
     - cp Dockerfile target/docker/
@@ -629,8 +632,10 @@ verify-production:
         sleep $RETRY_INTERVAL
       done
       echo "❌ 生产环境健康检查失败，触发自动回滚..."
-      kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
-      echo "已自动回滚到上一版本"
+      # GitOps回滚: revert Git提交而非kubectl命令
+      - git revert HEAD --no-edit && git push origin main
+      # ArgoCD自动检测Git变更并回滚
+> **GitOps原则**: 回滚通过Git revert实现,ArgoCD自动同步,避免kubectl与ArgoCD冲突
       exit 1
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
@@ -644,8 +649,10 @@ rollback-production:
   image: bitnami/kubectl:latest
   script:
     - echo "手动回滚生产环境..."
-    - kubectl rollout undo deployment/${CI_PROJECT_NAME} -n production
-    - kubectl rollout status deployment/${CI_PROJECT_NAME} -n production --timeout=300s
+    # GitOps回滚: revert Git提交而非kubectl命令
+    - git revert HEAD --no-edit && git push origin main
+    # ArgoCD自动检测Git变更并回滚
+> **GitOps原则**: 回滚通过Git revert实现,ArgoCD自动同步,避免kubectl与ArgoCD冲突
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
@@ -674,9 +681,14 @@ COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src/ src/
 RUN mvn clean package -DskipTests -B
+> **说明**: -DskipTests跳过单元测试,后续unit-test阶段会执行测试。如需同时构建+测试,移除-DskipTests
 
 # Stage 2: 运行
 FROM eclipse-temurin:17-jre-jammy AS runtime  # Ubuntu(jammy)
+
+LABEL org.opencontainers.image.title="ecommerce-app" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.source="https://github.com/org/ecommerce"
 
 > **2026建议**: 使用Ubuntu 24.04(noble)或Alpine减小镜像体积
 
@@ -716,10 +728,11 @@ ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \
   "-XX:InitialRAMPercentage=50.0", \
-  "-XX:+UseG1GC", \
-  "-XX:MaxGCPauseMillis=200", \
-  "-Djava.security.egd=file:/dev/./urandom", \
+  "-XX:+UseG1GC",
+  "-XX:MaxGCPauseMillis=200",
+  "-Djava.security.egd=file:/dev/./urandom",
   "-jar", "app.jar"]
+> G1GC在JDK 17中已是默认垃圾回收器,无需显式指定。如需使用其他GC(如ZGC),可替换
 ```
 
 ---
@@ -770,7 +783,9 @@ sonar.jdbc.url=jdbc:postgresql://localhost/sonarqube?currentSchema=public
 # [生产建议] 使用独立PostgreSQL: jdbc:postgresql://sonar-db-host:5432/sonarqube
 # 或使用阿里云RDS PostgreSQL，避免同机部署导致资源竞争
 sonar.web.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
+> G1GC在JDK 17中已是默认垃圾回收器,无需显式指定。如需使用其他GC(如ZGC),可替换
 sonar.ce.javaAdditionalOpts=-server -Xms1g -Xmx4g -XX:+UseG1GC
+> G1GC在JDK 17中已是默认垃圾回收器,无需显式指定。如需使用其他GC(如ZGC),可替换
 sonar.search.javaAdditionalOpts=-server -Xms1g -Xmx2g -XX:+UseG1GC
 sonar.core.serverBaseURL=https://sonar.internal.com
 sonar.authenticator.downcased=true
@@ -1389,6 +1404,7 @@ patches:
 > kubectl label namespace production istio-injection=enabled
 > ```
 > 如不使用Istio，可改用Nginx Ingress的canary annotation实现简单灰度。
+> **2026趋势**: Istio Ambient Mesh已GA,取消Sidecar注入,资源消耗降低40-60%。新部署建议使用Ambient模式
 
 ```yaml
 # canary-deployment.yaml - Istio金丝雀发布
@@ -1619,11 +1635,9 @@ enterprise-cicd-pipeline/
 ├── scripts/
 ├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
 ├── tests/                  # 部署验证测试
-│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
+# scripts/02-cicd/ 目录下包含本项目所有脚本
 │   ├── install_gitlab.sh
-│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_jenkins.sh
-│   (实际脚本见项目根目录 scripts/01-k8s/ 至 scripts/10-security/)
 │   ├── install_sonarqube.sh
 │   ├── install_argocd.sh
 │   ├── setup_webhook.sh
@@ -2059,6 +2073,12 @@ tar czf ${BACKUP_DIR}/jenkins-${DATE}.tar.gz \
 
 # 上传到S3
 aws s3 cp ${BACKUP_DIR}/jenkins-${DATE}.tar.gz s3://jenkins-backup/
+# 完整Jenkins备份应包含:
+# 1. config.xml - 主配置
+# 2. jobs/*/config.xml - 任务配置
+# 3. plugins/*.hpi - 插件(必须备份!)
+# 4. secrets/ - 密钥(必须加密!)
+# 5. users/ - 用户配置
 ```
 
 ### ArgoCD应用迁移
@@ -2069,6 +2089,11 @@ argocd app get my-app -o yaml > my-app.yaml
 
 # 修改后在新集群部署
 kubectl apply -f my-app.yaml
+# 完整ArgoCD迁移应导出:
+# 1. Applications: kubectl get applications -n argocd -o yaml
+# 2. Projects: kubectl get appprojects -n argocd -o yaml
+# 3. Repos: kubectl get repos -n argocd -o yaml (或argocd repo list)
+# 4. Secret: kubectl get secret argocd-secret -n argocd -o yaml
 ```
 
 ---
@@ -2507,6 +2532,13 @@ helm upgrade jenkins jenkins/jenkins -n jenkins -f jenkins-values.yaml
 # 3. 验证
 kubectl get pods -n jenkins
 ```
+
+### 回滚步骤
+1. 恢复etcd快照: etcdctl snapshot restore
+2. 恢复manifests: cp /backup/manifests/* /etc/kubernetes/manifests/
+3. 重启kubelet: systemctl restart kubelet
+4. 验证: kubectl get nodes && kubectl get pods -A
+5. 通知: 告知团队回滚完成
 
 ---
 
