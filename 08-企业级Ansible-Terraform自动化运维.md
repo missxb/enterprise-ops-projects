@@ -24,6 +24,15 @@
 
 ---
 
+### 现代替代方案
+
+| 工具 | 说明 | 适用场景 |
+|------|------|----------|
+| Pulumi | 使用Python/Go/TypeScript编写IaC，而非HCL | 开发团队主导的基础设施 |
+| OpenTofu | Terraform的开源分支(Linux Foundation)，完全兼容 | 需要避免HashiCorp BSL许可限制 |
+
+> **选型建议**: 本项目使用Terraform+Ansible，适合运维团队主导。如需开发团队参与，可考虑Pulumi。
+
 ## 二、Ansible项目结构
 
 ```
@@ -299,15 +308,16 @@ k8s-worker-03 ansible_host=10.10.10.23
 
 > **阿里云配置建议**:
 > - RAM角色: 使用RAM角色授权ECS实例访问OSS/RDS,避免硬编码AK/SK
-> - VPC规划: 预留足够CIDR空间(建议/12),支持后续扩展
+> - VPC规划: 预留足够CIDR空间(建议/12),支持后续扩展;生产环境建议多可用区部署(至少2个AZ),配合SLB实现跨AZ高可用
 > - 安全组: 最小权限原则,仅开放必要端口
-> - 成本优化: 按量付费适合测试环境,包年包月适合生产环境(节省30-50%)
+> - 成本优化: 按量付费适合测试环境,包年包月适合生产环境(节省30-50%);Spot实例适合无状态服务(节省60-80%),需配置中断处理和混合实例池
 
 ### 3.1 阿里云ECS集群
 
 ```hcl
 # main.tf - 阿里云ECS集群
 terraform {
+  required_version = ">= 1.10"  # Terraform 1.10+ 支持增强型后端锁定
   required_providers {
     alicloud = {
       source  = "aliyun/alicloud"
