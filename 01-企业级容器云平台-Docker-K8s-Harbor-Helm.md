@@ -61,6 +61,22 @@
 - 日志格式：[时间] [级别] [模块] 消息
 - 保留策略：最近30天日志
 
+### 日志轮转配置
+```bash
+cat > /etc/logrotate.d/k8s-ops << 'EOF'
+/var/log/k8s-ops/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0750 root root
+    dateext
+    dateformat -%Y%m%d
+}
+EOF
+```
+
 ### 0.3 回滚机制
 
 关键操作支持自动回滚：
@@ -268,6 +284,20 @@ echo "========== [3/8] 关闭防火墙 =========="
 systemctl stop firewalld 2>/dev/null || true
 systemctl disable firewalld 2>/dev/null || true
 echo "防火墙已关闭"
+### NetworkPolicy默认拒绝示例
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+```
+> 生产环境建议: 默认拒绝所有流量,按需添加白名单规则。
 echo "========== [4/8] 加载内核模块 =========="
 cat > /etc/modules-load.d/k8s.conf << EOF
 overlay
@@ -352,13 +382,14 @@ echo "时间同步已配置"
 echo "========== [5.2/8] 配置DNS解析优化 =========="
 # DNS缓存和解析优化
 cat > /etc/resolv.conf << EOF
-nameserver 10.10.10.11  # Master-01 (CoreDNS)
-nameserver 223.5.5.5    # 阿里云DNS
-nameserver 114.114.114.114
+# 节点层面使用外部DNS(CoreDNS是K8s Service,仅集群内可访问)
+nameserver 223.5.5.5      # 阿里云DNS
+nameserver 114.114.114.114 # 备用DNS
 search cluster.local svc.cluster.local
 options ndots:5 timeout:2 attempts:3 rotate
 EOF
 echo "DNS解析已优化"
+> **注意**: CoreDNS运行在K8s Service(ClusterIP 10.96.0.0/12)，节点层面无法直接访问。Pod层面通过dnsPolicy: ClusterFirst自动使用CoreDNS。
 echo "========== [6/8] 安装containerd =========="
 # Docker已内置containerd，也可独立安装
 yum install -y yum-utils device-mapper-persistent-data lvm2
@@ -478,13 +509,14 @@ backend k8s_apiserver
     server master03 ${MASTER03}:6443 check inter 3s fall 3 rise 2
 # HAProxy Stats
 frontend stats
-    bind *:8404
+    bind 127.0.0.1:8404
     mode http
     stats enable
     stats uri /stats
     stats refresh 10s
     stats admin if LOCALHOST
 HAPCFG
+> HAProxy Stats仅绑定127.0.0.1,通过SSH隧道访问: ssh -L 8404:127.0.0.1:8404 master
 systemctl enable haproxy
 systemctl restart haproxy
 echo "安装Keepalived..."
@@ -562,7 +594,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: v1.31.0
+kubernetesVersion: v1.35.4
 controlPlaneEndpoint: "${VIP}:6443"
 imageRepository: registry.aliyuncs.com/google_containers  # [阿里云镜像加速]
 # [镜像源说明]
@@ -1033,6 +1065,14 @@ data_volume: /data/harbor
 storage_service:
   s3:
     disabled: true
+# 生产环境启用OSS(替代本地存储):
+# storage_service:
+#   s3:
+#     accesskey: ${OSS_ACCESS_KEY}
+#     secretkey: ${OSS_SECRET_KEY}
+#     region: oss-cn-hangzhou
+#     bucket: harbor-prod
+#     rootdirectory: harbor
 jobservice:
   max_job_workers: 10
   job_loggers:
@@ -1540,6 +1580,8 @@ kubectl label nodes k8s-worker-04 node-role=stateful
 # GPU节点
 kubectl label nodes k8s-worker-05 workload-type=gpu
 kubectl label nodes k8s-worker-05 nvidia.com/gpu=true
+kubectl taint nodes k8s-worker-05 nvidia.com/gpu=true:NoSchedule
+# **Taint作用**: 防止非GPU应用调度到GPU节点,应用需添加toleration: nvidia.com/gpu=true:NoSchedule
 # 环境标签
 for node in k8s-worker-{01..05}; do
   kubectl label nodes $node environment=production --overwrite
