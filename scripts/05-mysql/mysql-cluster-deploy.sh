@@ -207,6 +207,8 @@ docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (3, '.*', 10);
   INSERT INTO mysql_users(username, password, default_hostgroup) VALUES ('app_user', '${MYSQL_REPL_PASSWORD}', 10);
   INSERT INTO mysql_users(username, password, default_hostgroup, active) VALUES ('monitor', '${MYSQL_REPL_PASSWORD}', 10, 1);
+  UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username';
+  UPDATE global_variables SET variable_value='${MYSQL_REPL_PASSWORD}' WHERE variable_name='mysql-monitor_password';
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (10, '${PRIMARY_IP}', 3306, 1000);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.12', 3306, 1000);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.13', 3306, 1000);
@@ -217,10 +219,7 @@ docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P
   SAVE MYSQL SERVERS TO DISK;
   SAVE MYSQL QUERY RULES TO DISK;
   SAVE MYSQL USERS TO DISK;
-  LOAD MYSQL SERVERS TO RUNTIME;
-  LOAD MYSQL QUERY RULES TO RUNTIME;
-  SAVE MYSQL SERVERS TO DISK;
-  SAVE MYSQL QUERY RULES TO DISK;
+
 "
 
 echo "  ✅ ProxySQL部署完成(注意: ProxySQL映射3306端口,确保与MySQL不冲突)"
