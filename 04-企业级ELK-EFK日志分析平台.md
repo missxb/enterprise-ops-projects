@@ -330,8 +330,9 @@ curl -k -X PUT 'https://es-master:9200/_snapshot/cold-backup' \
   "type": "s3",
   "settings": {
     "bucket": "enterprise-es-snapshots",
-    "region": "cn-north-1",
+    "region": "oss-cn-hangzhou",
     "base_path": "enterprise-logs/cold",
+> 国内环境使用阿里云OSS,endpoint: https://oss-cn-hangzhou.aliyuncs.com
     "compress": true,
     "server_side_encryption": true
   }
@@ -416,7 +417,8 @@ spec:
         app: filebeat
     spec:
       serviceAccountName: filebeat
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
+      # 日志缓冲场景需要更长的grace period确保数据刷盘
       containers:
         - name: filebeat
           image: elastic/filebeat:8.17.0
@@ -513,6 +515,9 @@ data:
         multiline.negate: true
         multiline.match: after
         multiline.max_lines: 500
+        # 注意: 此模式匹配YYYY-MM-DD格式。如日志使用其他格式(如DD/MMM/YYYY),需调整pattern。建议:
+        # pattern: '^[\d]{4}-[\d]{2}-[\d]{2}|^[\d]{2}/[\w]{3}/[\d]{4}'
+        # multiline.max_lines: 1000  # 深层嵌套异常可能超过500行
         processors:
           - add_kubernetes_metadata:
               host: ${NODE_NAME}
@@ -652,6 +657,15 @@ spec:
 > - name: KAFKA_OPTS
 >   value: "-javaagent:/opt/bitnami/kafka/jmx_prometheus_javaagent.jar=9308:/opt/bitnami/kafka/jmx_prometheus_jmx_exporter.yml"
 > ```
+
+> # Kafka Exporter部署
+> ```yaml
+> image: danielqsj/kafka-exporter:latest
+> args:
+>   - --kafka.server=kafka-0.kafka:9092
+>   - --kafka.topic.filter=.*
+> ```
+> Kafka需要专用Exporter暴露消费者组lag、分区数量等metrics
 
 > Filebeat配置中将output改为Kafka:
 > ```yaml
@@ -1205,8 +1219,18 @@ output {
       codec => line { format => "%{message}" }
     }
   }
+
+  # Logstash死信队列配置
+  if "_grokparsefailure" in [tags] or "_jsonparsefailure" in [tags] {
+    file {
+      path => "/usr/share/logstash/dead-letter/%{+YYYY-MM-dd}.log"
+      codec => json
+    }
+  }
 }
 ```
+
+> 解析失败的日志应发送到DLQ而非丢弃,便于后续分析和修复
 
 ---
 
@@ -1436,6 +1460,11 @@ curl -X POST 'http://es-secondary:9200/_ccr/pause_follow/enterprise-logs-2024.03
 # - 设置CCR同步监控告警
 ```
 
+> **License要求**: CCR(跨集群复制)需要Platinum/Enterprise License。开源替代方案:
+> - Logstash跨集群同步
+> - Kafka MirrorMaker 2
+> - 阿里云ES的DTS数据传输服务
+
 ---
 
 ## 十五、性能调优详细参数
@@ -1659,8 +1688,9 @@ curl -X PUT 'http://es-master:9200/_snapshot/s3_backup' -H 'Content-Type: applic
   "type": "s3",
   "settings": {
     "bucket": "enterprise-es-snapshots",
-    "region": "cn-north-1",
+    "region": "oss-cn-hangzhou",
     "base_path": "enterprise-logs",
+> 国内环境使用阿里云OSS,endpoint: https://oss-cn-hangzhou.aliyuncs.com
     "compress": true,
     "server_side_encryption": true,
     "max_snapshot_bytes_per_sec": "100mb",
@@ -1874,8 +1904,9 @@ spec:
       containers:
         - name: elasticsearch-exporter
           image: prometheuscommunity/elasticsearch-exporter:v1.7.0
+          # 生产环境应使用最新稳定版,查看https://github.com/prometheus-community/elasticsearch_exporter/releases
           args:
-            - "--es.uri=https://elastic:${ELASTIC_PASSWORD}@es-master-0:9200"
+            - "--es.uri=https://elastic:${ELASTIC_PASSWORD}@es-master.logging.svc.cluster.local:9200"
             - "--es.all"
             - "--es.indices"
             - "--es.indices_settings"
@@ -2157,6 +2188,15 @@ curl -X POST 'http://es-master:9200/_security/user/es_admin' -H 'Content-Type: a
 }'
 ```
 
+### 19.3 ES 8.x推荐使用API Key替代用户名密码
+```yaml
+# ES 8.x推荐使用API Key替代用户名密码
+# 创建API Key:
+# POST /_security/api_key
+# {"name": "logstash", "role_descriptors": {"logstash_role": {"cluster": ["monitor"], "index": [{"names": ["logstash-*"], "privileges": ["write", "read"]}]}}
+```
+> API Key比用户名密码更安全,支持细粒度权限控制
+
 ### 19.3 审计日志配置
 
 ```json
@@ -2270,6 +2310,11 @@ kubectl -n logging set image deployment/logstash \
 kubectl -n logging set image daemonset/filebeat \
   filebeat=elastic/filebeat:8.12.0
 ```
+
+> **低峰期升级**: Data-Hot节点升级会影响写入,必须在业务低峰期(如凌晨2-6点)执行。建议:
+> 1. 通知业务团队
+> 2. 监控写入QPS
+> 3. 准备回滚方案
 
 ### 20.3 升级后验证
 
