@@ -1064,7 +1064,7 @@ terraform {
 ansible-inventory --vars --list | jq '.all.vars.db_port'
 
 # 使用debug输出变量
-ansible-playbook -e "ansible_debug=true" --step playbooks/mysql.yml
+ANSIBLE_DEBUG=1 ansible-playbook --step playbooks/mysql.yml  # ANSIBLE_DEBUG=1是标准环境变量
 ```
 
 **解决方案**:
