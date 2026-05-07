@@ -19,11 +19,6 @@ provider "alicloud" {
   region = var.region
 }
 
-variable "key_name" {
-  description = "SSH密钥对名称"
-  type        = string
-}
-
 resource "alicloud_vpc" "main" {
   vpc_name   = "${var.project}-vpc"
   cidr_block = "10.10.0.0/12"
@@ -70,6 +65,7 @@ resource "alicloud_instance" "master" {
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"
   system_disk_size     = 50
+  internet_max_bandwidth_out = 10
   tags = {
     Role     = "master"
     Project  = var.project
@@ -86,6 +82,7 @@ resource "alicloud_instance" "worker" {
   vswitch_id           = alicloud_vswitch.main.id
   system_disk_category = "cloud_essd"
   system_disk_size     = 100
+  internet_max_bandwidth_out = 10
   tags = {
     Role     = "worker"
     Project  = var.project

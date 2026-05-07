@@ -20,3 +20,8 @@ variable "admin_cidr" {
   type        = string
   default     = "10.10.0.0/16"
 }
+
+variable "key_name" {
+  description = "SSH密钥对名称"
+  type        = string
+}
