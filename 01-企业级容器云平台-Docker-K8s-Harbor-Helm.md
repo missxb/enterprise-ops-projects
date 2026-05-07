@@ -108,9 +108,13 @@ trap 'log "ERROR" "脚本执行失败，行号: $LINENO"; rollback; exit 1' ERR
 # 回滚函数（子类覆盖）
 rollback() {
     log "WARN" "执行回滚操作..."
-    # 默认回滚逻辑（子类可覆盖）
+    # 具体回滚逻辑由各部署脚本覆盖:
+    # - harbor-ha.sh: 回滚Harbor安装
+    # - mysql-cluster-deploy.sh: 回滚MGR集群
+    # - monitor-deploy.sh: 回滚监控栈
     return 0
 }
+> 各部署脚本应覆盖rollback()函数,实现具体回滚逻辑
 
 # 依赖检查
 check_deps() {
@@ -1642,6 +1646,9 @@ spec:
   selector:
     matchLabels:
       app: order-service
+> **风险**: 60%在5个副本时需要3个可用。缩容时HPA可能因PDB阻止而无法正常缩容。建议:
+> - 使用固定数字(minAvailable: 2)替代百分比
+> - 或使用maxUnavailable: 1替代minAvailable
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -1701,6 +1708,9 @@ spec:
         cpu: "8"
         memory: 16Gi
 ```
+> **注意**: LimitRange max 8C16G可能限制大数据/ML应用。建议:
+> - 为特殊工作负载创建独立Namespace
+> - 或在Namespace级别覆盖LimitRange
 ---
 ## 十、节点标签与容忍
 ```bash
@@ -1904,7 +1914,12 @@ helm install filebeat elastic/filebeat \
   processors:
     - add_kubernetes_metadata:
         host: ${NODE_NAME}  # 注意: Helm --set传递时此变量不会被Shell展开
-                          # 生产环境应使用Downward API注入: fieldRef: fieldPath: spec.nodeName
+# 生产环境使用Downward API注入NODE_NAME:
+env:
+- name: NODE_NAME
+  valueFrom:
+    fieldRef:
+      fieldPath: spec.nodeName
 output.elasticsearch:
   hosts: ["http://elasticsearch-master:9200"]'
 echo "✅ EFK日志系统部署完成"
@@ -1944,6 +1959,11 @@ kubectl get pod <pod-name> -n <namespace> -o yaml
 # Pod处于Pending状态
 kubectl describe pod <pod-name>  # 查看Events
 # 可能原因: 资源不足、PVC未绑定、节点亲和性不匹配
+# Pod处于Pending时的解决后建议:
+> **生产建议**: 使用Cluster Autoscaler自动扩缩节点:
+> - 阿里云: ACK集群内置节点自动伸缩
+> - 自建: 部署cluster-autoscaler,基于Pending Pod自动扩容
+> - 配置: min-nodes=3, max-nodes=10, scale-down-delay=10m
 # Pod处于CrashLoopBackOff
 kubectl logs <pod-name> --previous  # 查看上一次日志
 kubectl describe pod <pod-name>     # 查看退出码
@@ -2066,7 +2086,7 @@ enterprise-container-platform/
 ├── scripts/
 ├── configs/                 # 配置文件(gitlab-ci/Dockerfile/Helm/Terraform/Ansible)
 ├── tests/                  # 部署验证测试
-│   ├── 01_init_nodes.sh              # 节点初始化
+│   ├── init_nodes.sh              # 节点初始化
 │   ├── 02_install_haproxy_keepalived.sh  # 负载均衡
 │   ├── 03_init_k8s_cluster.sh        # K8s集群初始化
 │   ├── 04_join_masters.sh            # Master加入
