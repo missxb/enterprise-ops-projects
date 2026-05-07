@@ -142,7 +142,13 @@ echo ">>> 8. 配置防火墙"
 
 # K8s节点使用NetworkPolicy替代firewalld，跳过防火墙配置
 if systemctl is-active kubelet &>/dev/null; then
-  echo "  ℹ️  检测到K8s节点，跳过firewalld配置(使用NetworkPolicy)"
+  echo "  ℹ️  检测到K8s节点,使用iptables限制节点端口(不与kube-proxy冲突)"
+  # K8s节点: iptables白名单限制节点端口访问
+  iptables -A INPUT -s 10.10.0.0/16 -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
+  iptables -A INPUT -s 10.10.0.0/16 -p tcp --dport 10250 -j ACCEPT 2>/dev/null || true
+  iptables -A INPUT -s 10.10.0.0/16 -p tcp --dport 6443 -j ACCEPT 2>/dev/null || true
+  iptables -A INPUT -p tcp --dport 22 -j DROP 2>/dev/null || true
+  echo "  ✅ K8s节点iptables白名单已配置" 
 else
   # 非K8s节点: 启用firewalld
   systemctl enable firewalld

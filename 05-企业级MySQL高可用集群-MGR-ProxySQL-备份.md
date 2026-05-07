@@ -367,7 +367,7 @@ systemctl start mysqld
 echo "Step 5: 应用binlog到目标时间点..."
 for binlog_file in ${BACKUP_DIR}/binlog/binlog-*; do
   if [ -f "${binlog_file}" ] && [[ ! "${binlog_file}" == *.sql ]]; then
-    mysqlbinlog --start-position=0 "${binlog_file}" | mysql --defaults-extra-file=${MYSQL_CNF} 2>/dev/null || true
+    mysqlbinlog --stop-datetime="${TARGET_TIME}" "${binlog_file}" | mysql --defaults-extra-file=${MYSQL_CNF} 2>/dev/null || true
   elif [ -f "${binlog_file}" ]; then
     mysql --defaults-extra-file=${MYSQL_CNF} < "${binlog_file}" 2>/dev/null || true
   fi
@@ -1835,7 +1835,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "
 
 ### 问题: ProxySQL单点故障
 
-当前只部署1台ProxySQL(10.10.30.21)，宕机则所有数据库连接中断。
+当前只部署1台ProxySQL(10.10.30.21)，宕机则所有数据库连接中断。生产环境建议部署2台ProxySQL + Keepalived VIP实现高可用。
 
 ### 解决方案: 双ProxySQL + Keepalived
 

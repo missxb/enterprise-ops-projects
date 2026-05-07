@@ -185,10 +185,34 @@ ssh root@${FIRST_NODE} mysql --defaults-extra-file=/tmp/mysql.cnf -e "SELECT * F
 echo ""
 echo ">>> Step 4: 部署ProxySQL读写分离"
 CURRENT_STEP=4
-echo "  ProxySQL配置:"
-echo "    - 写入: MGR Primary"
-echo "    - 读取: MGR Secondary(轮询)"
-echo "    - 故障检测: 自动剔除不健康节点"
+
+# 获取MGR Primary节点IP
+PRIMARY_IP=$(ssh root@${FIRST_NODE} "mysql --defaults-extra-file=/tmp/mysql.cnf -N -e "SELECT MEMBER_HOST FROM performance_schema.replication_group_members WHERE MEMBER_ROLE='PRIMARY'" 2>/dev/null" | cut -d: -f1)
+
+# 部署ProxySQL容器
+docker run -d --name proxysql --restart=always \
+  -p 3306:3306 -p 6032:6032 \
+  -e MYSQL_ADMIN_USER=admin \
+  -e MYSQL_ADMIN_PASSWORD=admin \
+  proxysql/proxysql:2.6.0
+
+# 配置ProxySQL
+docker exec proxysql mysql -u admin -padmin -h 127.0.0.1 -P 6032 -e "
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (10, '${PRIMARY_IP}', 3306);
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.12', 3306);
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.13', 3306);
+  INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (1, '^SELECT.*FOR UPDATE', 10);
+  INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (2, '^SELECT', 20);
+  LOAD MYSQL SERVERS TO RUNTIME;
+  LOAD MYSQL QUERY RULES TO RUNTIME;
+  SAVE MYSQL SERVERS TO DISK;
+  SAVE MYSQL QUERY RULES TO DISK;
+"
+
+echo "  ✅ ProxySQL部署完成"
+echo "  写入: ${PRIMARY_IP}:3306"
+echo "  读取: 10.10.30.12/13:3306(轮询)"
+echo "  管理: 127.0.0.1:6032(admin/admin)" 
 
 echo ""
 echo "=== MySQL MGR集群部署完成 ==="
