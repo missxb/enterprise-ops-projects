@@ -6,7 +6,7 @@ set -euo pipefail
 umask 077
 
 NAMESPACE="${NAMESPACE:-gateway}"
-ISTIO_VERSION="${ISTIO_VERSION:-1.20.0}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.29.2}"
 
 echo "=== 微服务网关完整部署 ==="
 
