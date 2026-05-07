@@ -66,6 +66,11 @@
 | Logstash | 3 | 8C/16G/100G | 日志转换 |
 | Filebeat | DaemonSet | - | 日志采集 |
 
+> **生产建议**: 大规模集群(>50节点)建议增加:
+> - Ingest节点(2-3个): 处理日志解析,减少Data节点CPU压力
+> - Coordinating节点(2-3个): 处理查询请求,与数据节点分离
+> - 冷节点: searchable_snapshot场景可减至1个
+
 ---
 
 ## 三、Elasticsearch集群部署
@@ -159,7 +164,7 @@ spec:
           # echo "vm.max_map_count=262144" >> /etc/sysctl.d/99-elasticsearch.conf && sysctl -p
       containers:
         - name: elasticsearch
-          image: elasticsearch:8.11.3
+          image: elasticsearch:8.17.0
           ports:
             - containerPort: 9200  # ES端口
               name: http
@@ -232,12 +237,12 @@ spec:
     spec:
       containers:
         - name: elasticsearch
-          image: elasticsearch:8.11.3
+          image: elasticsearch:8.17.0
           env:
             - name: NODE_ROLES
               value: "data_hot,ingest"
             - name: ES_JAVA_OPTS
-              value: "-Xms16g -Xmx16g"
+              value: "-Xms31g -Xmx31g"  # 64G物理内存,堆不超过32G压缩指针阈值
           resources:
             requests:
               cpu: "8"
@@ -414,7 +419,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: filebeat
-          image: elastic/filebeat:8.11.3
+          image: elastic/filebeat:8.17.0
           args: ["-c", "/etc/filebeat/filebeat.yml", "-e"]
           securityContext:
             runAsUser: 0
@@ -538,6 +543,12 @@ data:
       hosts: ["https://es-master-0:9200"]
 ```
 
+> **⚠️ 默认配置**: 此处使用直连ES(轻量方案)。生产环境推荐使用Kafka缓冲+Logstash处理:
+> output.kafka:
+>   hosts: ["kafka-0.kafka:9092","kafka-1.kafka:9092","kafka-2.kafka:9092"]
+>   topic: "filebeat-logs"
+> 然后Logstash消费Kafka并输出到ES。详见第13.4节
+
 ---
 
 ## 六、Kafka缓冲层(可选但推荐)
@@ -572,12 +583,10 @@ spec:
     spec:
       containers:
       - name: kafka
-        image: bitnami/kafka:3.7
+        image: bitnami/kafka:3.9
         env:
         - name: KAFKA_CFG_NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+          value: "0"  # StatefulSet ordinal, kafka-0=0, kafka-1=1, kafka-2=2
         - name: KAFKA_CFG_PROCESS_ROLES
           value: "broker,controller"
         - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
@@ -616,7 +625,7 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 50Gi
+            storage: 200Gi  # 日志缓冲需要更大空间
 ---
 apiVersion: v1
 kind: Service
@@ -630,6 +639,19 @@ spec:
   - port: 9092
     name: plaintext
 ```
+
+> **⚠️ KRaft模式要求node.id为数字。StatefulSet的ordinal(0,1,2)通过hostname提取，不能直接使用metadata.name(返回"kafka-0"字符串)。**
+> 每个broker的KAFKA_CFG_NODE_ID需手动指定对应序号。
+
+> **⚠️ 日志缓冲场景建议200Gi+,高峰期日志量可能突增**
+
+> Kafka需要JMX Exporter暴露metrics供Prometheus抓取
+
+> ```yaml
+> # JMX Exporter配置
+> - name: KAFKA_OPTS
+>   value: "-javaagent:/opt/bitnami/kafka/jmx_prometheus_javaagent.jar=9308:/opt/bitnami/kafka/jmx_prometheus_jmx_exporter.yml"
+> ```
 
 > Filebeat配置中将output改为Kafka:
 > ```yaml
@@ -720,10 +742,14 @@ spec:
     spec:
       containers:
         - name: kibana
-          image: kibana:8.11.3
+          image: kibana:8.17.0
           env:
             - name: ELASTICSEARCH_HOSTS
               value: '["https://es-master-0:9200","https://es-master-1:9200","https://es-master-2:9200"]'
+
+> 生产建议: 使用K8s Service名称替代硬编码Pod名称:
+> ELASTICSEARCH_HOSTS: https://es-master.logging.svc.cluster.local:9200
+
             - name: ELASTICSEARCH_USERNAME
               value: "kibana_system"
             - name: ELASTICSEARCH_PASSWORD
@@ -779,8 +805,8 @@ spec:
 ```bash
 # /etc/elasticsearch/jvm.options
 # 堆内存: 不超过物理内存的50%，不超过32GB(压缩指针上限)
--Xms16g
--Xmx16g
+-Xms31g
+-Xmx31g
 
 # GC配置(G1GC)
 -XX:+UseG1GC
@@ -814,6 +840,9 @@ PUT _index_template/logs-template
     },
     "mappings": {
       "dynamic": "strict",
+
+> strict模式拒绝未知字段。日志场景建议使用dynamic: true或dynamic: runtime(ES 7.11+)以容忍新字段
+
       "properties": {
         "@timestamp": { "type": "date" },
         "message": { "type": "text", "analyzer": "ik_max_word" },
@@ -1056,7 +1085,7 @@ e: KAFKA_HEAP_OPTS
         storageClassName: local-ssd
         resources:
           requests:
-            storage: 500Gi
+            storage: 200Gi
 ```
 
 ### 13.3 Topic配置
@@ -1093,7 +1122,7 @@ kubectl exec -it kafka-0 -n logging -- \
 # 查看消费者组
 kubectl exec -it kafka-0 -n logging -- \
   kafka-consumer-groups.sh --bootstrap-server localhost:9092  # [已修复] Kafka端口是9092不是9200 \
-  --group logstash-consumer \
+  --group logstash-consumers \
   --describe
 ```
 
@@ -1107,7 +1136,7 @@ filebeat.yml:
     topic: "elk-logs"
     partition.round_robin:
       reachable_only: true
-    required_acks: 1
+    required_acks: -1
     compression: lz4
     max_message_bytes: 1000000
     worker: 4
@@ -1115,6 +1144,8 @@ filebeat.yml:
   # 背压处理
   queue.mem:
     events: 8192
+
+> required_acks: -1(all)保证所有副本确认写入,防止数据丢失
     flush.min_events: 1024
     flush.timeout: 3s
 ```
@@ -1127,7 +1158,7 @@ input {
   kafka {
     bootstrap_servers => "kafka-0.kafka:9092,kafka-1.kafka:9092,kafka-2.kafka:9092"
     topics => ["elk-logs"]
-    group_id => "logstash-consumer"
+    group_id => "logstash-consumers"
     consumer_threads => 4
     decorate_events => true
     codec => "json"
@@ -1336,10 +1367,10 @@ curl -X POST 'http://es-master:9200/_reindex' -H 'Content-Type: application/json
 ```bash
 # 查看消费者组状态
 kafka-consumer-groups.sh --bootstrap-server kafka-0:9092 \
-  --group logstash-consumer --describe
+  --group logstash-consumers --describe
 
 # GROUP              TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
-# logstash-consumer  elk-logs        0          1234567         1235678         1111
+# logstash-consumers  elk-logs        0          1234567         1235678         1111
 # ... (所有分区lag都在增长)
 
 # 查看Logstash pipeline状态
@@ -1368,7 +1399,7 @@ curl -s 'http://logstash:9600/_node/stats/pipelines/main?pretty' | jq '.pipeline
 # 3. 监控恢复
 while true; do
   kafka-consumer-groups.sh --bootstrap-server kafka-0:9092 \
-    --group logstash-consumer --describe | \
+    --group logstash-consumers --describe | \
     awk 'NR>1{sum+=$5}END{print "Total lag: "sum}'
   sleep 10
 done
@@ -2047,21 +2078,24 @@ groups:
 ```bash
 # 1. 生成CA证书
 openssl genrsa -out ca.key 4096
-openssl req -new -x509 -days 3650 -key ca.key -out ca.crt -subj "/CN=Enterprise-ES-CA"
+openssl req -new -x509 -days 730 -key ca.key -out ca.crt -subj "/CN=Enterprise-ES-CA"
 
 # 2. 生成HTTP证书
 openssl genrsa -out http.key 2048
 openssl req -new -key http.key -out http.csr -subj "/CN=es-master-0.elasticsearch.svc"
-openssl x509 -req -days 3650 -in http.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out http.crt
+openssl x509 -req -days 730 -in http.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out http.crt
 
 # 3. 生成Transport证书
 openssl genrsa -out transport.key 2048
 openssl req -new -key transport.key -out transport.csr -subj "/CN=transport"
-openssl x509 -req -days 3650 -in transport.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out transport.crt
+openssl x509 -req -days 730 -in transport.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out transport.crt
 
 # 4. 转换为PKCS12
 openssl pkcs12 -export -in http.crt -inkey http.key -out http.p12 -password pass:changeit
 openssl pkcs12 -export -in transport.crt -inkey transport.key -out transport.p12 -password pass:changeit
+
+> 生产环境必须使用环境变量或Secret:
+> export ES_PASSWORD=$(kubectl get secret es-elastic-user -o jsonpath='{.data.elastic}' | base64 -d)
 
 # 5. 创建K8s Secret
 kubectl create secret generic es-certs \
@@ -2070,6 +2104,8 @@ kubectl create secret generic es-certs \
   --from-file=ca.crt=ca.crt \
   -n logging
 ```
+
+> 证书有效期建议1-2年,配合cert-manager自动轮换
 
 ### 19.2 用户权限配置
 
@@ -2149,6 +2185,11 @@ curl -X POST 'http://es-master:9200/_security/user/es_admin' -H 'Content-Type: a
 // 默认: /var/log/elasticsearch/audit.json
 // 建议: 使用Filebeat收集审计日志到ES
 ```
+
+> **等保三级要求**: 审计日志留存不少于180天。配置:
+> - index.lifecycle.indexing_complete: true
+> - 保留策略: Hot 7d → Warm 30d → Cold 180d → Delete
+> - 使用ILM自动管理生命周期
 
 ---
 
@@ -2267,7 +2308,7 @@ kubectl -n logging delete pod es-master-0
 
 # 2. 恢复旧版本镜像
 kubectl -n logging set image statefulset/es-master \
-  elasticsearch=elasticsearch:8.11.3
+  elasticsearch=elasticsearch:8.17.0
 
 # 3. 恢复集群配置
 curl -X PUT 'http://es-master:9200/_cluster/settings' -H 'Content-Type: application/json' \
