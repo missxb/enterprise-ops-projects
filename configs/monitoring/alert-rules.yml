@@ -57,7 +57,7 @@ groups:
     rules:
       - alert: MySQLDown
         expr: mysql_up == 0
-        for: 1m
+        for: 3m
         labels:
           severity: critical
         annotations:
@@ -75,7 +75,7 @@ groups:
     rules:
       - alert: RedisDown
         expr: redis_up == 0
-        for: 1m
+        for: 3m
         labels:
           severity: critical
         annotations:
