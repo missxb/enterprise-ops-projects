@@ -1317,6 +1317,9 @@ data:
 
 ## 六、AlertManager部署
 
+> **高可用方案**: AlertManager支持Gossip集群实现HA,部署3个实例实现自动故障转移。
+> 生产环境建议: 3个AlertManager实例 + 共享配置 + Gossip协议同步告警状态。
+
 ```yaml
 # alertmanager-deployment.yaml
 ---
@@ -2203,3 +2206,17 @@ curl -s http://prometheus:9090/api/v1/status/runtimeinfo | jq '.version'
 
 > 涵盖: Prometheus + Grafana + AlertManager + Thanos + Node Exporter
 > 适用于: 企业级监控告警体系建设
+
+---
+
+## 附录: 监控覆盖度扩展建议
+
+| 监控类型 | 当前覆盖 | 建议补充 |
+|----------|----------|----------|
+| 基础设施 | ✅ Node/Pod/Service | - |
+| 应用性能(APM) | ❌ 缺失 | Jaeger/SkyWalking分布式追踪 |
+| 日志告警 | ❌ 缺失 | ELK Watcher或Prometheus+Loki |
+| 业务指标 | ❌ 缺失 | 自定义Exporter采集业务KPI |
+| 安全监控 | ❌ 缺失 | Falco运行时安全+审计日志 |
+
+> **联动建议**: Prometheus告警→AlertManager→钉钉/企微/PagerDuty→On-Call值班
