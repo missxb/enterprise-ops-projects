@@ -199,9 +199,6 @@ docker run -d --name proxysql --restart=always \\
 
 # 配置ProxySQL
 docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P 6032 -e "
-  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (10, '${PRIMARY_IP}', 3306);
-  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.12', 3306);
-  INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.13', 3306);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (1, '^SELECT.*FOR UPDATE', 10);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (2, '^SELECT', 20);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (3, '.*', 10);
