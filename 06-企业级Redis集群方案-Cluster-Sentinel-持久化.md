@@ -493,6 +493,12 @@ fi
 
 ### 5.1 大Key扫描与清理
 
+> **内存管理最佳实践**:
+> - maxmemory-policy: 缓存场景用allkeys-lru,持久化场景用volatile-lru
+> - 内存碎片率: mem_fragmentation_ratio > 1.5时启用activedefrag
+> - 大Key监控: 定期扫描>1MB的Key,避免热Key导致性能问题
+> - 内存预警: 设置maxmemory的80%为告警阈值
+
 ```bash
 #!/bin/bash
 # scan_big_keys.sh - 扫描大Key
@@ -564,6 +570,12 @@ redis-cli -h 10.10.40.11 -p 6379   MEMORY DOCTOR
 ## 六、持久化策略深度对比
 
 ### 6.1 RDB vs AOF vs 混合
+
+> **持久化策略选择建议**:
+> - 缓存场景: AOF + everysec(数据安全性高,性能可接受)
+> - 纯缓存场景: RDB + 关闭AOF(性能最优,允许少量数据丢失)
+> - 混合模式: RDB+AOF(Redis 4.0+推荐,兼顾性能和安全性)
+> - AOF重写: auto-aof-rewrite-percentage 100, auto-aof-rewrite-min-size 64mb
 
 | 特性 | RDB | AOF | 混合(推荐) |
 |------|-----|-----|-----------|
@@ -638,6 +650,12 @@ redis-benchmark -h 10.10.40.11 -p 6379   -c 100 -n 1000000 -t set,get -q
 ## 八、真实故障案例与解决方案
 
 ### 案例1: Redis Cluster Slot迁移超时
+
+> **Cluster运维风险提示**:
+> - 槽位迁移: 生产环境迁移槽位可能导致短暂不可用,建议在低峰期执行
+> - 节点扩缩容: 需要重新分配槽位,操作复杂且有数据丢失风险
+> - Gossip协议: 节点间通信依赖Gossip,网络不稳定时可能导致集群状态异常
+> - 建议: 使用Redis Cluster管理工具(如redis-cli --cluster)而非手动操作
 
 **故障现象**: 业务大量超时，Redis Cluster日志报 `CLUSTERDOWN` 错误
 
