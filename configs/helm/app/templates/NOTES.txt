@@ -1,0 +1,11 @@
+✅ {{ .Chart.Name }} 已部署到命名空间 {{ .Release.Namespace }}
+
+访问应用:
+{{- if .Values.ingress.enabled }}
+  https://{{ .Values.ingress.host }}
+{{- else }}
+  kubectl port-forward svc/{{ include "app.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+
+查看Pod状态:
+  kubectl get pods -l app={{ include "app.name" . }} -n {{ .Release.Namespace }}

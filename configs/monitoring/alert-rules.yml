@@ -11,7 +11,6 @@ groups:
       # 节点磁盘使用率
       - record: node:disk_usage:ratio
         expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100
-  - name: alert-rules
   - name: node-alerts
     rules:
       - alert: NodeDown

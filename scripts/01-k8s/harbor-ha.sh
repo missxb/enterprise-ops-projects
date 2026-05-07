@@ -269,14 +269,14 @@ echo ""
 # 配置Nginx upstream代理Harbor后端
 HARBOR_BACKENDS=""
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
-  HARBOR_BACKENDS="${HARBOR_BACKENDS}    server ${node}:443;\\n"
+HARBOR_BACKENDS="${HARBOR_BACKENDS}    server ${node}:443 max_fails=3 fail_timeout=30s;\\\\n"
 done
 
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << LB_EOF
 cat > /etc/nginx/conf.d/harbor-ha.conf << 'CONF'
 upstream harbor_backend {
-    # Harbor后端健康检查(每30秒检测一次)
+    # Harbor后端被动健康检查
     # 生产环境建议使用HAProxy替代Nginx以获得更丰富的健康检查机制
     # Harbor HA后端
 $(echo -e "${HARBOR_BACKENDS}")
