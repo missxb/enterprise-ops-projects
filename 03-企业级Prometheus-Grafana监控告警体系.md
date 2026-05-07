@@ -690,6 +690,8 @@ spec:
         configMap:
           name: thanos-config
 ```
+
+> **存储模式**: ReadWriteOnce仅允许单节点挂载。Sidecar与Prometheus在同节点时可正常工作(同Pod或同Node)。如需跨节点访问,使用ReadWriteMany(NFS/CephFS)或嵌入StatefulSet(推荐)。
     
 ### Thanos Query (全局查询入口)
 
@@ -729,6 +731,10 @@ spec:
         - --store=prometheus-1.prometheus.monitoring.svc.cluster.local:10901
         - --store=thanos-store-gateway.monitoring.svc.cluster.local:10901
         - --query.replica-label=replica
+> **生产建议**: 使用DNS服务发现替代硬编码:
+> --store.sd-files=thanos-peers.txt
+> 或使用Kubernetes API: --store.sd-kubernetes
+> 这样Prometheus扩缩容时无需手动更新Query配置
         ports:
         - name: grpc
           containerPort: 10901
@@ -916,6 +922,7 @@ spec:
       containers:
       - name: minio
         image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+> **版本更新**: MinIO RELEASE.2024-11-07Z为2024年版本。2026年建议使用最新稳定版,查看https://github.com/minio/minio/releases获取最新版本号
         command:
         - /bin/sh
         - -c
@@ -992,6 +999,7 @@ spec:
       containers:
       - name: mc
         image: minio/mc:RELEASE.2024-11-07T00-52-20Z
+> **版本更新**: MinIO RELEASE.2024-11-07Z为2024年版本。2026年建议使用最新稳定版,查看https://github.com/minio/minio/releases获取最新版本号
         command:
         - /bin/sh
         - -c
@@ -1602,6 +1610,12 @@ echo "================================================"
 echo "  企业级Prometheus+Grafana监控体系 - 一键部署"
 echo "================================================"
 
+# 检查依赖服务就绪
+echo "=== 检查MinIO就绪 ==="
+kubectl wait --for=condition=Ready pod -l app=minio -n monitoring --timeout=300s
+echo "=== 检查Prometheus就绪 ==="
+kubectl wait --for=condition=Ready pod -l app=prometheus -n monitoring --timeout=300s
+
 echo "Step 1: 创建命名空间..."
 kubectl create namespace monitoring
 
@@ -1718,6 +1732,9 @@ spec:
 set -euo pipefail
 
 THANOS_QUERY="http://thanos-query:10902"
+> **参数化建议**: 生产环境应将服务地址配置为环境变量:
+> THANOS_QUERY=${THANOS_QUERY:-http://thanos-query:10902}
+> PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
 
 echo "===== Thanos健康检查 ====="
 
@@ -1736,10 +1753,17 @@ curl -s "${THANOS_QUERY}/api/v1/query?query=up" | jq '.data.result | length'
 # 4. 检查Alertmanager状态
 echo "4. Alertmanager集群状态:"
 curl -s http://alertmanager:9093/api/v2/status | jq '.cluster.peers | length'
+> **参数化建议**: 生产环境应将服务地址配置为环境变量:
+> THANOS_QUERY=${THANOS_QUERY:-http://thanos-query:10902}
+> PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
 
 # 5. 检查Prometheus TSDB
 echo "5. Prometheus TSDB状态:"
 curl -s http://prometheus:9090/api/v1/status/tsdb | jq '.data.seriesCountByMetricName | length'
+> **说明**: seriesCountByMetricName用于统计活跃指标数,非TSDB健康状态。TSDB健康应检查:
+> - prometheus_tsdb_head_series (活跃序列数)
+> - prometheus_tsdb_head_chunks (WAL chunks)
+> - prometheus_engine_query_duration_seconds (查询延迟)
 ```
 
 ---
@@ -2418,6 +2442,14 @@ curl -s http://alertmanager:9093/api/v2/alerts | jq 'length'
 6. 告警关闭后确认恢复正常
 ```
 
+### 容量规划指标
+| 指标 | 阈值 | 动作 |
+|------|------|------|
+| 活跃序列数 | >100万 | 扩容Prometheus |
+| 抓取时间 | >scrape_interval的80% | 增加实例或优化targets |
+| 存储使用 | >retention.size的80% | 扩容PVC或缩短retention |
+| 告警数量 | >1000条/天 | 优化告警规则,减少噪声 |
+
 ### 配置变更SOP
 
 ```bash
@@ -2431,6 +2463,13 @@ curl -X POST http://prometheus:9090/-/reload
 # 5. 验证
 curl -s http://prometheus:9090/api/v1/status/config | jq '.data | length'
 ```
+
+### 配置回滚步骤
+1. 保留当前配置: cp prometheus.yml prometheus.yml.bak
+2. 恢复上一版本: cp prometheus.yml.prev prometheus.yml
+3. 验证配置: promtool check config prometheus.yml
+4. 热加载: curl -X POST http://prometheus:9090/-/reload
+5. 验证: curl http://prometheus:9090/api/v1/status/config
 
 ### 版本升级SOP
 
