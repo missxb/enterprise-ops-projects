@@ -1,5 +1,17 @@
-# Prometheus告警规则
+# Prometheus Recording Rules + Alert Rules
 groups:
+  - name: recording-rules
+    rules:
+      # 节点CPU使用率(5分钟平均)
+      - record: node:cpu_usage:ratio
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+      # 节点内存使用率
+      - record: node:memory_usage:ratio
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+      # 节点磁盘使用率
+      - record: node:disk_usage:ratio
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) * 100
+  - name: alert-rules
   - name: node-alerts
     rules:
       - alert: NodeDown

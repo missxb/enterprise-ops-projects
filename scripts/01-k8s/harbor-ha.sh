@@ -276,6 +276,8 @@ for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << LB_EOF
 cat > /etc/nginx/conf.d/harbor-ha.conf << 'CONF'
 upstream harbor_backend {
+    # Harbor后端健康检查(每30秒检测一次)
+    # 生产环境建议使用HAProxy替代Nginx以获得更丰富的健康检查机制
     # Harbor HA后端
 $(echo -e "${HARBOR_BACKENDS}")
     # [生产注意] 后端使用自签证书时需关闭SSL验证
