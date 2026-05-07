@@ -1410,7 +1410,7 @@ fact_caching_timeout = 86400
       async_status:
         jid: "{{ backup_job.ansible_job_id }}"
       register: job_result
-      until: job_result.finished
+      until: job_result.finished is defined and job_result.finished == 1
       retries: 60
       delay: 60            # 每分钟检查一次
 
@@ -1719,6 +1719,9 @@ cp -r ~/ansible-ops $BACKUP_DIR/$DATE/
 
 echo "========== 2. 备份Vault密码 =========="
 cp ~/.vault_pass $BACKUP_DIR/$DATE/vault_pass.bak
+# [警告] vault密码文件明文备份不安全！生产环境应:
+# 1) 使用gpg加密: gpg -c vault_pass.bak
+# 2) 或使用KMS加密后上传OSS
 
 echo "========== 3. 备份SSH密钥 =========="
 cp -r ~/.ssh/deploy_key* $BACKUP_DIR/$DATE/
@@ -1840,7 +1843,9 @@ ossutil ls oss://$BACKUP_BUCKET/states/
 | 运维工具 | 4,210 | 50,520 |
 | 备份存储 | 800 | 9,600 |
 | 域名/证书 | 200 | 2,400 |
-| **总计** | **40,610** | **487,320** |
+| 网络出口(出网流量) | 500 | 6,000 | 阿里云出网流量费用 |
+| 运维人力(0.5人) | 7,500 | 90,000 | Ansible/Terraform运维 |
+| **总计** | **48,610** | **583,320** |
 
 ---
 
@@ -1941,7 +1946,10 @@ groups:
 
 ### 14.1 日常运维SOP
 
-```
+> **自动化**: 生产环境应使用CronJob或Jenkins定时执行巡检，而非手动操作。
+> 参考: K8s CronJob每小时执行ansible-playbook site.yml --check --diff
+
+日常运维巡检:
 每日运维检查清单:
 
 09:00 - 系统健康检查
@@ -1981,7 +1989,10 @@ groups:
 
 ### 14.2 变更发布SOP
 
-```
+> **灰度发布**: 生产环境建议使用Ansible serial参数实现灰度(如serial: "10%")，
+> 或结合K8s金丝雀发布实现应用级灰度。
+
+变更发布流程:
 变更发布流程:
 
 1. 变更准备 (D-3天)
@@ -2059,7 +2070,9 @@ groups:
 
 2. 事件响应 (15-60分钟)
    ├── 隔离受影响主机
-   │   ansible affected -m shell -a "firewall-cmd --panic-on"
+   │   # [警告] firewall-cmd --panic-on 会立即切断所有网络连接(包括SSH)！
+   # 更安全的替代: ansible affected -m shell -a "firewall-cmd --permanent --remove-service=ssh"
+   ansible affected -m shell -a "firewall-cmd --panic-on"
    ├── 封禁攻击IP
    │   ansible all -m shell -a "iptables -A INPUT -s ATTACK_IP -j DROP"
    ├── 保留证据
