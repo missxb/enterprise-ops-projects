@@ -124,6 +124,13 @@ data:
     xpack.security.http.ssl.enabled: true
     xpack.security.http.ssl.keystore.path: /usr/share/elasticsearch/config/certs/http.p12
 
+> **[证书管理建议]** 生产环境推荐使用 cert-manager 自动管理证书:
+> - 创建Issuer/ClusterIssuer使用CA签发(如Let's Encrypt或内部CA)
+> - 创建Certificate资源自动生成TLS Secret，挂载到Pod
+> - cert-manager支持自动轮转(默认到期前30天)，避免证书过期导致集群中断
+> - transport层证书可使用self-signed + cert-manager CA策略
+> - 详见: https://cert-manager.io/docs/usage/ingress/
+
   jvm.options: |
     -Xms4g
     -Xmx4g
@@ -168,6 +175,16 @@ spec:
 
 > vm.max_map_count必须在节点层面持久化,Pod重启后不会自动恢复
 
+> **[sysctl持久化方案]** 以下方法可确保vm.max_map_count在节点重启后自动生效:
+> 1. **kubelet配置**(推荐): 在Node的kubelet.config.yaml中配置systemReserved/systemAllowedUnsafeSysctls
+> 2. **DaemonSet预置**: 部署init DaemonSet自动在每个节点写入/etc/sysctl.d/99-elasticsearch.conf
+> 3. **节点镜像预置**: 在Node自定义镜像中预置sysctl配置
+> ```bash
+> # 验证当前节点设置
+> sysctl vm.max_map_count
+> # 预期输出: vm.max_map_count = 262144
+> ```
+
       containers:
         - name: elasticsearch
           image: elasticsearch:8.17.0
@@ -190,6 +207,23 @@ spec:
                 secretKeyRef:
                   name: elasticsearch-credentials
                   key: elastic
+
+> **[API Key认证]** 生产环境建议使用API Key替代密码认证:
+> ```bash
+> # 创建带集群权限的API Key
+> curl -u elastic:password -X POST 'https://es-master:9200/_security/api_key' \
+>   -H 'Content-Type: application/json' -d '{
+>   "name": "logstash-api-key",
+>   "role_descriptors": {
+>     "logstash_writer": {
+>       "cluster": ["manage_index_templates", "monitor"],
+>       "index": [{"names": ["enterprise-logs-*"], "privileges": ["write", "create_index"]}]
+>     }
+>   },
+>   "expiration": "365d"
+> }'
+> ```
+> API Key比密码更安全，支持细粒度权限控制和自动过期。
           resources:
             requests:
               cpu: "4"
@@ -401,7 +435,7 @@ curl -k -X PUT "https://es-master-0:9200/_index_template/enterprise-logs" -H 'Co
         "status_code": { "type": "integer" },
         "response_time": { "type": "float" },
         "client_ip": { "type": "ip" },
-        "user_agent": { "type": "text" },
+        "user_agent": { "type": "keyword" },
         "thread.name": { "type": "keyword" },
         "logger.name": { "type": "keyword" }
       }
@@ -693,6 +727,66 @@ spec:
 > ```
 > Kafka需要专用Exporter暴露消费者组lag、分区数量等metrics
 
+> **[Kafka Exporter完整部署]** 建议以独立Deployment部署Kafka Exporter:
+> ```yaml
+> # kafka-exporter.yaml
+> ---
+> apiVersion: apps/v1
+> kind: Deployment
+> metadata:
+>   name: kafka-exporter
+>   namespace: logging
+>   labels:
+>     app: kafka-exporter
+> spec:
+>   replicas: 1
+>   selector:
+>     matchLabels:
+>       app: kafka-exporter
+>   template:
+>     metadata:
+>       labels:
+>         app: kafka-exporter
+>       annotations:
+>         prometheus.io/scrape: "true"
+>         prometheus.io/port: "9308"
+>     spec:
+>       containers:
+>       - name: kafka-exporter
+>         image: danielqsj/kafka-exporter:latest
+>         args:
+>         - --kafka.server=kafka-0.kafka:9092,kafka-1.kafka:9092,kafka-2.kafka:9092
+>         - --kafka.topic.filter=.*
+>         - --kafka.group.filter=.*
+>         ports:
+>         - containerPort: 9308
+>           name: http
+>         resources:
+>           requests:
+>             cpu: 100m
+>             memory: 128Mi
+>           limits:
+>             cpu: 200m
+>             memory: 256Mi
+> ---
+> apiVersion: v1
+> kind: Service
+> metadata:
+>   name: kafka-exporter
+>   namespace: logging
+>   labels:
+>     app: kafka-exporter
+> spec:
+>   ports:
+>   - port: 9308
+>     name: http
+>     targetPort: 9308
+>   selector:
+>     app: kafka-exporter
+> ```
+> 关键metrics: kafka_consumergroup_lag(消费延迟)、kafka_topic_partitions(分区数)、kafka_brokers(broker数)
+> 配合ServiceMonitor或PodMonitor自动发现抓取。
+
 > Filebeat配置中将output改为Kafka:
 > ```yaml
 > output.kafka:
@@ -879,9 +973,9 @@ PUT _index_template/logs-template
       "routing_allocation.require.node_role": "data_hot"
     },
     "mappings": {
-      "dynamic": "strict",
+      "dynamic": true,
 
-> strict模式拒绝未知字段。日志场景建议使用dynamic: true或dynamic: runtime(ES 7.11+)以容忍新字段
+> 日志场景使用 dynamic: true 以容忍新字段自动映射，避免索引写入失败
 
       "properties": {
         "@timestamp": { "type": "date" },
@@ -890,7 +984,12 @@ PUT _index_template/logs-template
         "service": { "type": "keyword" },
         "trace_id": { "type": "keyword" },
         "response_time": { "type": "float" },
-        "status_code": { "type": "short" }
+        "status_code": { "type": "short" },
+        "error.message": { "type": "text", "analyzer": "ik_max_word" },
+        "error.type": { "type": "keyword" },
+        "error.stack_trace": { "type": "text" },
+        "exception.class": { "type": "keyword" },
+        "exception.message": { "type": "text", "analyzer": "ik_max_word" }
       }
     }
   },
@@ -1258,6 +1357,15 @@ output {
 
 > 解析失败的日志应发送到DLQ而非丢弃,便于后续分析和修复
 
+> **[DLQ完整配置]** 除output中的dead_letter_path外，还需在logstash.yml中启用DLQ:
+> ```yaml
+> # logstash.yml
+> dead_letter_queue.enable: true
+> dead_letter_queue.max_queue_size: 1024mb
+> dead_letter_queue.flush_interval: 1000
+> ```
+> 同时建议挂载PVC持久化DLQ目录，防止Pod重启后DLQ数据丢失。
+
 ---
 
 ## 十四、更多真实故障案例
@@ -1373,12 +1481,12 @@ curl -s 'http://es-master:9200/_index_template?pretty' | jq '.index_templates[] 
 # 1. 删除冲突的旧模板
 curl -X DELETE 'http://es-master:9200/_template/logs-template'
 
-# 2. 更新索引模板(使用严格模式)
+# 2. 更新索引模板
 curl -X PUT 'http://es-master:9200/_index_template/enterprise-logs' -H 'Content-Type: application/json' -d '{
   "index_patterns": ["enterprise-logs-*"],
   "template": {
     "mappings": {
-      "dynamic": "strict",
+      "dynamic": true,
       "properties": {
         "@timestamp": { "type": "date" },
         "status_code": { "type": "integer" },
@@ -1394,7 +1502,7 @@ curl -X PUT 'http://es-master:9200/_index_template/enterprise-logs' -H 'Content-
 curl -X PUT 'http://es-master:9200/enterprise-logs-2024.03.15-fix' -H 'Content-Type: application/json' -d '{
   "settings": { "number_of_shards": 3, "number_of_replicas": 1 },
   "mappings": {
-    "dynamic": "strict",
+    "dynamic": true,
     "properties": {
       "status_code": { "type": "integer" },
       "message": { "type": "text" }
@@ -2401,6 +2509,117 @@ curl -s 'http://es-master:9200/_cluster/health?pretty'
 
 ---
 
+
+## 监控告警: PrometheusRule配置
+
+> **[PrometheusRule for Elasticsearch + ILM + Kafka]**
+> 生产环境建议配合kube-prometheus-stack使用以下PrometheusRule进行自动告警。
+
+```yaml
+# prometheus-rules-elk.yaml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: elasticsearch-alerts
+  namespace: logging
+  labels:
+    release: prometheus
+spec:
+  groups:
+  - name: elasticsearch.rules
+    rules:
+    - alert: ElasticsearchClusterRed
+      expr: elasticsearch_cluster_health_status{color="red"} == 1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Elasticsearch集群状态RED"
+        description: "ES集群 {{ $labels.cluster }} 状态为RED超过5分钟，可能存在分片丢失"
+
+    - alert: ElasticsearchNodeDown
+      expr: up{job="elasticsearch"} == 0
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Elasticsearch节点离线"
+        description: "ES节点 {{ $labels.instance }} 已离线超过2分钟"
+
+    - alert: ElasticsearchJVMHeapHigh
+      expr: elasticsearch_jvm_mem_used_bytes{area="heap"} / elasticsearch_jvm_mem_max_bytes{area="heap"} > 0.75
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ES JVM堆内存使用率超过75%"
+        description: "节点 {{ $labels.instance }} 堆内存使用率 {{ $value | humanizePercentage }}"
+
+    - alert: ElasticsearchUnassignedShards
+      expr: elasticsearch_cluster_health_unassigned_shards > 0
+      for: 30m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ES存在未分配分片"
+        description: "集群存在 {{ $value }} 个未分配分片超过30分钟"
+
+  - name: ilm.rules
+    rules:
+    - alert: ElasticsearchILMStepFailed
+      expr: elasticsearch_ilm_step_status{status="ERROR"} == 1
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ILM策略步骤执行失败"
+        description: "索引 {{ $labels.index }} ILM步骤 {{ $labels.step }} 执行失败"
+
+    - alert: ElasticsearchILMStuck
+      expr: elasticsearch_ilm_step_milliseconds > 86400000
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "ILM策略执行卡住"
+        description: "索引 {{ $labels.index }} 在步骤 {{ $labels.step }} 停留超过24小时"
+
+  - name: kafka.rules
+    rules:
+    - alert: KafkaConsumerGroupLagHigh
+      expr: kafka_consumergroup_lag_sum > 100000
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Kafka消费者组延迟过高"
+        description: "消费组 {{ $labels.consumergroup }} 延迟 {{ $value }} 条消息超过15分钟"
+
+    - alert: KafkaBrokerDown
+      expr: up{job="kafka-exporter"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Kafka Broker离线"
+        description: "Kafka broker {{ $labels.instance }} 已离线"
+
+    - alert: KafkaTopicUnderReplicated
+      expr: kafka_topic_partition_replicas > kafka_topic_partition_in_sync_replica
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Kafka Topic分区副本不足"
+        description: "Topic {{ $labels.topic }} 分区 {{ $labels.partition }} 副本数不足"
+```
+
+> **部署方式**: kubectl apply -f prometheus-rules-elk.yaml
+> 需要 kube-prometheus-stack 已部署，Prometheus会自动加载匹配label的PrometheusRule
+> 建议同时配置Alertmanager路由到企业微信/钉钉/Slack通知渠道
+
+---
 
 
 ## 踩坑记录
