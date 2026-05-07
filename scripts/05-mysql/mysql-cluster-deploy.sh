@@ -190,26 +190,39 @@ CURRENT_STEP=4
 PRIMARY_IP=$(ssh root@${FIRST_NODE} "mysql --defaults-extra-file=/tmp/mysql.cnf -N -e "SELECT MEMBER_HOST FROM performance_schema.replication_group_members WHERE MEMBER_ROLE='PRIMARY'" 2>/dev/null" | cut -d: -f1)
 
 # 部署ProxySQL容器
-docker run -d --name proxysql --restart=always \
+PROXYSQL_ADMIN_PASSWORD="${PROXYSQL_ADMIN_PASSWORD:-admin}"  # 生产环境请修改
+docker run -d --name proxysql --restart=always \\
   -p 3306:3306 -p 6032:6032 \
   -e MYSQL_ADMIN_USER=admin \
   -e MYSQL_ADMIN_PASSWORD=admin \
   proxysql/proxysql:2.6.0
 
 # 配置ProxySQL
-docker exec proxysql mysql -u admin -padmin -h 127.0.0.1 -P 6032 -e "
+docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P 6032 -e "
   INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (10, '${PRIMARY_IP}', 3306);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.12', 3306);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port) VALUES (20, '10.10.30.13', 3306);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (1, '^SELECT.*FOR UPDATE', 10);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (2, '^SELECT', 20);
+  INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (3, '.*', 10);
+  INSERT INTO mysql_users(username, password, default_hostgroup) VALUES ('app_user', '${MYSQL_REPL_PASSWORD}', 10);
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (10, '${PRIMARY_IP}', 3306, 1000);
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.12', 3306, 1000);
+  INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.13', 3306, 1000);
+  INSERT INTO mysql_replication_hostgroups(writer_hostgroup, reader_hostgroup, check_type, comment) VALUES (10, 20, 'read_only', 'MGR ProxySQL自动切换');
+  LOAD MYSQL SERVERS TO RUNTIME;
+  LOAD MYSQL QUERY RULES TO RUNTIME;
+  LOAD MYSQL USERS TO RUNTIME;
+  SAVE MYSQL SERVERS TO DISK;
+  SAVE MYSQL QUERY RULES TO DISK;
+  SAVE MYSQL USERS TO DISK;
   LOAD MYSQL SERVERS TO RUNTIME;
   LOAD MYSQL QUERY RULES TO RUNTIME;
   SAVE MYSQL SERVERS TO DISK;
   SAVE MYSQL QUERY RULES TO DISK;
 "
 
-echo "  ✅ ProxySQL部署完成"
+echo "  ✅ ProxySQL部署完成(注意: ProxySQL映射3306端口,确保与MySQL不冲突)"
 echo "  写入: ${PRIMARY_IP}:3306"
 echo "  读取: 10.10.30.12/13:3306(轮询)"
 echo "  管理: 127.0.0.1:6032(admin/admin)" 

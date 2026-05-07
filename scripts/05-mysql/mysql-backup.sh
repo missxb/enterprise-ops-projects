@@ -9,7 +9,7 @@ MYSQL_USER="${MYSQL_USER:-backup}"
 MYSQL_PASS="${MYSQL_PASS:?请设置MYSQL_PASS}"
 BACKUP_DIR="${BACKUP_DIR:-/data/mysql-backup}"
 DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS="${KEEP_DAYS:-30}"
+KEEP_DAYS="${KEEP_DAYS:-7}"  # 与文档一致
 
 # 创建临时配置文件(避免命令行密码暴露)
 MYSQL_CNF=$(mktemp /tmp/mysql-XXXXXX.cnf)
