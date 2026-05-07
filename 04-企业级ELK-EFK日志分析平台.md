@@ -1616,12 +1616,32 @@ chmod +x /usr/local/bin/es_snapshot_backup.sh
 | **合计** | **700万** | - | **1.8GB** |
 
 ### 采样策略
-- **ERROR/FATAL**: 100%采集
-- **WARN**: 100%采集
-- **INFO**: 采样10%
-- **DEBUG**: 不采集(生产环境)
 
-> 通过Filebeat processors配置采样率，减少存储成本50%+
+| 日志级别 | 采集率 | 说明 |
+|----------|--------|------|
+| ERROR/FATAL | 100% | 完整采集，便于排查 |
+| WARN | 100% | 完整采集，监控预警 |
+| INFO | 采样10% | 通过hash采样保持同一请求的日志一致性 |
+| DEBUG | 0% | 生产环境不采集 |
+
+**Filebeat采样配置示例**:
+```yaml
+processors:
+  - drop_event:
+      when:
+        and:
+          - contains:
+              message: "DEBUG"
+          - not:
+              has_fields: ["error", "exception"]
+```
+
+**采样影响说明**:
+- 10% INFO采样意味着90%的正常请求日志丢失
+- 同一请求的多条日志应全采或全不采(通过trace_id hash)
+- 建议保留完整的ERROR/TRACE日志用于问题排查
+
+### 保留策略
 
 ### 保留策略
 - 热数据(30天): SSD存储

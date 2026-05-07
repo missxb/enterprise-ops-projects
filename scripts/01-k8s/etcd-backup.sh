@@ -17,17 +17,17 @@ mkdir -p ${BACKUP_DIR}
 
 echo "检查etcd健康状态..."
 ETCDCTL_API=3 etcdctl endpoint health \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key || { echo "etcd不健康，跳过备份"; exit 1; }
+  --endpoints="${ETCD_ENDPOINT}" \
+  --cacert="${ETCD_CACERT}" \
+  --cert="${ETCD_CERT}" \
+  --key="${ETCD_KEY}" || { echo "etcd不健康，跳过备份"; exit 1; }
 
 echo "备份etcd..."
 ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key
+  --endpoints="${ETCD_ENDPOINT}" \
+  --cacert="${ETCD_CACERT}" \
+  --cert="${ETCD_CERT}" \
+  --key="${ETCD_KEY}"
 
 echo "验证快照..."
 ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --write-out=table
