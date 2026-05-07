@@ -1,33 +1,25 @@
 # 企业级容器云平台 - 基于 Docker + Kubernetes + Harbor + Helm 全栈部署
-
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
 > 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28 + MetalLB
-
 ---
-
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 脚本中 ${VARIABLE} 占位符需通过 envsubst 或 export 预设，直接执行会输出空值。
 > 切勿将真实密码硬编码在配置文件或脚本中。
-
 ## 一、项目背景与目标
-
 ### 1.1 企业痛点
 - 开发环境不一致，"在我机器上能跑"问题频发
 - 微服务拆分后部署复杂度飙升，手动运维效率低
 - 资源利用率低，服务器闲置率高达40-60%
 - 缺乏统一的应用生命周期管理
-
 ### 1.2 项目目标
 - 搭建生产级K8s集群（3 Master + N Worker）
 - 部署Harbor私有镜像仓库（高可用+镜像扫描）
 - 实现Helm Chart标准化应用交付
 - 集成Prometheus+Grafana监控 + EFK日志
 - 支持HPA自动扩缩 + PDBPod中断预算
-
 ### 1.3 架构总览
-
 ```
                     ┌─────────────────────────────────────────┐
                     │           Load Balancer (MetalLB)        │
@@ -50,11 +42,8 @@
           │worker││worker││worker││worker││worker│
           └─────┘└─────┘└─────┘└─────┘└─────┘
 ```
-
 ### Pod Security Admission (PSA)
-
 K8s 1.25+使用Pod Security Admission替代已废弃的PodSecurityPolicy:
-
 ```yaml
 # 为命名空间启用PSA
 apiVersion: v1
@@ -66,13 +55,9 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ```
-
 ---
-
 ## 二、服务器规划
-
 ### 2.1 节点清单
-
 | 角色 | 主机名 | IP | CPU | 内存 | 系统盘 | 数据盘 | 用途 |
 |------|--------|-----|-----|------|--------|--------|------|
 | Master | k8s-master-01 | 10.10.10.11 | 8C | 16G | 100G SSD | - | Control Plane |
@@ -95,43 +80,33 @@ metadata:
 >
 > 生产级部署脚本见 scripts/01-k8s/harbor-ha.sh
 ### 2.2 网络规划
-
 | 网段 | 用途 |
 |------|------|
 | 10.10.10.0/24 | 节点管理网络 |
 | 10.244.0.0/16 | Pod网络 (Calico) |
 | 10.96.0.0/12 | Service网络 (ClusterIP) |
 | 172.17.0.0/16 | Docker默认网桥(禁用) |
-
 ---
-
 ## 三、基础环境配置（所有节点执行）
-
 ### 3.1 系统初始化脚本
-
 ```bash
 #!/bin/bash
 # init_nodes.sh - 所有K8s节点执行
 # 适用系统: CentOS 7.9 / Rocky Linux 8 (仅支持yum/dnf包管理器)
-
 set -euo pipefail
-
 echo "========== [1/8] 关闭Swap =========="
 swapoff -a
 sed -i '/swap/s/^/#/' /etc/fstab
 echo "Swap已关闭"
-
 echo "========== [2/8] 关闭SELinux =========="
 setenforce 0 2>/dev/null || true
 sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 echo "SELinux已关闭"
-
 echo "========== [3/8] 关闭防火墙 =========="
 # [K8s节点专用] K8s不兼容firewalld，生产环境使用NetworkPolicy
 systemctl stop firewalld 2>/dev/null || true
 systemctl disable firewalld 2>/dev/null || true
 echo "防火墙已关闭"
-
 echo "========== [4/8] 加载内核模块 =========="
 cat > /etc/modules-load.d/k8s.conf << EOF
 overlay
@@ -140,7 +115,6 @@ EOF
 modprobe overlay
 modprobe br_netfilter
 echo "内核模块已加载"
-
 echo "========== [5/8] 配置内核参数 =========="
 cat > /etc/sysctl.d/k8s.conf << EOF
 net.bridge.bridge-nf-call-iptables  = 1
@@ -160,20 +134,16 @@ fs.file-max                         = 655360
 EOF
 sysctl --system > /dev/null 2>&1
 echo "内核参数已配置"
-
 echo "========== [6/8] 安装containerd =========="
 # Docker已内置containerd，也可独立安装
 yum install -y yum-utils device-mapper-persistent-data lvm2
 yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 yum install -y containerd.io
-
 # 配置containerd
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
-
 # 启用SystemdCgroup
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
 # 配置镜像加速(用户指定)
 # [注意] 部分镜像站已停用或限流(2024+):
 #   - tuna.tsinghua.edu.cn: Docker Hub代理已停用
@@ -189,14 +159,11 @@ server = "https://docker.io"
   skip_verify = false
 EOF
 sed -i 's|sandbox_image = "registry.k8s.io/pause:.*"|sandbox_image = "registry.k8s.io/pause:3.9"|' /etc/containerd/config.toml
-
 # [已修复] 镜像加速已迁移到certs.d目录
-
 systemctl daemon-reload
 systemctl enable containerd
 systemctl restart containerd
 echo "containerd已安装配置"
-
 echo "========== [7/8] 安装kubeadm/kubelet/kubectl =========="
 cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
@@ -207,11 +174,9 @@ gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
 exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
 EOF
-
 yum install -y kubelet-1.31.0 kubeadm-1.31.0 kubectl-1.31.0 --disableexcludes=kubernetes
 systemctl enable kubelet
 echo "kubeadm/kubelet/kubectl已安装"
-
 echo "========== [8/8] 配置hosts =========="
 cat >> /etc/hosts << EOF
 10.10.10.11 k8s-master-01
@@ -225,32 +190,23 @@ cat >> /etc/hosts << EOF
 10.10.10.31 harbor-01
 10.10.10.32 harbor-02
 EOF
-
 echo ""
 echo "✅ 所有节点初始化完成！请重启后继续。"
 ```
-
 ---
-
 ## 四、高可用Kubernetes集群搭建
-
 ### 4.1 HAProxy + Keepalived 负载均衡（Master-01执行）
-
 ```bash
 #!/bin/bash
 # install_haproxy_keepalived.sh - 在前两台Master上安装LB
 # 本脚本在 Master-01 上执行，同时也会配置到 Master-02
-
 set -euo pipefail
-
 VIP="10.10.10.100"
 MASTER01="10.10.10.11"
 MASTER02="10.10.10.12"
 MASTER03="10.10.10.13"
-
 echo "安装HAProxy..."
 yum install -y haproxy
-
 cat > /etc/haproxy/haproxy.cfg << HAPCFG
 global
     log         /dev/log local0
@@ -263,7 +219,6 @@ global
     daemon
     stats socket /var/lib/haproxy/haproxy.sock mode 600 level admin
     tune.ssl.default-dh-param 2048
-
 defaults
     log     global
     mode    tcp
@@ -273,19 +228,16 @@ defaults
     timeout client  30s
     timeout server  30s
     retries 3
-
 # Kubernetes API Server 负载均衡
 frontend k8s_apiserver_bind
     bind ${VIP}:6443
     default_backend k8s_apiserver
-
 backend k8s_apiserver
     option tcp-check
     balance roundrobin
     server master01 ${MASTER01}:6443 check inter 3s fall 3 rise 2
     server master02 ${MASTER02}:6443 check inter 3s fall 3 rise 2
     server master03 ${MASTER03}:6443 check inter 3s fall 3 rise 2
-
 # HAProxy Stats
 frontend stats
     bind *:8404
@@ -295,13 +247,10 @@ frontend stats
     stats refresh 10s
     stats admin if LOCALHOST
 HAPCFG
-
 systemctl enable haproxy
 systemctl restart haproxy
-
 echo "安装Keepalived..."
 yum install -y keepalived
-
 cat > /etc/keepalived/keepalived.conf << KVCFG
 ! Keepalived for K8s API Server HA
 ! [注意] auth_pass和VIP使用shell变量(${KEEPALIVED_AUTH_PASS:-CHANGEME})，
@@ -315,7 +264,6 @@ global_defs {
     script_user root
     enable_script_security
 }
-
 vrrp_script check_haproxy {
     script "/usr/bin/systemctl is-active haproxy"
     interval 2
@@ -323,7 +271,6 @@ vrrp_script check_haproxy {
     fall 3
     rise 2
 }
-
 vrrp_instance K8S_VIP {
     state MASTER          # 其他节点改为BACKUP
     # [接口说明] Keepalived >= 1.3.7 自动选择默认网卡，无需指定interface字段
@@ -346,27 +293,20 @@ vrrp_instance K8S_VIP {
     notify_backup "/bin/echo 'BACKUP' > /tmp/keepalived_state"
 }
 KVCFG
-
 systemctl enable keepalived
 systemctl restart keepalived
-
 echo "✅ HAProxy + Keepalived 配置完成"
 echo "VIP: ${VIP}"
 ```
-
 ### 4.2 初始化Kubernetes集群
-
 ```bash
 #!/bin/bash
 # init_k8s_cluster.sh - 在Master-01上执行
-
 set -euo pipefail
-
 VIP="10.10.10.100"
 POD_CIDR="10.244.0.0/16"
 SERVICE_CIDR="10.96.0.0/12"
 SERVICE_DOMAIN="cluster.local"
-
 echo "========== 创建kubeadm配置文件 =========="
 cat > /tmp/kubeadm-config.yaml << EOF
 apiVersion: kubeadm.k8s.io/v1beta4
@@ -429,42 +369,32 @@ scheduler:
   extraArgs:
     profiling: "false"
 EOF
-
 echo "预拉取镜像..."
 kubeadm config images pull --config /tmp/kubeadm-config.yaml
-
 echo "初始化集群..."
 kubeadm init --config /tmp/kubeadm-config.yaml --upload-certs
-
 echo "配置kubectl..."
 mkdir -p $HOME/.kube
 cp -f /etc/kubernetes/admin.conf $HOME/.kube/config
 chown $(id -u):$(id -g) $HOME/.kube/config
-
 echo "验证集群..."
 kubectl get nodes
 kubectl get pods -A
-
 echo "✅ Master-01 初始化完成"
 echo ""
 echo "请保存以下命令，在其他Master节点上执行:"
 kubeadm token create --print-join-command --certificate-ttl 2h
 ```
-
 ### 4.3 加入其他Master节点
-
 ```bash
 #!/bin/bash
 # join_masters.sh - 在Master-02和Master-03上分别执行
 # 注意: 先修改 /etc/keepalived/keepalived.conf 中的 state 和 priority
-
 set -euo pipefail
-
 echo "========== 配置Keepalived为BACKUP =========="
 # Master-02: state=BACKUP, priority=100
 # Master-03: state=BACKUP, priority=99
 # (请根据实际节点修改)
-
 echo "========== 加入集群 =========="
 # 使用Master-01生成的join命令，例如:
 kubeadm join 10.10.10.100:6443 \
@@ -473,44 +403,33 @@ kubeadm join 10.10.10.100:6443 \
   --control-plane \
   --certificate-key <cert-key> \
   --apiserver-advertise-address <本机IP>
-
 echo "配置kubectl..."
 mkdir -p $HOME/.kube
 scp k8s-master-01:/etc/kubernetes/admin.conf $HOME/.kube/config
 chown $(id -u):$(id -g) $HOME/.kube/config
-
 echo "验证..."
 kubectl get nodes
 ```
-
 ### 4.4 Worker节点加入集群
-
 ```bash
 #!/bin/bash
 # join_workers.sh - 在所有Worker节点上执行
-
 set -euo pipefail
-
 # 使用Master-01生成的普通join命令
 kubeadm join 10.10.10.100:6443 \
   --token <token> \
   --discovery-token-ca-cert-hash sha256:<hash>
 ```
-
 ### 4.5 安装Calico网络插件
-
 ```bash
 #!/bin/bash
 # install_calico.sh - 在Master-01上执行
-
 set -euo pipefail
-
 echo "安装Calico..."
 # 使用operator方式安装
 # Calico v3.28 支持 K8s 1.31，修复了 3.26 中多个已知的 BGP 路由泄漏问题
 # 变更: 3.26→3.28 升级了 Felix 的 conntrack 回收逻辑，提升了大规模集群下的稳定性
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
-
 cat > /tmp/custom-resources.yaml << EOF
 apiVersion: operator.tigera.io/v1
 kind: Installation
@@ -535,31 +454,22 @@ metadata:
   name: default
 spec: {}
 EOF
-
 kubectl apply -f /tmp/custom-resources.yaml
-
 echo "等待Calico就绪..."
 kubectl -n calico-system rollout status daemonset/calico-node --timeout=300s
-
 echo "验证网络..."
 kubectl get pods -n calico-system
 kubectl get ippool -o wide
 ```
-
 ### 4.6 安装MetalLB（裸金属负载均衡）
-
 ```bash
 #!/bin/bash
 # install_metallb.sh - Master-01执行
-
 set -euo pipefail
-
 echo "安装MetalLB..."
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
-
 echo "等待MetalLB就绪..."
 kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
-
 echo "配置IP地址池..."
 cat > /tmp/metallb-config.yaml << EOF
 apiVersion: metallb.io/v1beta1
@@ -584,34 +494,25 @@ spec:
   ipAddressPools:
   - production-pool
 EOF
-
 kubectl apply -f /tmp/metallb-config.yaml
 echo "✅ MetalLB配置完成，IP池: 10.10.10.200-10.10.10.240"
 ```
-
 ---
-
 ## 五、Harbor私有镜像仓库部署
-
 ### 5.1 Harbor安装与配置
-
 ```bash
 #!/bin/bash
 # install_harbor.sh - 在harbor-01上执行
-
 set -euo pipefail
-
 HARBOR_VERSION="2.12.0"
 HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
 HARBOR_IP="10.10.10.31"
-
 echo "安装Docker Compose..."
 yum install -y docker-compose-plugin  # 或: dnf install -y docker-compose-plugin
 # [注意] docker-compose-plugin安装后提供docker compose(无连字符)命令
 # 如需独立docker-compose(连字符)二进制，可手动下载:
 # curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
 #   -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
-
 echo "下载Harbor..."
 cd /opt
 # [安装方式选择]
@@ -623,11 +524,9 @@ cd /opt
 wget https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-offline-installer-v${HARBOR_VERSION}.tgz
 tar xzf harbor-offline-installer-v${HARBOR_VERSION}.tgz
 cd harbor
-
 echo "生成证书..."
 mkdir -p /opt/harbor/certs
 cd /opt/harbor/certs
-
 # CA根证书
 # [生产建议] 使用cert-manager自动管理证书，避免手动openssl操作:
 # helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
@@ -635,30 +534,25 @@ openssl genrsa -out ca.key 4096
 openssl req -x509 -new -nodes -sha512 -days 1095 \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Harbor-CA" \
   -key ca.key -out ca.crt
-
 # Harbor服务器证书
 openssl genrsa -out harbor.key 4096
 openssl req -sha512 -new \
   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=${HARBOR_DOMAIN}" \
   -key harbor.key -out harbor.csr
-
 cat > v3.ext << EOF
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage=digitalSignature,nonRepudiation,keyEncipherment,dataEncipherment
 extendedKeyUsage=serverAuth
 subjectAltName=@alt_names
-
 [alt_names]
 DNS.1=${HARBOR_DOMAIN}
 DNS.2=harbor-01
 IP.1=${HARBOR_IP}
 EOF
-
 openssl x509 -req -sha512 -days 1095 \
   -extfile v3.ext -CA ca.crt -CAkey ca.key -CAcreateserial \
   -in harbor.csr -out harbor.crt
-
 # 配置Docker信任证书
 mkdir -p /etc/docker/certs.d/${HARBOR_DOMAIN}
 cp harbor.crt /etc/docker/certs.d/${HARBOR_DOMAIN}/ca.crt
@@ -670,15 +564,12 @@ cp ca.crt /etc/docker/certs.d/${HARBOR_DOMAIN}/
 # ca.key也不应放在certs.d
 cp ca.key /opt/harbor/certs/
 chmod 600 /opt/harbor/certs/ca.key
-
 # 将CA证书加入系统信任
 cp ca.crt /etc/pki/ca-trust/source/anchors/harbor-ca.crt
 update-ca-trust
-
 echo "配置Harbor..."
 cd /opt/harbor
 cp harbor.yml.tmpl harbor.yml
-
 cat > harbor.yml << HARBORYML
 hostname: ${HARBOR_DOMAIN}
 http:
@@ -719,18 +610,15 @@ trace:
   jaeger:
     endpoint: http://jaeger:14268/api/traces
 HARBORYML
-
 echo "安装Harbor..."
 # [已修复] Harbor 2.9+已废弃chartmuseum，移除--with-chartmuseum参数
 ./install.sh --with-trivy
-
 echo "配置开机自启..."
 cat > /etc/systemd/system/harbor.service << EOF
 [Unit]
 Description=Harbor Container Registry
 After=docker.service
 Requires=docker.service
-
 [Service]
 Type=oneshot
 RemainAfterExit=yes
@@ -738,70 +626,51 @@ WorkingDirectory=/opt/harbor
 ExecStart=/usr/bin/docker compose -f /opt/harbor/docker-compose.yml up -d
 ExecStop=/usr/bin/docker compose -f /opt/harbor/docker-compose.yml down
 TimeoutStartSec=0
-
 [Install]
 WantedBy=multi-user.target
 EOF
-
 systemctl daemon-reload
 systemctl enable harbor
-
 echo "✅ Harbor安装完成"
 echo "访问: https://${HARBOR_DOMAIN}"
 echo "用户名: admin / 密码: ${HARBOR_ADMIN_PASSWORD}"
 ```
-
 ### 5.2 配置K8s节点信任Harbor
-
 ```bash
 #!/bin/bash
 # trust_harbor.sh - 在所有K8s节点上执行
-
 set -euo pipefail
-
 HARBOR_DOMAIN="${HARBOR_DOMAIN:-harbor.internal.com}"  # 生产环境通过.env注入
-
 echo "创建namespace..."
 kubectl create namespace harbor-system
-
 echo "创建Harbor拉取Secret..."
 kubectl create secret docker-registry harbor-secret \
   --docker-server=${HARBOR_DOMAIN} \
   --docker-username=admin \
   --docker-password=${HARBOR_ADMIN_PASSWORD} \
   -n default
-
 echo "配置containerd信任Harbor..."
 cat > /etc/containerd/certs.d/${HARBOR_DOMAIN}/hosts.toml << EOF
 server = "https://${HARBOR_DOMAIN}"
-
 [host."https://${HARBOR_DOMAIN}"]
   capabilities = ["pull", "resolve"]
   skip_verify = false  # 已在上方步骤分发CA证书到所有节点
 EOF
-
 systemctl restart containerd
 echo "✅ K8s节点已信任Harbor"
 ```
-
 ---
-
 ## 六、Helm Chart应用编排
-
 ### 6.1 安装Helm并配置仓库
-
 ```bash
 #!/bin/bash
 # install_helm.sh - Master-01执行
-
 set -euo pipefail
-
 echo "安装Helm..."
 # Helm 3 官方安装方式 (yum默认仓库无helm包)
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 # 或使用离线/国内镜像:
 # curl https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar xz && mv linux-amd64/helm /usr/local/bin/
-
 echo "添加常用仓库..."
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -809,18 +678,14 @@ helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo add jetstack https://charts.jetstack.io
 helm repo add harbor https://helm.goharbor.io
 helm repo update
-
 echo "验证..."
 helm version
 helm repo list
 ```
-
 ### 6.2 企业级应用部署示例 - 电商微服务
-
 ```yaml
 # values-ecommerce.yaml - 通过Helm部署电商微服务架构
 # helm install ecommerce ./ecommerce-stack -f values-ecommerce.yaml -n production
-
 # ========================================
 # 全局配置
 # ========================================
@@ -830,14 +695,10 @@ global:
     - name: harbor-secret
   environment: production
   region: cn-beijing
-
 # ========================================
 # Nginx Ingress Controller
 # =================================
-
 ... [OUTPUT TRUNCATED - 111 chars omitted out of 50111 total] ...
-
-
       maxReplicas: 15
       targetCPUUtilizationPercentage: 65
     healthCheck:
@@ -855,7 +716,6 @@ global:
         labelSelector:
           matchLabels:
             app: user-service
-
   # 商品服务
   product-service:
     replicaCount: 3
@@ -881,7 +741,6 @@ global:
       minReplicas: 3
       maxReplicas: 20
       targetCPUUtilizationPercentage: 65
-
   # 订单服务
   order-service:
     replicaCount: 3
@@ -909,7 +768,6 @@ global:
       minReplicas: 3
       maxReplicas: 30
       targetCPUUtilizationPercentage: 60
-
   # 支付服务
   payment-service:
     replicaCount: 2
@@ -930,7 +788,6 @@ global:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 60
-
 # ========================================
 # Ingress路由
 # ========================================
@@ -965,13 +822,9 @@ ingress:
       hosts:
         - api.ecommerce.com
 ```
-
 ---
-
 ## 七、Pod自动扩缩（HPA）
-
 ### 7.1 通用HPA配置
-
 ```yaml
 # hpa-config.yaml - 为每个微服务配置HPA
 ---
@@ -1066,11 +919,8 @@ spec:
           type: AverageValue
           averageValue: "50"
 ```
-
 ---
-
 ## 八、PodDisruptionBudget（PDB）
-
 ```yaml
 # pdb-config.yaml - 保障服务在维护时可用
 ---
@@ -1107,11 +957,8 @@ spec:
     matchLabels:
       app: payment-service
 ```
-
 ---
-
 ## 九、资源配额与限制
-
 ```yaml
 # resource-quota.yaml - Namespace级别资源限制
 ---
@@ -1157,55 +1004,40 @@ spec:
         cpu: "8"
         memory: 16Gi
 ```
-
 ---
-
 ## 十、节点标签与容忍
-
 ```bash
 #!/bin/bash
 # label_nodes.sh - 为节点打标签，实现调度分区
-
 # 通用业务节点
 kubectl label nodes k8s-worker-01 workload-type=general
 kubectl label nodes k8s-worker-02 workload-type=general
 kubectl label nodes k8s-worker-03 workload-type=general
-
 # 高内存节点
 kubectl label nodes k8s-worker-04 workload-type=memory-intensive
 kubectl label nodes k8s-worker-04 node-role=stateful
-
 # GPU节点
 kubectl label nodes k8s-worker-05 workload-type=gpu
 kubectl label nodes k8s-worker-05 nvidia.com/gpu=true
-
 # 环境标签
 for node in k8s-worker-{01..05}; do
   kubectl label nodes $node environment=production --overwrite
   kubectl label nodes $node team=platform --overwrite
 done
-
 echo "✅ 节点标签配置完成"
 kubectl get nodes --show-labels
 ```
-
 ---
-
 ## 十一、etcd备份与恢复
-
 ```bash
 #!/bin/bash
 # etcd_backup.sh - 定时备份etcd数据
-
 set -euo pipefail
-
 # [已修复] 备份频率统一为每6小时(crontab: 0 */6 * * *)
 BACKUP_DIR="/data/etcd-backup"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
-
 mkdir -p ${BACKUP_DIR}
-
 # Step 1: 检查etcd健康状态
 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key || { echo "etcd不健康，跳过备份"; exit 1; }
 echo "备份etcd..."
@@ -1214,33 +1046,23 @@ ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key
-
 echo "验证快照..."
 ETCDCTL_API=3 etcdctl snapshot status ${BACKUP_DIR}/etcd-snapshot-${DATE}.db --write-out=table
-
 echo "清理过期备份..."
 find ${BACKUP_DIR} -name "etcd-snapshot-*.db" -mtime +${KEEP_DAYS} -delete
-
 echo "✅ etcd备份完成: etcd-snapshot-${DATE}.db"
-
 # 添加到crontab: 每6小时备份一次
 # crontab -e
 # 0 */6 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
-
 ---
-
 ## 十二、集群监控集成
-
 ```bash
 #!/bin/bash
 # install_monitoring.sh - 安装Prometheus+Grafana监控
-
 set -euo pipefail
-
 echo "创建监控namespace..."
 kubectl create namespace monitoring
-
 echo "部署kube-prometheus-stack..."
 echo "[注意] 如已按03-监控文档部署,请跳过本节避免资源冲突"
 helm install prometheus prometheus-community/kube-prometheus-stack \
@@ -1257,30 +1079,23 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set kubeStateMetrics.enabled=true \
   --set prometheus.prometheusSpec.resources.requests.cpu=1 \
   --set prometheus.prometheusSpec.resources.requests.memory=4Gi
-
 echo "等待就绪..."
 kubectl -n monitoring rollout status deployment/prometheus-grafana --timeout=300s
-
 echo "✅ 监控系统部署完成"
 echo "Grafana: http://10.10.10.210 (密码请查看: kubectl -n monitoring get secret grafana-admin-credentials -o jsonpath='{.data.password}' | base64 -d)"
 ```
-
 ---
-
 ## 十三、EFK日志系统
-
 ```bash
 #!/bin/bash
 # install_efk.sh - 安装EFK日志收集
-
 set -euo pipefail
-
 echo "部署Elasticsearch..."
 # 替换为实际环境的StorageClass名称
 helm install elasticsearch elastic/elasticsearch \
-  --set nodes.hot.replicas=1 \
-  --set nodes.warm.replicas=1 \
-  --set nodes.cold.replicas=1 \
+  
+  
+  
   --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \
   --namespace logging --create-namespace \
   --set replicas=3 \
@@ -1288,14 +1103,12 @@ helm install elasticsearch elastic/elasticsearch \
   --set resources.requests.memory=4Gi \
   --set persistence.enabled=true \
   --set persistence.size=200Gi
-
 echo "部署Kibana..."
 helm install kibana elastic/kibana \
   --namespace logging \
   --set elasticsearchHosts="http://elasticsearch-master:9200" \
   --set service.type=LoadBalancer \
   --set service.loadBalancerIP=10.10.10.211
-
 echo "部署Filebeat..."
 helm install filebeat elastic/filebeat \
   --namespace logging \
@@ -1310,74 +1123,57 @@ helm install filebeat elastic/filebeat \
                           # 生产环境应使用Downward API注入: fieldRef: fieldPath: spec.nodeName
 output.elasticsearch:
   hosts: ["http://elasticsearch-master:9200"]'
-
 echo "✅ EFK日志系统部署完成"
 echo "Kibana: http://10.10.10.211"
 ```
-
 ---
-
 ## 十四、日常巡检与自动化运维
-
 ### 14.1 日常运维命令速查
-
 ```bash
 # ===== 集群状态 =====
 kubectl cluster-info
 kubectl get nodes -o wide
 kubectl get --raw=/readyz?verbose
 kubectl top nodes
-
 # ===== Pod管理 =====
 kubectl get pods -A -o wide
 kubectl describe pod <pod-name> -n <namespace>
 kubectl logs -f <pod-name> -n <namespace> --tail=100
 kubectl exec -it <pod-name> -n <namespace> -- /bin/sh
 kubectl delete pod <pod-name> -n <namespace> --grace-period=0 --force
-
 # ===== Deployment管理 =====
 kubectl rollout status deployment/<name> -n <namespace>
 kubectl rollout history deployment/<name> -n <namespace>
 kubectl rollout undo deployment/<name> -n <namespace> --to-revision=3
 kubectl scale deployment/<name> --replicas=5 -n <namespace>
-
 # ===== 节点维护 =====
 kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
 kubectl uncordon <node-name>
 kubectl cordon <node-name>
-
 # ===== 故障排查 =====
 kubectl get events -n <namespace> --sort-by='.lastTimestamp'
 kubectl describe node <node-name>
 kubectl get pod <pod-name> -n <namespace> -o yaml
 ```
-
 ### 14.2 常见故障处理
-
 ```bash
 # Pod处于Pending状态
 kubectl describe pod <pod-name>  # 查看Events
 # 可能原因: 资源不足、PVC未绑定、节点亲和性不匹配
-
 # Pod处于CrashLoopBackOff
 kubectl logs <pod-name> --previous  # 查看上一次日志
 kubectl describe pod <pod-name>     # 查看退出码
 # 退出码: 1=应用错误, 137=OOMKilled, 139=段错误
-
 # Node NotReady
 journalctl -u kubelet -f          # 查看kubelet日志
 systemctl status containerd       # 检查containerd
 crictl pods                      # 检查运行时
-
 # DNS解析问题
 kubectl run dnstest --image=busybox --rm -it -- nslookup kubernetes.default
 kubectl get cm coredns -n kube-system -o yaml
 ```
-
 ---
-
 ## 十五、安全加固
-
 ```yaml
 # security-policies.yaml
 ---
@@ -1414,11 +1210,8 @@ spec:
     - name: tmp
       emptyDir: {}
 ```
-
 ---
-
 ## 十六、完整部署流程
-
 ```bash
 # ===== 前置条件: SSH密钥分发 =====
 # ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
@@ -1431,56 +1224,44 @@ spec:
 # [错误处理] 设置set -e和错误捕获
 set -euo pipefail
 trap 'echo "部署失败，请检查日志"; exit 1' ERR
-
 echo "================================================"
 echo "  企业级容器云平台 - 一键部署"
 echo "================================================"
-
 echo "Step 1: 初始化所有节点..."
 for ip in 10.10.10.{11,12,13,21,22,23,24,25}; do
   ssh root@${ip} 'bash -s' < init_nodes.sh &
 done
 wait
 echo "所有节点初始化完成"
-
 echo "Step 2: 安装HAProxy+Keepalived..."
 ssh root@10.10.10.11 'bash -s' < install_haproxy_keepalived.sh
 echo "负载均衡安装完成"
-
 echo "Step 3: 初始化K8s集群(kubeadm init)..."
 ssh root@10.10.10.11 'bash -s' < kubeadm_init.sh
 echo "K8s集群初始化完成"
-
 echo "Step 4: 安装Calico网络..."
 ssh root@10.10.10.11 'bash -s' < install_calico.sh
 echo "网络插件安装完成"
-
 echo "Step 5: 安装MetalLB..."
 ssh root@10.10.10.11 'bash -s' < install_metallb.sh
 echo "MetalLB安装完成"
-
 echo "Step 6: 部署Harbor..."
 ssh root@10.10.10.31 'bash -s' < install_harbor.sh
 echo "Harbor部署完成"
-
 echo "Step 7: 安装Helm..."
 ssh root@10.10.10.11 'bash -s' < install_helm.sh
 echo "Helm安装完成"
-
 echo "Step 8: 部署监控系统..."
 ssh root@10.10.10.11 'bash -s' < install_monitoring.sh
 echo "监控系统部署完成"
-
 echo "Step 9: 部署日志系统..."
 ssh root@10.10.10.11 'bash -s' < install_efk.sh
 echo "日志系统部署完成"
-
 echo "Step 10: 部署业务应用..."
 kubectl apply -f hpa-config.yaml
 kubectl apply -f pdb-config.yaml
 kubectl apply -f resource-quota.yaml
 echo "业务应用部署完成"
-
 echo ""
 echo "================================================"
 echo "  ✅ 企业级容器云平台部署完成！"
@@ -1493,11 +1274,8 @@ echo "  Harbor:       https://harbor.internal.com"
 echo "  Ingress LB:   10.10.10.200"
 echo "================================================"
 ```
-
 ---
-
 ## 十七、项目文件清单
-
 ```
 enterprise-container-platform/
 ├── scripts/
@@ -1525,71 +1303,53 @@ enterprise-container-platform/
 │   └── security-policies.yaml        # 安全策略
 └── README.md
 ```
-
 ---
-
 ## 十八、关键技术要点总结
-
 ### 18.1 高可用设计
 - **API Server**: 3 Master + HAProxy + Keepalived VIP
 - **etcd**: 3节点集群，快照备份每6小时
 - **Worker节点**: PDB保障最少可用副本数
 - **镜像仓库**: Harbor双节点主备
-
 ### 18.2 性能优化
 - **containerd**: SystemdCgroup + 镜像加速
 - **内核**: tcp_keepalive + somaxconn + inotify优化
 - **etcd**: 4GB配额 + 自动压缩
 - **Pod调度**: 节点亲和性 + 反亲和性 + 拓扑分布约束
-
 ### 18.3 安全加固
 - **认证**: RBAC + ServiceAccount
 - **网络**: Calico NetworkPolicy
 - **镜像**: Harbor Trivy漏洞扫描
 - **运行时**: 非root + 只读文件系统 + 能力限制
-
 ### 18.4 可观测性
 - **监控**: Prometheus + Grafana + kube-state-metrics + node-exporter
 - **日志**: EFK (Elasticsearch + Filebeat + Kibana)
 - **告警**: AlertManager + 企业微信/钉钉通知
 - **审计**: K8s Audit Log + etcd审计
-
 ---
-
 > 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设
-
 ---
-
 ## 真实故障案例深度分析
-
 ### 案例1: Pod一直Pending无法调度
-
 **故障现象**: 新部署的Pod状态一直是Pending，kubectl describe显示no nodes match
-
 **排查过程**:
 ```bash
 kubectl describe pod my-app-xxx -n production
 # Events:
 #   Warning  FailedScheduling  0/5 nodes are available: 2 Insufficient cpu, 3 Insufficient memory
-
 kubectl top nodes
 # node-01: cpu 95%, memory 88%
 # node-02: cpu 92%, memory 91%
 # 资源已耗尽!
 ```
-
 **根因分析**: 集群资源不足，所有节点的CPU/内存请求都已满。HPA扩容后新Pod无法调度。
-
 **解决方案**:
 ```bash
 # 1. 水平扩容节点
 kubectl scale nodepool worker-pool --replicas=8  # 注意: 此命令仅适用于阿里云ACK
-
 # 2. 或调整资源请求
 kubectl set resources deployment my-app -n production   --requests=cpu=100m,memory=128Mi   --limits=cpu=500m,memory=512Mi
-
 # 3. 配置优先级保证关键Pod
 kubectl apply -f - <<EOF
 apiVersion: scheduling.k8s.io/v1
@@ -1601,22 +1361,17 @@ globalDefault: false
 description: "Production high priority"
 EOF
 ```
-
 ### 案例2: ImagePullBackOff镜像拉取失败
-
 **故障现象**: Pod状态ImagePullBackOff
-
 **排查过程**:
 ```bash
 kubectl describe pod my-app-xxx
 # Failed to pull image "harbor.internal.com/app:v2.0": rpc error:
 # code = Unknown desc = failed to pull and unpack image: pulling from host harbor.internal.com failed
-
 # 检查节点containerd配置
 crictl pull harbor.internal.com/app:v2.0
 # Error: tls: failed to verify certificate
 ```
-
 **解决方案**:
 ```bash
 # 1. 将Harbor CA证书分发到所有节点
@@ -1627,33 +1382,25 @@ server = "https://harbor.internal.com"
   ca = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
   skip_verify = false
 EOF
-
 # 2. 重启containerd
 systemctl restart containerd
-
 # 3. 创建ImagePullSecret
 kubectl create secret docker-registry harbor-secret   --docker-server=harbor.internal.com   --docker-username=admin   --docker-password=${HARBOR_ADMIN_PASSWORD}   -n production
 ```
-
 ### 案例3: Service无法访问后端Pod
-
 **故障现象**: kubectl get endpoints显示Endpoints为空
-
 **排查过程**:
 ```bash
 kubectl get endpoints my-service -n production
 # NAME         ENDPOINTS   AGE
 # my-service   <none>      1h
-
 kubectl get pods -n production -l app=my-app --show-labels
 # NAME                      READY   STATUS    LABELS
 # my-app-7d8f9b6c4-xxx      1/1     Running   app=my-app-v2  # 标签是v2不是v1!
-
 kubectl get service my-service -n production -o yaml | grep selector
 # selector:
 #   app: my-app-v1  # selector不匹配!
 ```
-
 **解决方案**:
 ```yaml
 # 修正Service selector
@@ -1669,29 +1416,22 @@ spec:
   - port: 80
     targetPort: 8080
 ```
-
 ### 案例4: PVC挂载失败导致Pod CrashLoopBackOff
-
 **故障现象**: Pod启动后反复重启
-
 **排查过程**:
 ```bash
 kubectl describe pod my-app-xxx -n production
 # Warning  FailedMount  Unable to attach or mount volumes: timed out waiting for the condition
 # pvc "data-my-app-0" is being deleted
-
 kubectl get pvc data-my-app-0 -n production
 # STATUS: Terminating
 ```
-
 **解决方案**:
 ```bash
 # 1. 取消PVC删除
 kubectl patch pvc data-my-app-0 -n production -p '{"metadata":{"finalizers":null}}'
-
 # 2. 或配置storageClass reclaimPolicy: Retain
 kubectl patch storageclass fast-ssd -p '{"reclaimPolicy":"Retain"}'
-
 # 3. 预防: 使用StatefulSet时确保PVC不会被误删
 kubectl apply -f - <<EOF
 apiVersion: v1
@@ -1709,11 +1449,8 @@ spec:
       storage: 100Gi
 EOF
 ```
-
 ### 案例5: Node节点NotReady
-
 **故障现象**: kubectl get nodes显示某节点NotReady
-
 **排查过程**:
 ```bash
 kubectl describe node node-03
@@ -1721,18 +1458,15 @@ kubectl describe node node-03
 #   Type             Status  Reason
 #   MemoryPressure   True    KubeletHasMemoryEviction
 #   DiskPressure     True    KubeletHasDiskEviction
-
 # 节点磁盘满
 ssh node-03 "df -h /var/lib/kubelet"
 # /dev/vda1  100G   98G  2G  98% /var/lib/kubelet
 ```
-
 **解决方案**:
 ```bash
 # 1. 清理节点磁盘
 ssh node-03 "crictl rmi --prune"
 ssh node-03 "rm -rf /var/lib/kubelet/pods/*/volumes/kubernetes.io~empty-dir/*"
-
 # 2. 配置kubelet磁盘回收策略
 cat > /etc/kubernetes/kubelet-config.yaml << EOF
 evictionHard:
@@ -1744,29 +1478,22 @@ evictionMinimumReclaim:
   imagefs.available: "10%"
 EOF
 systemctl restart kubelet
-
 # 3. 节点恢复
 kubectl uncordon node-03
 ```
-
 ### 案例6: DNS解析失败导致服务间通信中断
-
 **故障现象**: Pod内curl http://my-service返回"Could not resolve host"
-
 **排查过程**:
 ```bash
 # 检查CoreDNS状态
 kubectl get pods -n kube-system -l k8s-app=kube-dns
 # coredns-xxx   0/1     CrashLoopBackOff
-
 kubectl logs coredns-xxx -n kube-system
 # plugin/configuration: Corefile:2: not a valid configuration token
-
 # 检查ConfigMap
 kubectl get configmap coredns -n kube-system -o yaml
 # 发现: Corefile语法错误
 ```
-
 **解决方案**:
 ```yaml
 # 修复CoreDNS配置
@@ -1796,16 +1523,12 @@ data:
         loadbalance
     }
 ```
-
 ### 案例7: ConfigMap热更新不生效
-
 **故障现象**: 修改了ConfigMap但Pod中配置未更新
-
 **排查过程**:
 ```bash
 kubectl get configmap my-config -n production -o yaml | grep resourceVersion
 # resourceVersion: "12345"
-
 kubectl get deployment my-app -n production -o yaml | grep -A5 volumeMounts
 # 发现: 使用了subPath挂载，不会自动更新
 # volumeMounts:
@@ -1813,7 +1536,6 @@ kubectl get deployment my-app -n production -o yaml | grep -A5 volumeMounts
 #     mountPath: /etc/config/nginx.conf
 #     subPath: nginx.conf  # subPath不会自动更新!
 ```
-
 **解决方案**:
 ```bash
 # 1. 移除subPath，使用目录挂载
@@ -1832,7 +1554,6 @@ kubectl patch deployment my-app -n production -p '{
     }
   }
 }'
-
 # 2. 或使用Reloader自动重启
 kubectl apply -f - <<EOF
 apiVersion: stakater.com/v1
@@ -1850,38 +1571,29 @@ spec:
       namespaces: [production]
 EOF
 ```
-
 ### 案例8: HPA不扩容导致服务过载
-
 **故障现象**: CPU使用率已超过80%但HPA没有扩容
-
 **排查过程**:
 ```bash
 kubectl get hpa my-app -n production
 # NAME     REFERENCE              TARGETS         MINPODS   MAXPODS   REPLICAS
 # my-app   Deployment/my-app      85%/50%         3         10        3
-
 # TARGETS显示85%但副本数没变!
 kubectl describe hpa my-app
 # Warning  FailedGetMetric  unable to fetch metrics: the server could not find the requested resource
-
 # 检查metrics-server
 kubectl get pods -n kube-system | grep metrics
 # metrics-server-xxx   0/1     CrashLoopBackOff
 ```
-
 **解决方案**:
 ```bash
 # 1. 修复metrics-server
 kubectl logs metrics-server-xxx -n kube-system
 # Error: unable to read a client certificate from /etc/kubernetes/pki/sa.key
-
 # 重新部署metrics-server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
 # 2. 或安装Prometheus Adapter作为metrics源
 helm install prometheus-adapter prometheus-community/prometheus-adapter   --namespace monitoring   --set prometheus.url=http://prometheus.monitoring   --set prometheus.port=9090
-
 # 3. 调整HPA配置
 kubectl patch hpa my-app -n production -p '{
   "spec": {
@@ -1900,13 +1612,9 @@ kubectl patch hpa my-app -n production -p '{
   }
 }'
 ```
-
 ---
-
 ## 高级性能调优参数
-
 ### kubelet参数调优
-
 ```yaml
 # /var/lib/kubelet/config.yaml
 apiVersion: kubelet.config.k8s.io/v1beta1
@@ -1926,9 +1634,7 @@ syncFrequency: "10s"
 fileCheckFrequency: "20s"
 httpCheckFrequency: "20s"
 ```
-
 ### etcd调优
-
 ```yaml
 # etcd配置
 etcd:
@@ -1945,9 +1651,7 @@ etcd:
     heartbeat-interval: "100"
     election-timeout: "1000"
 ```
-
 ### API Server限流
-
 ```yaml
 # kube-apiserver配置
 apiServer:
@@ -1959,9 +1663,7 @@ apiServer:
     audit-log-maxbackup: "10"
     audit-log-maxsize: "100"
 ```
-
 ### Calico网络优化
-
 ```yaml
 # calico-node配置
 apiVersion: projectcalico.org/v3
@@ -1986,45 +1688,32 @@ spec:
     # BFD
     felixBPFConnectTimeLoadBalancingEnabled: true
 ```
-
 ---
-
 ## 双机房灾备方案
-
 ### 架构设计
-
 ```
 机房A (主): etcd x3 + Master x3 + Worker x6 + Harbor + Prometheus
            │ 跨机房复制
 机房B (备): etcd x3 + Master x3 + Worker x6 + Harbor + Prometheus
-
 DNS: app.example.com → 机房A优先，机房B备用
 监控: 双机房独立采集，集中告警
 ```
-
 ### etcd备份恢复
-
 > **etcd备份脚本见第十一节** (etcd_backup.sh)，此处仅展示恢复流程。
-
 ```bash
 #!/bin/bash
 # etcd_restore.sh - etcd恢复(从备份快照恢复)
-
 set -euo pipefail
-
 BACKUP_FILE=$1
 if [ -z "$BACKUP_FILE" ]; then
   echo "用法: $0 <etcd-snapshot-file.db>"
   echo "示例: $0 /data/etcd-backup/etcd-snapshot-20260506_120000.db"
   exit 1
 fi
-
 # 1. 停止etcd服务
 systemctl stop etcd
-
 # 2. 备份当前数据目录
 mv /var/lib/etcd /var/lib/etcd.bak.$(date +%Y%m%d%H%M%S)
-
 # 3. 从快照恢复
 ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
   --data-dir=/var/lib/etcd \
@@ -2032,35 +1721,27 @@ ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
   --initial-cluster="etcd-0=https://10.10.10.11:2380,etcd-1=https://10.10.10.12:2380,etcd-2=https://10.10.10.13:2380" \
   --initial-advertise-peer-urls=https://$(hostname -i):2380 \
   --initial-cluster-token=etcd-cluster
-
 # 4. 启动etcd
 systemctl start etcd
-
 # 5. 验证恢复结果
 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key
-
 echo "✅ etcd恢复完成"
 ```
-
 ### 故障切换SOP
-
 ```bash
 #!/bin/bash
 # disaster_recovery.sh
 # 机房A不可用时切换到机房B
-
 echo "===== 灾备切换开始 ====="
-
 # 1. 确认机房A不可用
 kubectl --context=dc-a get nodes 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "机房A仍然可用，请确认是否继续"
     exit 1
 fi
-
 # 2. 在机房B的Master节点上修改apiserver启动参数(Static Pod)
 # [注意] kube-apiserver是Static Pod，不是Deployment，不能用kubectl patch
 # 需要修改 /etc/kubernetes/manifests/kube-apiserver.yaml
@@ -2075,20 +1756,14 @@ for master in dc-b-master-01 dc-b-master-02 dc-b-master-03; do
     echo "已修改 ${master} apiserver authorization-mode"
 PATCH_EOF
 done
-
 # 3. 更新DNS指向机房B
 # aws route53 change-resource-record-sets ...
-
 # 4. 验证服务可用
 kubectl --context=dc-b get pods -A | grep -v Running
-
 echo "===== 灾备切换完成 ====="
 ```
-
 ---
-
 ## 详细成本估算
-
 | 项目 | 自建(裸金属) | 阿里云ACK | AWS EKS |
 |------|------------|----------|---------|
 | Master节点(3x4C16G) | ¥12,000/月 | ¥8,000/月 | $1,000/月 |
@@ -2098,13 +1773,9 @@ echo "===== 灾备切换完成 ====="
 | 网络(1Gbps) | ¥5,000/月 | ¥3,000/月 | $300/月 |
 | 运维人力(0.5人) | ¥10,000/月 | ¥3,000/月 | $300/月 |
 | **月度总计** | **¥88,000** | **¥63,000** | **$7,550 (¥54,000)** |
-
 三年TCO: 自建¥3,168,000 vs 阿里云¥2,268,000 (省29%) vs AWS ¥1,944,000 (省39%)
-
 ---
-
 ## 全链路监控告警
-
 ```yaml
 groups:
   - name: kubernetes
@@ -2134,13 +1805,9 @@ groups:
         for: 10m
         labels: { severity: warning }
 ```
-
 ---
-
 ## 完整运维SOP
-
 ### 日常巡检
-
 ```bash
 #!/bin/bash
 echo "===== K8s集群巡检 ====="
@@ -2158,18 +1825,13 @@ kubectl get pvc -A | grep -v Bound
 kubectl top nodes
 kubectl top pods -A --sort-by=cpu | head -20
 ```
-
 ### etcd备份SOP
-
 > **完整脚本见第十一节** (etcd_backup.sh)，此处仅展示crontab配置。
-
 ```bash
 # 每6小时自动备份 (crontab: 0 */6 * * *)
 # 0 */6 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
-
 ### 版本升级SOP
-
 ```bash
 # 1. 备份etcd
 # 2. 升级Master节点
@@ -2177,66 +1839,45 @@ kubectl top pods -A --sort-by=cpu | head -20
 # 4. 升级Worker节点(kubectl drain + uncordon)
 # 5. 验证应用正常
 ```
-
 ---
-
-
-
 ## 踩坑记录
-
 ### Q1: kubeadm init卡在[wait-control-plane]
 **原因**: containerd未正确配置SystemdCgroup
 **解决**: 确认 /etc/containerd/config.toml 中 SystemdCgroup = true
-
 ### Q2: Calico BGP模式下跨节点Pod不通
 **原因**: 安全组/防火墙未放行BGP端口179
 **解决**: iptables -A INPUT -p tcp --dport 179 -j ACCEPT
-
 ### Q3: Harbor推送镜像报x509 certificate signed by unknown authority
 **原因**: 节点未信任Harbor CA证书
 **解决**: 将Harbor CA证书分发到所有节点的 /etc/containerd/certs.d/ 目录
-
 ### Q4: MetalLB分配的External IP无法访问
 **原因**: 节点间二层网络不通(跨子网)
 **解决**: 改用L2模式或配置BGP peering
-
 ### Q5: HPA不扩容但CPU已超阈值
 **原因**: metrics-server未正确部署
 **解决**: 检查metrics-server Pod状态，确认--kubelet-insecure-tls参数
-
-
-
 ## etcd备份与恢复
-
 > **etcd备份脚本见第十一节** (etcd_backup.sh)，此处仅展示恢复流程。
-
 ### crontab配置
-
 ```bash
 # 每6小时执行etcd备份 (与第十一节统一)
 0 */6 * * * /opt/scripts/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
-
 ### 恢复步骤
-
 ```bash
 # 1. 停止所有Master节点的etcd
 systemctl stop etcd
-
 # 2. 恢复etcd数据
 ETCDCTL_API=3 etcdctl snapshot restore /data/etcd-backup/etcd-snapshot-YYYYMMDD_HHMMSS.db \
   --data-dir=/var/lib/etcd-restore \
   --name=<etcd-member-name> \
   --initial-cluster=<etcd-cluster> \
   --initial-advertise-peer-urls=https://<ip>:2380
-
 # 3. 替换数据目录
 mv /var/lib/etcd /var/lib/etcd.bak
 mv /var/lib/etcd-restore /var/lib/etcd
-
 # 4. 重启etcd
 systemctl start etcd
 ```
-
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
 > 适用于: 企业级容器化改造、私有PaaS平台建设
