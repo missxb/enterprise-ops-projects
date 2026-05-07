@@ -152,7 +152,7 @@ log "INFO" "========== 执行完成: $(basename $0) =========="
 ### 1.1 企业痛点
 - 开发环境不一致，"在我机器上能跑"问题频发
 - 微服务拆分后部署复杂度飙升，手动运维效率低
-- 资源利用率低，服务器闲置率高达40-60%
+- 资源利用率低，传统部署模式下服务器闲置率可达40-60%（容器化后可降至10-20%）
 - 缺乏统一的应用生命周期管理
 ### 1.2 项目目标
 - 搭建生产级K8s集群（3 Master + N Worker）
@@ -237,6 +237,17 @@ metadata:
 | Worker | k8s-worker-05 | 10.10.10.25 | 32C | 128G | 100G SSD | 1T | GPU/AI推理节点 |
 | Harbor | harbor-01 | 10.10.10.31 | 8C | 16G | 100G SSD | 2T | 镜像仓库 |
 | Harbor | harbor-02 | 10.10.10.32 | 8C | 16G | 100G SSD | 2T | 镜像仓库(备) |
+> **etcd存储建议**: Master节点仅100G系统盘。生产环境建议:
+> 1. 为etcd配置独立数据盘(SSD,至少200G)
+> 2. 或使用etcd quota-backend-bytes限制(当前4GB)
+> 3. 定期清理etcd历史版本: etcdctl endpoint health
+
+> **GPU选型建议**: 根据业务需求选择:
+> - A10 (24GB): 推理场景,性价比高
+> - V100 (32GB): 训练+推理,成熟稳定
+> - A100 (80GB): 大模型训练,最高性能
+> K8s Device Plugin: nvidia/k8s-device-plugin,需安装NVIDIA驱动+CUDA
+
 > **Harbor生产级HA架构**:
 > 1. 外部PostgreSQL(主备同步) — 使用阿里云RDS PostgreSQL或自建PG主备
 > 2. 外部Redis(主备) — 使用阿里云Redis或自建Sentinel+3节点
@@ -427,10 +438,18 @@ yum install -y containerd.io-2.0.*
 # 配置containerd (version 3格式 - containerd 2.x)
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
+> **生产调优**: 默认配置可能不足,建议调整:
+> - max_concurrent_downloads: 10 (并发下载)
+> - max_container_log_line_size: 16384 (日志行大小)
+> - max_opaque_mb: 4096 (不透明数据限制)
+
 # [重要] containerd 2.x使用version 3配置格式，与1.7.x的version 2不兼容
 # 验证配置版本: grep 'version' /etc/containerd/config.toml 应显示 version = 3
 # 启用SystemdCgroup
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+> **注意**: SystemdCgroup是K8s必需配置。简单sed替换在containerd 2.x中已足够,
+> 如需更全面的cgroup配置,可手动编辑config.toml的[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]部分
+
 # 启用NRI (Node Resource Interface) - containerd 2.x新特性
 # NRI允许插件控制Pod资源分配，与Device Plugin配合使用
 cat >> /etc/containerd/config.toml << 'EOF'
@@ -1152,6 +1171,9 @@ trace:
   sample_rate: 1
   jaeger:
     endpoint: http://jaeger:14268/api/traces
+> **前置条件**: Jaeger需先部署(见04-ELK日志平台项目)。如未部署,可暂时禁用追踪:
+> trace.jaeger.enabled: false
+
 HARBORYML
 echo "安装Harbor..."
 # [已修复] Harbor 2.9+已废弃chartmuseum，移除--with-chartmuseum参数
@@ -2010,6 +2032,7 @@ echo "MetalLB安装完成"
 echo "Step 6: 部署Harbor..."
 ssh root@10.10.10.31 'bash -s' < install_harbor.sh
 echo "Harbor部署完成"
+> **时序说明**: Harbor在Step 6部署,但K8s节点在Step 1已初始化。节点初始化时使用Docker Hub镜像加速器(而非Harbor)。Harbor部署后,需更新containerd配置指向Harbor。
 echo "Step 7: 安装Helm..."
 ssh root@10.10.10.11 'bash -s' < install_helm.sh
 echo "Helm安装完成"
@@ -2079,7 +2102,7 @@ enterprise-container-platform/
 - **Pod调度**: 节点亲和性 + 反亲和性 + 拓扑分布约束
 ### 18.3 安全加固
 - **认证**: RBAC + ServiceAccount
-- **网络**: Calico NetworkPolicy
+- **网络**: Calico NetworkPolicy + K8s Gateway API(替代Ingress)
 - **镜像**: Harbor Trivy漏洞扫描
 - **运行时**: 非root + 只读文件系统 + 能力限制
 ### 18.4 可观测性
