@@ -463,6 +463,7 @@ kubectl get pods -n calico-system
 kubectl get ippool -o wide
 ```
 ### 4.6 安装MetalLB（裸金属负载均衡）
+> ⚠️ MetalLB L2模式要求同一VLAN，云环境(阿里云/AWS)不支持ARP广播，应使用云厂商SLB/CLB替代。
 ```bash
 #!/bin/bash
 # install_metallb.sh - Master-01执行
@@ -1326,6 +1327,7 @@ enterprise-container-platform/
 ---
 > 本项目基于官方文档、技术博客和社区实践编写
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
+> Harbor使用Docker Compose独立部署(非K8s内),生产环境也可用Helm Chart部署到K8s中。
 > 适用于: 企业级容器化改造、私有PaaS平台建设
 ---
 ## 真实故障案例深度分析
@@ -1878,4 +1880,5 @@ mv /var/lib/etcd-restore /var/lib/etcd
 systemctl start etcd
 ```
 > 涵盖: K8s集群搭建、Harbor、Helm、Calico、MetalLB、监控、日志、安全
+> Harbor使用Docker Compose独立部署(非K8s内),生产环境也可用Helm Chart部署到K8s中。
 > 适用于: 企业级容器化改造、私有PaaS平台建设
