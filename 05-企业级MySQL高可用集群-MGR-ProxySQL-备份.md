@@ -431,6 +431,11 @@ SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
 
 ### 8.1 MGR vs InnoDB Cluster vs Galera
 
+> **跨机房部署建议**:
+> - 单机房: MGR单主模式(3节点)
+> - 跨机房: 使用MySQL InnoDB ClusterSet或MGR+异步复制
+> - MGR对网络延迟敏感(建议<1ms),跨机房专线必须稳定
+
 | 特性 | MySQL MGR | InnoDB Cluster | Galera Cluster |
 |------|-----------|---------------|----------------|
 | 复制方式 | 基于Paxos协议 | MGR + MySQL Shell + Router | 真正多主同步 |
@@ -547,6 +552,12 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345 AND status = 'paid';
 
 ### 案例1: MGR脑裂
 
+> **MGR网络分区处理机制**:
+> - MGR使用Paxos协议,需要多数派(quorum)才能选举Primary
+> - 3节点集群: 容忍1个节点故障(2/3多数)
+> - 网络分区时: 拥有多数派的一方继续服务,少数派自动拒绝写入
+> - 脑裂风险: 跨机房部署时,如果网络延迟>1ms,可能导致频繁选举
+
 **故障**: 3节点MGR集群出现2个Primary，数据不一致
 
 **背景**: 凌晨3点收到告警，业务反馈订单数据写入异常。登录数据库发现2个节点都是PRIMARY状态，部分订单数据在两个节点上不一致。
@@ -649,6 +660,11 @@ SAVE MYSQL SERVERS TO DISK;
 ---
 
 ## 十一、灾备方案
+
+> **备份安全建议**:
+> - 备份加密: 使用gpg或openssl加密备份文件后再上传OSS
+> - 跨区域备份: 异地机房或不同可用区存储备份副本
+> - 备份验证: 定期(每月)执行恢复演练,验证备份可用性
 
 ### 11.1 RTO/RPO目标
 
@@ -1871,3 +1887,17 @@ vrrp_script check_proxysql {
 }
 
 两台ProxySQL使用同步的mysql_servers和mysql_users配置，通过ProxySQL Admin API或配置文件同步。
+
+---
+
+## 附录: MySQL监控扩展建议
+
+| 监控类型 | 指标 | 说明 |
+|----------|------|------|
+| 慢查询 | slow_query_log | 分析TOP SQL优化 |
+| Performance Schema | events_statements_summary | 语句级性能分析 |
+| InnoDB Metrics | innodb_buffer_pool_hit_rate | 缓存命中率 |
+| 复制延迟 | seconds_behind_source | 主从同步状态 |
+| 连接数 | threads_connected | 连接池使用情况 |
+
+> **监控工具推荐**: mysqld_exporter + Prometheus + Grafana
