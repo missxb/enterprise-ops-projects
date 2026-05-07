@@ -59,7 +59,7 @@
 |------|------|------|------|
 | Prometheus | 2 | 8C/32G/500G SSD | 时序数据库 |
 | Thanos | 2 | 与Prometheus共用 | 长期存储 |
-| AlertManager | 2 | 4C/8G/50G | 告警路由 |
+| AlertManager | 3 | 4C/8G/50G | 告警路由 |
 | Grafana | 1 | 4C/8G/50G | 可视化 |
 | MinIO | 4 | 4C/16G/2T | 对象存储 |
 
@@ -106,6 +106,7 @@ data:
             - targets:
                 - alertmanager-01:9093
                 - alertmanager-02:9093
+                - alertmanager-03:9093
     
     # 抓取配置
     scrape_configs:
@@ -324,6 +325,7 @@ data:
             annotations:
               summary: "网络接收流量过高: {{ $labels.instance }}"
               description: "网络接收速率超过100MB/s"
+              # 注意: 此阈值需根据实际NIC网卡速率调整。1Gbps网卡理论上限约125MB/s，10Gbps约1250MB/s。
           
           # 节点宕机
           - alert: NodeDown
@@ -496,7 +498,7 @@ data:
           # InnoDB缓冲池命中率低
           - alert: MySQLLowBufferPoolHitRate
             expr: |
-              (1 - mysql_global_status_innodb_buffer_pool_reads / mysql_global_status_innodb_buffer_pool_read_requests) * 100 < 99
+              (1 - mysql_global_status_innodb_buffer_pool_reads / mysql_global_status_innodb_buffer_pool_read_requests) * 100 < 95
             for: 15m
             labels:
               severity: warning
@@ -529,7 +531,8 @@ data:
           
           # 连接数过高
           - alert: RedisHighConnections
-            expr: redis_connected_clients > 10000
+            expr: redis_connected_clients > redis_config_maxclients * 0.8
+            # 动态阈值: 使用maxclients配置值的80%，而非固定值，适配不同环境
             for: 5m
             labels:
               severity: warning
@@ -584,6 +587,7 @@ data:
           # 活跃连接数过高
           - alert: NginxHighActiveConnections
             expr: nginx_connections_active > 5000
+            # 注意: 此阈值需结合nginx.conf中worker_connections * worker_processes计算上限
             for: 5m
             labels:
               severity: warning
@@ -921,7 +925,7 @@ spec:
     spec:
       containers:
       - name: minio
-        image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
 > **版本更新**: MinIO RELEASE.2024-11-07Z为2024年版本。2026年建议使用最新稳定版,查看https://github.com/minio/minio/releases获取最新版本号
         command:
         - /bin/sh
@@ -998,7 +1002,7 @@ spec:
     spec:
       containers:
       - name: mc
-        image: minio/mc:RELEASE.2024-11-07T00-52-20Z
+        image: minio/mc:RELEASE.2025-04-22T22-12-26Z
 > **版本更新**: MinIO RELEASE.2024-11-07Z为2024年版本。2026年建议使用最新稳定版,查看https://github.com/minio/minio/releases获取最新版本号
         command:
         - /bin/sh
@@ -1110,6 +1114,15 @@ Prometheus B ──▶ Thanos Sidecar ──┘         │
                                        Thanos Compactor (压缩+降采样)
 ```
 
+### Thanos组件说明
+
+| 组件 | 功能 | 部署方式 |
+|------|------|----------|
+| Sidecar | 采集: 挂载Prometheus TSDB目录，将数据上传至对象存储 | 与Prometheus同Pod |
+| Query | 去重: 聚合多Prometheus数据，自动去重相同replica标签的数据 | StatefulSet |
+| Store Gateway | 长期: 从对象存储(S3/MinIO)查询历史数据，提供gRPC查询接口 | StatefulSet |
+| Compactor | 压缩: 对历史数据进行压缩和降采样(5m/1h)，减少存储和查询开销 | StatefulSet(仅1副本) |
+
 ---
 
 ## 四、Thanos长期存储
@@ -1141,7 +1154,7 @@ spec:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
             - '--storage.tsdb.retention.time=15d'
-            - '--storage.tsdb.retention.size=200GB'
+            - '--storage.tsdb.retention.size=400GB'
             - '--web.enable-lifecycle'
             - '--web.enable-admin-api'
             - '--label=replica=$(POD_NAME)'
@@ -1293,6 +1306,8 @@ data:
   datasources.yaml: |
     apiVersion: 1
     datasources:
+      # [建议] 生产环境推荐将Thanos Query设为默认数据源，确保长期存储数据优先查询
+      # 将 isDefault: true 移至Thanos数据源，或在Dashboard中显式选择Thanos数据源
       - name: Prometheus
         type: prometheus
         access: proxy
@@ -1561,7 +1576,7 @@ spec:
     spec:
       containers:
       - name: dingtalk-webhook
-        image: timonwong/prometheus-webhook-dingtalk:v1.4.0
+        image: timonwong/prometheus-webhook-dingtalk:v2.0.0
         args:
         - --config.file=/etc/config/config.yml
         ports:
@@ -1605,6 +1620,10 @@ spec:
 # install_monitoring.sh - 一键部署完整监控体系
 
 set -euo pipefail
+
+# 错误处理: 捕获失败的命令并输出详细信息
+trap 'echo "❌ 部署失败! 错误发生在第 $LINENO 行, 命令: $BASH_COMMAND"; exit 1' ERR
+
 
 echo "================================================"
 echo "  企业级Prometheus+Grafana监控体系 - 一键部署"
@@ -1985,7 +2004,7 @@ enabled = true
 backend = "memory"
 ```
 ### 案例4: 远程写入延迟导致数据丢失
-> **架构说明**: 本项目使用Thanos Sidecar模式(直接读取本地TSDB),不使用remote-write。remote-write是Thanos Receive模式,两者互斥。
+> **架构说明(重要)**: 本项目采用**Thanos Sidecar模式**,Prometheus将数据写入本地TSDB,Sidecar直接读取并上传至对象存储。本项目**不使用**remote-write。remote-write属于Thanos Receive模式,用于替代Sidecar直接推送数据。两种模式**互斥**,不可混用。若需升级为Receive模式,需移除Sidecar并部署Thanos Receive组件。
 
 **故障现象**: Thanos Store查询结果有时间间隙
 
@@ -2202,7 +2221,7 @@ global:
 storage:
   tsdb:
     retention.time: 15d
-    retention.size: 200GB
+    retention.size: 400GB
     path: /prometheus
     min-block-duration: 2h
     max-block-duration: 36h
@@ -2362,7 +2381,7 @@ groups:
         for: 5m
         labels: { severity: warning }
       - alert: RequestSpike
-        expr: sum(rate(http_requests_total[5m])) / sum(rate(http_requests_total[5m] offset 1d)) > 3
+        expr: (sum(rate(http_requests_total[5m])) or vector(0)) / (sum(rate(http_requests_total[5m] offset 1d)) or vector(1)) > 3
         for: 5m
         labels: { severity: info }
   
