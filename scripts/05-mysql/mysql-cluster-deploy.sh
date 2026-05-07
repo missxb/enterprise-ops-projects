@@ -84,7 +84,8 @@ for node in ${NODES}; do
   echo "  配置 ${node} (server-id=${NODE_ID})..."
   ssh root@${node} bash << EOF
     # 安装MySQL
-    rpm -ivh https://dev.mysql.com/get/mysql80-community-release-el7-11.noarch.rpm
+    # 动态获取MySQL RPM包(兼容CentOS 7/8/9)
+    rpm -ivh https://dev.mysql.com/get/mysql80-community-release-$(rpm -E %{rhel})-latest.noarch.rpm
     yum install -y mysql-community-server-${MYSQL_VERSION}
 
     # 配置my.cnf

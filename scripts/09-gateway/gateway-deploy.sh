@@ -32,7 +32,8 @@ curl -L -o /tmp/istio.tar.gz "${ISTIO_URL}"
   fi
 cd /tmp && tar xzf istio.tar.gz
 cd istio-${ISTIO_VERSION}
-kubectl apply -f manifests/profiles/default.yaml
+# 使用istioctl安装(推荐方式)
+  istioctl install --set profile=default -y
 cd -
 
 # 3. 安装Jaeger
