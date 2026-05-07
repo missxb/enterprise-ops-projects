@@ -2004,6 +2004,9 @@ curl -s http://prometheus:9090/api/v1/status/flags | jq '.remoteWriteQueueMaxSam
 ```
 
 **解决方案**:
+
+> **注意**: 以下配置仅适用于Thanos Receive模式。本项目使用Sidecar模式,不需要remote-write。此配置仅作为参考,实际部署时请勿启用。
+
 ```yaml
 # Prometheus远程写入优化
 remoteWrite:
@@ -2208,6 +2211,8 @@ storage:
 
 ### 远程写入优化
 
+> **注意**: 以下配置仅适用于Thanos Receive模式。本项目使用Sidecar模式,不需要remote-write。此配置仅作为参考,实际部署时请勿启用。
+
 ```yaml
 remoteWrite:
   - url: "http://thanos-receive:19291/api/v1/receive"
@@ -2253,6 +2258,13 @@ Prometheus B (机房B) → Thanos Sidecar → Thanos Store Gateway
                                               │
                                     Thanos Compactor (压缩)
 ```
+
+> **跨机房注意事项**:
+> - 网络延迟: 跨机房Thanos Query查询Store Gateway延迟可能>50ms,建议:
+>   1. 使用Thanos Store Gateway在每个机房本地缓存
+>   2. 设置--store.grpc.series-sample-limit限制单次查询数据量
+>   3. 使用Thanos Query Frontend缓存热门查询
+> - 带宽: 跨机房同步数据量大,建议10Gbps以上专线
 
 ### VictoriaMetrics替代方案
 
@@ -2430,6 +2442,35 @@ curl -s http://prometheus:9090/api/v1/targets | jq '.data.activeTargets[] | sele
 # 告警状态
 curl -s http://alertmanager:9093/api/v2/alerts | jq 'length'
 ```
+
+```yaml
+# PrometheusRule自动巡检
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: monitoring-health-check
+  namespace: monitoring
+spec:
+  groups:
+  - name: monitoring-health
+    rules:
+    - alert: PrometheusTargetMissing
+      expr: up == 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "目标 {{ $labels.instance }} 不可达"
+    - alert: PrometheusHighScrapeDuration
+      expr: prometheus_target_interval_length_seconds > 30
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "抓取延迟超过30秒"
+```
+
+> 使用PrometheusRule实现自动化巡检,无需手动脚本。告警规则本身也是巡检项。
 
 ### 告警处理SOP
 
