@@ -5,17 +5,35 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 NAMESPACE="${NAMESPACE:-logging}"
 ES_VERSION="${ES_VERSION:-8.11.3}"
 ES_PASSWORD="${ES_PASSWORD:?请设置ES_PASSWORD}"
 
-echo "=== ELK生产级部署 ==="
+log_info "=== ELK生产级部署 ==="
 
 # Step 1: 创建命名空间
-echo ">>> Step 1: 创建命名空间"
+log_info ">>> Step 1: 创建命名空间"
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 # Step 2: 生成ES TLS证书
-echo ">>> Step 2: 生成ES TLS证书"
+log_info ">>> Step 2: 生成ES TLS证书"
 CERT_DIR=$(mktemp -d)
 trap 'rm -rf "${CERT_DIR}"' EXIT
 
@@ -50,7 +68,7 @@ kubectl create secret generic es-certs -n ${NAMESPACE} \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Step 3: 创建ES密码Secret
-echo ">>> Step 3: 创建ES密码Secret"
+log_info ">>> Step 3: 创建ES密码Secret"
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -62,7 +80,7 @@ stringData:
 EOF
 
 # Step 4: 部署Elasticsearch集群(3节点)
-echo ">>> Step 4: 部署Elasticsearch集群"
+log_info ">>> Step 4: 部署Elasticsearch集群"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: StatefulSet
@@ -145,7 +163,7 @@ spec:
 EOF
 
 # Step 5: 部署Logstash
-echo ">>> Step 5: 部署Logstash"
+log_info ">>> Step 5: 部署Logstash"
 # 创建Logstash配置
 cat << LOGSTASHCONF | kubectl apply -f -
 apiVersion: v1
@@ -214,7 +232,7 @@ spec:
 EOF
 
 # Step 6: 部署Filebeat(DaemonSet)
-echo ">>> Step 6: 部署Filebeat"
+log_info ">>> Step 6: 部署Filebeat"
 # 创建Filebeat配置
 cat << FILEBEATCONF | kubectl apply -f -
 apiVersion: v1
@@ -288,7 +306,7 @@ spec:
 EOF
 
 # Step 7: 部署Kibana
-echo ">>> Step 7: 部署Kibana"
+log_info ">>> Step 7: 部署Kibana"
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -340,7 +358,7 @@ spec:
             defaultMode: 0400
 EOF
 
-echo ""
-echo "=== ELK部署完成 ==="
-echo "  Elasticsearch: http://elasticsearch:9200"
-echo "  Kibana: http://kibana:5601"
+log_info ""
+log_ok "=== ELK部署完成 ==="
+log_info "  Elasticsearch: http://elasticsearch:9200"
+log_info "  Kibana: http://kibana:5601"

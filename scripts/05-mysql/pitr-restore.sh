@@ -31,6 +31,9 @@ password=${MYSQL_PASS}
 CNF
 trap "rm -f ${MYSQL_CNF}" EXIT
 
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 echo "=== MySQL PITR恢复 ==="
 echo "目标时间: ${TARGET_TIME}"
 

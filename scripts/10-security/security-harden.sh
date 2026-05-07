@@ -5,6 +5,24 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 # [重要警告] 本脚本通过SSH远程执行安全加固，存在连接中断风险:
 # - 修改SSH端口后，如未正确配置白名单，可能导致无法远程连接
 # - 建议: (1)在控制台/VPN可访问的网络执行 (2)配置console访问作为备份 (3)加固前备份SSH配置
@@ -14,13 +32,13 @@ NODES="${NODES:?请设置需要加固的节点列表(空格分隔)}"
 SSH_PORT="${SSH_PORT:-22}"
 ADMIN_IP="${ADMIN_IP:?请设置管理IP白名单}"
 
-echo "=== 服务器安全加固(等保二级) ==="
-echo "节点: ${NODES}"
-echo "管理IP: ${ADMIN_IP}"
+log_info "=== 服务器安全加固(等保二级) ==="
+log_info "节点: ${NODES}"
+log_info "管理IP: ${ADMIN_IP}"
 
 for node in ${NODES}; do
   echo ""
-  echo ">>> 加固节点: ${node}"
+  log_info ">>> 加固节点: ${node}"
 
   ssh root@${node} bash << 'HARDENING_EOF'
 
@@ -188,24 +206,24 @@ fi
 
 HARDENING_EOF
 
-  echo "  ✅ ${node} 安全加固完成"
+  log_ok "${node} 安全加固完成"
 done
 
 # Step 2: 验证加固效果
 echo ""
-echo ">>> 验证加固效果"
+log_info ">>> 验证加固效果"
 for node in ${NODES}; do
-  echo "  ${node}:"
+  log_info "  ${node}:"
   ssh root@${node} "echo '  SSH配置:'; grep -E 'PermitRootLogin|PasswordAuthentication' /etc/ssh/sshd_config | head -3"
 done
 
 echo ""
-echo "=== 安全加固完成 ==="
-echo "  下一步: 运行 compliance-check.sh 验证等保合规"
+log_ok "安全加固完成"
+log_info "  下一步: 运行 compliance-check.sh 验证等保合规"
 
 # Step 3: 审计日志轮转(在远程节点配置，防止磁盘占满)
 echo ""
-echo ">>> Step 3: 配置审计日志轮转"
+log_info ">>> Step 3: 配置审计日志轮转"
 for node in ${NODES}; do
   ssh root@${node} bash << 'LOGROTATE_EOF'
 cat > /etc/logrotate.d/audit << 'LOGROTATE'
@@ -223,16 +241,16 @@ cat > /etc/logrotate.d/audit << 'LOGROTATE'
 }
 LOGROTATE
 LOGROTATE_EOF
-  echo "  ✅ ${node} 审计日志轮转已配置(保留30天)"
+  log_ok "${node} 审计日志轮转已配置(保留30天)"
 done
 
 # Step 4: 锁定审计规则(必须最后执行，-e 2锁定后需要重启才能修改)
 echo ""
-echo ">>> Step 4: 锁定审计规则"
+log_info ">>> Step 4: 锁定审计规则"
 for node in ${NODES}; do
   ssh root@${node} bash << 'AUDITLOCK_EOF'
 # [安全] 锁定审计规则(-e 2)，锁定后需要重启才能修改，防止攻击者篡改
 auditctl -e 2 2>/dev/null || true
 AUDITLOCK_EOF
-  echo "  ✅ ${node} 审计规则已锁定(-e 2)"
+  log_ok "${node} 审计规则已锁定(-e 2)"
 done

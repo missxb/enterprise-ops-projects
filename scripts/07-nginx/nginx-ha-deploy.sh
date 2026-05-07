@@ -5,6 +5,24 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 # === 必填参数 ===
 VIP="${VIP:?请设置VIP(如10.10.50.100)}"
 NODES="${NODES:-10.10.50.11 10.10.50.12}"
@@ -14,32 +32,32 @@ KEEPALIVED_PASS="${KEEPALIVED_PASS:?请设置KEEPALIVED密码(≤8字符)}"
 
 # 验证Keepalived密码长度(≤8字符，Keepalived协议限制)
 if [ ${#KEEPALIVED_PASS} -gt 8 ]; then
-  echo "❌ KEEPALIVED密码长度不能超过8字符(当前${#KEEPALIVED_PASS}字符)"
+  log_error "KEEPALIVED密码长度不能超过8字符(当前${#KEEPALIVED_PASS}字符)"
   exit 1
 fi
 if [ ${#KEEPALIVED_PASS} -lt 4 ]; then
-  echo "⚠️  KEEPALIVED密码长度建议至少4字符(当前${#KEEPALIVED_PASS}字符)"
+  log_warn "KEEPALIVED密码长度建议至少4字符(当前${#KEEPALIVED_PASS}字符)"
 fi
 
-echo "=== Nginx+Keepalived生产级高可用部署 ==="
-echo "VIP: ${VIP}"
-echo "节点: ${NODES}"
-echo "后端: ${BACKENDS}"
+log_info "=== Nginx+Keepalived生产级高可用部署 ==="
+log_info "VIP: ${VIP}"
+log_info "节点: ${NODES}"
+log_info "后端: ${BACKENDS}"
 
 # Step 1: 安装Nginx
 echo ""
-echo ">>> Step 1: 安装Nginx"
+log_info ">>> Step 1: 安装Nginx"
 for node in ${NODES}; do
   ssh root@${node} bash << EOF
     yum install -y nginx
     systemctl enable nginx
 EOF
-  echo "  ✅ ${node} Nginx已安装"
+  log_ok "${node} Nginx已安装"
 done
 
 # Step 2: 生成Nginx配置
 echo ""
-echo ">>> Step 2: 生成Nginx负载均衡配置"
+log_info ">>> Step 2: 生成Nginx负载均衡配置"
 
 # 生成upstream配置(使用printf确保换行正确)
 UPSTREAM_CONF=$(printf "upstream app_backend {\n")
@@ -109,12 +127,12 @@ CONF
 # 验证配置
 nginx -t && systemctl reload nginx
 NGINX_EOF
-  echo "  ✅ ${node} Nginx配置已部署"
+  log_ok "${node} Nginx配置已部署"
 done
 
 # Step 3: 安装Keepalived
 echo ""
-echo ">>> Step 3: 安装Keepalived(主备模式)"
+log_info ">>> Step 3: 安装Keepalived(主备模式)"
 NODE_ARRAY=(${NODES})
 for i in "${!NODE_ARRAY[@]}"; do
   node=${NODE_ARRAY[$i]}
@@ -167,15 +185,15 @@ CONF
 systemctl enable keepalived
 systemctl start keepalived
 KEEPALIVED_EOF
-  echo "  ✅ ${node} Keepalived已部署(${ROLE})"
+  log_ok "${node} Keepalived已部署(${ROLE})"
 done
 
 # Step 4: 验证HA
 echo ""
-echo ">>> Step 4: 验证HA"
-echo "  1. 访问 http://${VIP} 验证流量分发"
-echo "  2. 停止主节点Nginx，验证VIP漂移到备节点"
-echo "  3. 检查Keepalived日志: journalctl -u keepalived"
+log_info ">>> Step 4: 验证HA"
+log_info "  1. 访问 http://${VIP} 验证流量分发"
+log_info "  2. 停止主节点Nginx，验证VIP漂移到备节点"
+log_info "  3. 检查Keepalived日志: journalctl -u keepalived"
 
 echo ""
-echo "=== Nginx HA部署完成 ==="
+log_ok "Nginx HA部署完成"

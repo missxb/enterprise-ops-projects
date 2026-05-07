@@ -5,6 +5,21 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
 # === 回滚函数 ===
 CURRENT_STEP=0
 rollback() {
@@ -43,43 +58,43 @@ NAMESPACE="${NAMESPACE:-monitoring}"
 PROMETHEUS_RETENTION="${PROMETHEUS_RETENTION:-30d}"
 ALERTMANAGER_URL="${ALERTMANAGER_URL:-alertmanager:9093}"  # K8s集群内服务地址
 
-echo "=== Prometheus监控栈生产级部署 ==="
+log_info "=== Prometheus监控栈生产级部署 ==="
 
 # === 前置检查 ===
-echo ">>> 前置检查..."
+log_info ">>> 前置检查..."
 errors=0
 
 # 检查必要命令
 for cmd in kubectl helm; do
-  command -v $cmd &>/dev/null || { echo "  ❌ $cmd 未安装"; errors=$((errors+1)); }
+  command -v $cmd &>/dev/null || { log_error "  ❌ $cmd 未安装"; errors=$((errors+1)); }
 done
 
 # 检查磁盘空间(至少10GB可用)
 avail_gb=$(df -BG /opt 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G')
 if [ "${avail_gb:-0}" -lt 10 ]; then
-  echo "  ❌ /opt磁盘空间不足(需10GB,当前${avail_gb:-0}GB)"
+  log_error "  ❌ /opt磁盘空间不足(需10GB,当前${avail_gb:-0}GB)"
   errors=$((errors+1))
 fi
 
 # 检查内存(至少4GB)
 mem_gb=$(free -g | awk '/Mem:/{print $2}')
 if [ "${mem_gb:-0}" -lt 4 ]; then
-  echo "  ⚠️  内存不足4GB(当前${mem_gb}GB),可能影响性能"
+  log_warn "  ⚠️  内存不足4GB(当前${mem_gb}GB),可能影响性能"
 fi
 
-[ $errors -gt 0 ] && { echo "前置检查失败"; exit 1; }
-echo "  ✅ 前置检查通过"
+[ $errors -gt 0 ] && { log_error "前置检查失败"; exit 1; }
+log_ok "  ✅ 前置检查通过"
 
 # Step 1: 创建命名空间
 CURRENT_STEP=1
-echo ">>> Step 1: 创建命名空间"
+log_info ">>> Step 1: 创建命名空间"
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 # 为NetworkPolicy打标签(允许production命名空间访问监控)
 kubectl label namespace ${NAMESPACE} name=monitoring --overwrite
 
 # Step 2: 部署Prometheus StatefulSet(2副本+PVC)
 CURRENT_STEP=2
-echo ">>> Step 2: 部署Prometheus HA(2副本)"
+log_info ">>> Step 2: 部署Prometheus HA(2副本)"
 cat << 'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -109,7 +124,7 @@ data:
 EOF
 
 # 创建告警规则ConfigMap
-echo ">>> Step 2b: 部署Prometheus告警规则"
+log_info ">>> Step 2b: 部署Prometheus告警规则"
 cat << 'RULESEOF' | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -262,7 +277,7 @@ EOF
 
 # Step 3: 部署AlertManager
 CURRENT_STEP=3
-echo ">>> Step 3: 部署AlertManager"
+log_info ">>> Step 3: 部署AlertManager"
 # 创建AlertManager配置
 cat << ALERTMGRCONF | kubectl apply -f -
 apiVersion: v1
@@ -327,7 +342,7 @@ EOF
 
 # Step 4: 部署Grafana
 CURRENT_STEP=4
-echo ">>> Step 4: 部署Grafana"
+log_info ">>> Step 4: 部署Grafana"
 # 创建Grafana Secret
 kubectl create secret generic grafana-secret -n ${NAMESPACE} \
   --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD:-admin}" \
@@ -391,8 +406,8 @@ spec:
   storageClassName: ${STORAGE_CLASS:-alicloud-disk-ssd}  # 可通过STORAGE_CLASS环境变量覆盖
 PVCEOF
 
-echo ""
-echo "=== 监控栈部署完成 ==="
-echo "  Prometheus: http://prometheus:9090"
-echo "  AlertManager: http://alertmanager:9093"
-echo "  Grafana: http://grafana:3000"
+log_info ""
+log_info "=== 监控栈部署完成 ==="
+log_ok "  Prometheus: http://prometheus:9090"
+log_ok "  AlertManager: http://alertmanager:9093"
+log_ok "  Grafana: http://grafana:3000"

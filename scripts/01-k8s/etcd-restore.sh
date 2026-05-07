@@ -14,14 +14,34 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
+# [回滚] 如恢复失败，可从备份目录恢复: cp -r ${BACKUP_DIR}/etcd-*.bak /var/lib/etcd/
+
 ETCD_ENDPOINT="${ETCD_ENDPOINT:-https://127.0.0.1:2379}"
 ETCD_CACERT="${ETCD_CACERT:-/etc/kubernetes/pki/etcd/ca.crt}"
 ETCD_CERT="${ETCD_CERT:-/etc/kubernetes/pki/etcd/server.crt}"
 ETCD_KEY="${ETCD_KEY:-/etc/kubernetes/pki/etcd/server.key}"
 BACKUP_FILE="${1:?用法: $0 <备份文件路径>}"
 
-echo "=== etcd恢复 ==="
-echo "⚠️ 警告: 此操作将覆盖当前etcd数据!"
+log_info "=== etcd恢复 ==="
+log_warn "警告: 此操作将覆盖当前etcd数据!"
 
 # 确认
 # [修复] 支持CONFIRM环境变量用于非交互式执行(如CI/CD流水线)
@@ -30,27 +50,27 @@ CONFIRM="${CONFIRM:-}"
 if [ -z "${CONFIRM}" ]; then
   read -p "确认恢复? (yes/no): " CONFIRM
 fi
-[ "$CONFIRM" != "yes" ] && { echo "已取消"; exit 0; }
+[ "$CONFIRM" != "yes" ] && { log_info "已取消"; exit 0; }
 
 # 停止所有etcd成员(3节点恢复需要先停止所有成员)
-echo "Step 1: 停止kube-apiserver和etcd..."
+log_info "Step 1: 停止kube-apiserver和etcd..."
 mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/kube-apiserver.yaml.bak 2>/dev/null || true
 # 停止etcd进程(如果是systemd管理)
 systemctl stop etcd 2>/dev/null || true
 # 或者通过静态Pod停止: 移动etcd manifest
 mv /etc/kubernetes/manifests/etcd.yaml /tmp/etcd.yaml.bak 2>/dev/null || true
 # 等待所有节点的etcd停止
-echo "  等待etcd停止..."
+  log_info "等待etcd停止..."
 sleep 10
 # 验证etcd已停止
 if pgrep etcd >/dev/null 2>&1; then
-  echo "  ⚠️ etcd仍在运行，强制停止..."
+  log_warn "etcd仍在运行，强制停止..."
   pkill -9 etcd || true
   sleep 3
 fi
 
 # 恢复etcd数据
-echo "Step 2: 恢复etcd数据..."
+log_info "Step 2: 恢复etcd数据..."
 ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
   --data-dir=/var/lib/etcd-restore \
   --name=$(hostname) \
@@ -59,26 +79,26 @@ ETCDCTL_API=3 etcdctl snapshot restore "$BACKUP_FILE" \
   --initial-cluster-token="etcd-cluster"
 
 # 替换数据目录
-echo "Step 3: 替换数据目录..."
+log_info "Step 3: 替换数据目录..."
 # 安全备份: 先检查是否已有.bak，避免覆盖之前的备份
 if [ -d /var/lib/etcd.bak ]; then
-  echo "⚠️  发现已有备份 /var/lib/etcd.bak，使用时间戳重命名"
+  log_warn "发现已有备份 /var/lib/etcd.bak，使用时间戳重命名"
   mv /var/lib/etcd.bak /var/lib/etcd.bak.$(date +%Y%m%d%H%M%S)
 fi
 mv /var/lib/etcd /var/lib/etcd.bak
 mv /var/lib/etcd-restore /var/lib/etcd
 
 # 启动kube-apiserver
-echo "Step 4: 启动kube-apiserver..."
+log_info "Step 4: 启动kube-apiserver..."
 mv /tmp/kube-apiserver.yaml.bak /etc/kubernetes/manifests/kube-apiserver.yaml
 sleep 10
 
 # 验证
-echo "Step 5: 验证..."
+log_info "Step 5: 验证..."
 ETCDCTL_API=3 etcdctl endpoint health \
   --endpoints=$ETCD_ENDPOINT \
   --cacert=$ETCD_CACERT \
   --cert=$ETCD_CERT \
   --key=$ETCD_KEY
 
-echo "✅ etcd恢复完成"
+log_ok "etcd恢复完成"

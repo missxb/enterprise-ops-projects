@@ -8,6 +8,21 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
 # === 回滚函数 ===
 CURRENT_STEP=0
 rollback() {
@@ -47,56 +62,56 @@ MASTER_NODES="${MASTER_NODES:-10.10.10.31}"
 BACKUP_NODES="${BACKUP_NODES:-10.10.10.32}"
 LOAD_BALANCER="${LOAD_BALANCER:-10.10.10.30}"
 
-echo "=== Harbor生产级HA部署 ==="
-echo "版本: ${HARBOR_VERSION}"
-echo "主节点: ${MASTER_NODES}"
-echo "备节点: ${BACKUP_NODES}"
-echo "负载均衡: ${LOAD_BALANCER}"
+log_info "=== Harbor生产级HA部署 ==="
+log_info "版本: ${HARBOR_VERSION}"
+log_info "主节点: ${MASTER_NODES}"
+log_info "备节点: ${BACKUP_NODES}"
+log_info "负载均衡: ${LOAD_BALANCER}"
 
 # === 前置检查 ===
-echo ">>> 前置检查..."
+log_info ">>> 前置检查..."
 errors=0
 
 # 检查必要命令
 for cmd in docker openssl kubectl; do
-  command -v $cmd &>/dev/null || { echo "  ❌ $cmd 未安装"; errors=$((errors+1)); }
+  command -v $cmd &>/dev/null || { log_error "  ❌ $cmd 未安装"; errors=$((errors+1)); }
 done
 
 # 检查磁盘空间(至少20GB可用)
 avail_gb=$(df -BG /opt 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G')
 if [ "${avail_gb:-0}" -lt 20 ]; then
-  echo "  ❌ /opt磁盘空间不足(需20GB,当前${avail_gb:-0}GB)"
+  log_error "  ❌ /opt磁盘空间不足(需20GB,当前${avail_gb:-0}GB)"
   errors=$((errors+1))
 fi
 
 # 检查内存(至少8GB)
 mem_gb=$(free -g | awk '/Mem:/{print $2}')
 if [ "${mem_gb:-0}" -lt 8 ]; then
-  echo "  ⚠️  内存不足8GB(当前${mem_gb}GB),可能影响性能"
+  log_warn "  ⚠️  内存不足8GB(当前${mem_gb}GB),可能影响性能"
 fi
 
-[ $errors -gt 0 ] && { echo "前置检查失败"; exit 1; }
-echo "  ✅ 前置检查通过"
+[ $errors -gt 0 ] && { log_error "前置检查失败"; exit 1; }
+log_ok "  ✅ 前置检查通过"
 
 # === SSH免密检查与配置 ===
 echo ""
-echo ">>> 检查SSH免密连接..."
+log_info ">>> 检查SSH免密连接..."
 for node in ${MASTER_NODES} ${BACKUP_NODES} ${LOAD_BALANCER}; do
   if ! ssh -o BatchMode=yes -o ConnectTimeout=5 root@${node} echo ok &>/dev/null; then
-    echo "  ⚠️  ${node} SSH免密未配置，正在配置..."
+    log_warn "  ⚠️  ${node} SSH免密未配置，正在配置..."
     [ -f ~/.ssh/id_rsa ] || ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
     ssh-copy-id -o StrictHostKeyChecking=no root@${node}
   else
-    echo "  ✅ ${node} SSH免密已配置"
+    log_ok "  ✅ ${node} SSH免密已配置"
   fi
 done
 
 # Step 1: 部署外部PostgreSQL(使用阿里云RDS或自建)
 echo ""
 CURRENT_STEP=1
-echo ">>> Step 1: 外部PostgreSQL配置"
-echo "  [生产建议] 使用阿里云RDS PostgreSQL 14+高可用版"
-echo "  [自建方案] 主备流复制 + Patroni自动故障转移"
+log_info ">>> Step 1: 外部PostgreSQL配置"
+log_info "  [生产建议] 使用阿里云RDS PostgreSQL 14+高可用版"
+log_info "  [自建方案] 主备流复制 + Patroni自动故障转移"
 
 # 连接数据库并初始化
 PG_HOST="${PG_HOST:?请设置PG_HOST}"
@@ -110,21 +125,21 @@ PGPASSWORD="${PG_ADMIN_PASS}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_ADMI
   GRANT ALL PRIVILEGES ON DATABASE harbor_registry TO harbor;
   ALTER DATABASE harbor_registry OWNER TO harbor;
 PGEOSQL
-echo "  ✅ PostgreSQL数据库harbor_registry已创建"
+log_ok "  ✅ PostgreSQL数据库harbor_registry已创建"
 
 # Step 2: 部署外部Redis(使用阿里云Redis或自建Sentinel)
 echo ""
 CURRENT_STEP=2
-echo ">>> Step 2: 外部Redis配置"
-echo "  [生产建议] 使用阿里云Redis 6.0+集群版"
-echo "  [自建方案] 3主3从 + Sentinel监控"
+log_info ">>> Step 2: 外部Redis配置"
+log_info "  [生产建议] 使用阿里云Redis 6.0+集群版"
+log_info "  [自建方案] 3主3从 + Sentinel监控"
 
 # 验证Redis连接
 REDIS_HOST="${REDIS_HOST:?请设置REDIS_HOST}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/dev/null | grep -q PONG && \
-  echo "  ✅ Redis连接正常" || \
-  echo "  ⚠️  Redis连接失败，请检查 ${REDIS_HOST}:${REDIS_PORT}"
+  log_ok "  ✅ Redis连接正常" || \
+  log_warn "  ⚠️  Redis连接失败，请检查 ${REDIS_HOST}:${REDIS_PORT}"
 
 # Step 3: 配置OSS共享存储
 # [生产建议] Harbor HA必须使用共享存储(OSS/S3/NFS)
@@ -133,15 +148,15 @@ redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/d
 # - 避免: 本地存储(无法跨节点共享,HA无意义)
 echo ""
 CURRENT_STEP=3
-echo ">>> Step 3: OSS共享存储配置"
-echo "  创建OSS Bucket: ${OSS_BUCKET}"
-echo "  Endpoint: ${OSS_ENDPOINT}"
-echo "  访问密钥: 通过环境变量或RAM角色授予"
+log_info ">>> Step 3: OSS共享存储配置"
+log_info "  创建OSS Bucket: ${OSS_BUCKET}"
+log_info "  Endpoint: ${OSS_ENDPOINT}"
+log_info "  访问密钥: 通过环境变量或RAM角色授予"
 
 # Step 4: 生成Harbor配置
 echo ""
 CURRENT_STEP=4
-echo ">>> Step 4: 生成Harbor配置"
+log_info ">>> Step 4: 生成Harbor配置"
 
 generate_harbor_config() {
   local NODE_IP=$1
@@ -219,7 +234,7 @@ https:
 HARBOR_EOF
 
   scp /tmp/harbor-${NODE_IP}.yml root@${NODE_IP}:/opt/harbor/harbor.yml
-  echo "  ✅ ${NODE_IP} (${ROLE}) 配置已生成"
+  log_ok "  ✅ ${NODE_IP} (${ROLE}) 配置已生成"
 }
 
 for node in ${MASTER_NODES}; do
@@ -233,7 +248,7 @@ done
 # Step 5: 安装Docker + Docker Compose
 echo ""
 CURRENT_STEP=5
-echo ">>> Step 5: 安装Docker + Docker Compose"
+log_info ">>> Step 5: 安装Docker + Docker Compose"
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << 'DOCKER_EOF'
     yum install -y yum-utils
@@ -241,13 +256,13 @@ for node in ${MASTER_NODES} ${BACKUP_NODES}; do
     yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     systemctl enable --now docker
 DOCKER_EOF
-  echo "  ✅ ${node} Docker已安装"
+  log_ok "  ✅ ${node} Docker已安装"
 done
 
 # Step 6: 下载并安装Harbor
 echo ""
 CURRENT_STEP=6
-echo ">>> Step 6: 下载并安装Harbor"
+log_info ">>> Step 6: 下载并安装Harbor"
 INSTALL_SCRIPT="https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-offline-installer-v${HARBOR_VERSION}.tgz"
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << HARBOR_INSTALL_EOF
@@ -256,19 +271,19 @@ for node in ${MASTER_NODES} ${BACKUP_NODES}; do
     tar xzf harbor.tgz --strip-components=1
     ./install.sh --with-trivy
 HARBOR_INSTALL_EOF
-  echo "  ✅ ${node} Harbor已安装"
+  log_ok "  ✅ ${node} Harbor已安装"
 done
 
 # Step 7: 配置负载均衡(Keepalived + Nginx)
 echo ""
 CURRENT_STEP=7
-echo ">>> Step 7: 配置负载均衡"
-echo "  VIP: ${LOAD_BALANCER}"
-echo "  后端: ${MASTER_NODES} + ${BACKUP_NODES}"
-echo ""
-echo "  [生产建议] 推荐使用HAProxy替代Nginx，或使用云厂商SLB/ALB"
-echo "  [简化方案] 本脚本使用Nginx作为负载均衡，适用于测试/小规模环境"
-echo ""
+log_info ">>> Step 7: 配置负载均衡"
+log_info "  VIP: ${LOAD_BALANCER}"
+log_info "  后端: ${MASTER_NODES} + ${BACKUP_NODES}"
+log_info ""
+log_info "  [生产建议] 推荐使用HAProxy替代Nginx，或使用云厂商SLB/ALB"
+log_info "  [简化方案] 本脚本使用Nginx作为负载均衡，适用于测试/小规模环境"
+log_info ""
 
 # 配置Nginx upstream代理Harbor后端
 HARBOR_BACKENDS=""
@@ -312,17 +327,17 @@ server {
 CONF
   nginx -t && systemctl reload nginx
 LB_EOF
-  echo "  ✅ ${node} Nginx LB配置已部署"
+  log_ok "  ✅ ${node} Nginx LB配置已部署"
 done
 
 # Step 8: 验证HA
 echo ""
 CURRENT_STEP=8
-echo ">>> Step 8: 验证HA"
-echo "  1. 访问 https://${HARBOR_HOSTNAME}"
-echo "  2. 推送镜像测试: docker push ${HARBOR_HOSTNAME}/library/alpine:latest"
-echo "  3. 停止主节点，验证自动切换"
-echo "  4. 验证镜像拉取不受影响"
+log_info ">>> Step 8: 验证HA"
+log_info "  1. 访问 https://${HARBOR_HOSTNAME}"
+log_info "  2. 推送镜像测试: docker push ${HARBOR_HOSTNAME}/library/alpine:latest"
+log_info "  3. 停止主节点，验证自动切换"
+log_info "  4. 验证镜像拉取不受影响"
 
-echo ""
-echo "=== Harbor HA部署完成 ==="
+log_info ""
+log_info "=== Harbor HA部署完成 ==="

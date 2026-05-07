@@ -5,6 +5,21 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
 # === 必填参数 ===
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:?请设置MYSQL_ROOT_PASSWORD}"
 MYSQL_REPL_PASSWORD="${MYSQL_REPL_PASSWORD:?请设置MYSQL_REPL_PASSWORD}"
@@ -62,13 +77,13 @@ rollback() {
 }
 trap rollback ERR
 
-echo "=== MySQL MGR集群生产级部署 ==="
-echo "节点: ${NODES}"
-echo "版本: MySQL ${MYSQL_VERSION}"
+log_info "=== MySQL MGR集群生产级部署 ==="
+log_info "节点: ${NODES}"
+log_info "版本: MySQL ${MYSQL_VERSION}"
 
 # Step 1: 配置所有节点
 echo ""
-echo ">>> Step 1: 配置MySQL环境"
+log_info ">>> Step 1: 配置MySQL环境"
 CURRENT_STEP=1
 NODE_ID=0
 # [注意] 默认值4G适用于测试环境，生产环境请根据服务器内存调整
@@ -77,11 +92,11 @@ INNODB_BUFFER_POOL="${INNODB_BUFFER_POOL:-4G}"
 FAILED_NODE=""
 # 动态生成MGR集群UUID(避免多集群复用导致脑裂)
 MGR_CLUSTER_UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
-echo "MGR Cluster UUID: ${MGR_CLUSTER_UUID}"
+log_info "MGR Cluster UUID: ${MGR_CLUSTER_UUID}"
 
 for node in ${NODES}; do
   NODE_ID=$((NODE_ID+1))
-  echo "  配置 ${node} (server-id=${NODE_ID})..."
+  log_info "  配置 ${node} (server-id=${NODE_ID})..."
   ssh root@${node} bash << EOF
     # 安装MySQL
     # 动态获取MySQL RPM包(兼容CentOS 7/8/9)
@@ -131,12 +146,12 @@ MYCNF
     systemctl enable mysqld
     systemctl start mysqld
 EOF
-  echo "  ✅ ${node} MySQL已配置"
+  log_ok "  ✅ ${node} MySQL已配置"
 done
 
 # Step 2: 初始化MGR集群
 echo ""
-echo ">>> Step 2: 初始化MGR集群"
+log_info ">>> Step 2: 初始化MGR集群"
 CURRENT_STEP=2
 
 # 在第一个节点执行
@@ -173,18 +188,18 @@ for node in ${OTHER_NODES}; do
       FOR CHANNEL 'group_replication_recovery';
     START GROUP_REPLICATION;
 MGR_JOIN
-  echo "  ✅ ${node} 已加入MGR集群"
+  log_ok "  ✅ ${node} 已加入MGR集群"
 done
 
 # Step 3: 验证集群状态
 echo ""
-echo ">>> Step 3: 验证MGR集群"
+log_info ">>> Step 3: 验证MGR集群"
 CURRENT_STEP=3
 ssh root@${FIRST_NODE} mysql --defaults-extra-file=/tmp/mysql.cnf -e "SELECT * FROM performance_schema.replication_group_members;"
 
 # Step 4: 部署ProxySQL
 echo ""
-echo ">>> Step 4: 部署ProxySQL读写分离"
+log_info ">>> Step 4: 部署ProxySQL读写分离"
 CURRENT_STEP=4
 
 # 获取MGR Primary节点IP
@@ -220,13 +235,13 @@ docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P
 
 "
 
-echo "  ✅ ProxySQL部署完成(注意: ProxySQL映射3306端口,确保与MySQL不冲突)"
-echo "  写入: ${PRIMARY_IP}:3306"
-echo "  读取: 10.10.30.12/13:3306(轮询)"
-echo "  管理: 127.0.0.1:6032(admin/admin)" 
+log_ok "  ✅ ProxySQL部署完成(注意: ProxySQL映射3306端口,确保与MySQL不冲突)"
+log_info "  写入: ${PRIMARY_IP}:3306"
+log_info "  读取: 10.10.30.12/13:3306(轮询)"
+log_info "  管理: 127.0.0.1:6032(admin/admin)"
 
-echo ""
-echo "=== MySQL MGR集群部署完成 ==="
+log_info ""
+log_info "=== MySQL MGR集群部署完成 ==="
 # 清理远程节点上的临时密码文件
 for node in ${NODES}; do
   ssh root@${node} "rm -f /tmp/mysql.cnf" 2>/dev/null || true

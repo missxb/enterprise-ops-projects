@@ -5,6 +5,24 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 # === 必填参数 ===
 REDIS_PASSWORD="${REDIS_PASSWORD:?请设置REDIS_PASSWORD}"
 NODES="${NODES:-10.10.40.11 10.10.40.12 10.10.40.13 10.10.40.14 10.10.40.15 10.10.40.16}"
@@ -12,49 +30,49 @@ REDIS_USER="${REDIS_USER:-redis}"
 PORT="${PORT:-6379}"
 REDIS_VERSION="${REDIS_VERSION:-8.6.3}"
 
-echo "=== Redis Cluster生产级部署(3主3从) ==="
-echo "节点: ${NODES}"
-echo "版本: Redis ${REDIS_VERSION}"
+log_info "=== Redis Cluster生产级部署(3主3从) ==="
+log_info "节点: ${NODES}"
+log_info "版本: Redis ${REDIS_VERSION}"
 # [前置条件] 需要在目标机配置sudoers免密:
 # echo "${REDIS_USER} ALL=(ALL) NOPASSWD: /usr/local/redis/bin/redis-cli, /bin/bash" > /etc/sudoers.d/redis
 
 # === 前置检查 ===
-echo ">>> 前置检查..."
+log_info ">>> 前置检查..."
 errors=0
 
 # 检查必要命令
 for cmd in ssh redis-cli; do
-  command -v $cmd &>/dev/null || { echo "  ❌ $cmd 未安装"; errors=$((errors+1)); }
+  command -v $cmd &>/dev/null || { log_error "  ❌ $cmd 未安装"; errors=$((errors+1)); }
 done
 
 # 检查节点数量(至少6个)
 node_count=$(echo ${NODES} | wc -w)
 if [ "${node_count}" -lt 6 ]; then
-  echo "  ❌ 节点数不足(需6个,当前${node_count}个)"
+  log_error "  ❌ 节点数不足(需6个,当前${node_count}个)"
   errors=$((errors+1))
 fi
 
 # 检查磁盘空间(至少10GB可用)
 avail_gb=$(df -BG /opt 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G')
 if [ "${avail_gb:-0}" -lt 10 ]; then
-  echo "  ❌ /opt磁盘空间不足(需10GB,当前${avail_gb:-0}GB)"
+  log_error "  ❌ /opt磁盘空间不足(需10GB,当前${avail_gb:-0}GB)"
   errors=$((errors+1))
 fi
 
 # 检查内存(至少4GB)
 mem_gb=$(free -g | awk '/Mem:/{print $2}')
 if [ "${mem_gb:-0}" -lt 4 ]; then
-  echo "  ⚠️  内存不足4GB(当前${mem_gb}GB),可能影响性能"
+  log_warn "  ⚠️  内存不足4GB(当前${mem_gb}GB),可能影响性能"
 fi
 
-[ $errors -gt 0 ] && { echo "前置检查失败"; exit 1; }
-echo "  ✅ 前置检查通过"
+[ $errors -gt 0 ] && { log_error "前置检查失败"; exit 1; }
+log_ok "  ✅ 前置检查通过"
 
 # Step 1: 安装Redis
-echo ""
-echo ">>> Step 1: 安装Redis"
+log_info ""
+log_info ">>> Step 1: 安装Redis"
 for node in ${NODES}; do
-  echo "  安装 ${node}..."
+  log_info "  安装 ${node}..."
   ssh ${REDIS_USER}@${node} sudo bash << EOF
     # 编译安装Redis (生产环境推荐方式,避免依赖第三方仓库)
     if ! command -v redis-cli &>/dev/null; then
@@ -144,12 +162,12 @@ SVCEOF
     systemctl enable redis_${PORT}
     systemctl start redis_${PORT}
 EOF
-  echo "  ✅ ${node} Redis已安装"
+  log_ok "  ✅ ${node} Redis已安装"
 done
 
 # Step 2: 创建Cluster
-echo ""
-echo ">>> Step 2: 创建Redis Cluster"
+log_info ""
+log_info ">>> Step 2: 创建Redis Cluster"
 FIRST_NODE=$(echo ${NODES} | awk '{print $1}')
 NODE_ARGS=""
 for node in ${NODES}; do
@@ -161,15 +179,15 @@ ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/lo
   --cluster-replicas 1 --cluster-yes"
 
 # Step 3: 验证Cluster状态
-echo ""
-echo ">>> Step 3: 验证Cluster状态"
+log_info ""
+log_info ">>> Step 3: 验证Cluster状态"
 ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/local/redis/bin/redis-cli cluster info"
 
-echo ""
-echo ">>> Cluster节点信息"
+log_info ""
+log_info ">>> Cluster节点信息"
 ssh ${REDIS_USER}@${FIRST_NODE} "sudo -E REDISCLI_AUTH=${REDIS_PASSWORD} /usr/local/redis/bin/redis-cli cluster nodes"
 
-echo ""
-echo "=== Redis Cluster部署完成 ==="
-echo "  主节点: $(echo ${NODES} | awk '{print $1,$2,$3}')"
-echo "  从节点: $(echo ${NODES} | awk '{print $4,$5,$6}')"
+log_info ""
+log_ok "=== Redis Cluster部署完成 ==="
+log_info "  主节点: $(echo ${NODES} | awk '{print $1,$2,$3}')"
+log_info "  从节点: $(echo ${NODES} | awk '{print $4,$5,$6}')"

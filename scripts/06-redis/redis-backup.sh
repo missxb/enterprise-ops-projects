@@ -5,6 +5,24 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 REDIS_PASSWORD="${REDIS_PASSWORD:?请设置REDIS_PASSWORD}"
 REDIS_NODES="${REDIS_NODES:?请设置REDIS_NODES(空格分隔的IP列表)}"
 REDIS_USER="${REDIS_USER:-redis}"
@@ -14,11 +32,11 @@ KEEP_DAYS=7
 
 mkdir -p ${BACKUP_DIR}
 
-echo "=== Redis集群备份 ==="
+log_info "=== Redis集群备份 ==="
 
 for node in ${REDIS_NODES}; do
   for port in 6379; do
-    echo "备份 ${node}:${port}..."
+    log_info "备份 ${node}:${port}..."
     # 记录BGSAVE前的LASTSAVE
     BEFORE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} LASTSAVE" 2>/dev/null)
     # 触发BGSAVE
@@ -30,7 +48,7 @@ for node in ${REDIS_NODES}; do
       sleep 1
       WAITED=$((WAITED+1))
       if [ $WAITED -ge $MAX_WAIT ]; then
-        echo "  ❌ BGSAVE超时(${MAX_WAIT}s)"
+        log_error "  ❌ BGSAVE超时(${MAX_WAIT}s)"
         exit 1
       fi
     done
@@ -39,7 +57,7 @@ for node in ${REDIS_NODES}; do
     RDB_DIR=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dir 2>/dev/null | tail -1" 2>/dev/null || echo "/var/lib/redis")
     RDB_FILE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET dbfilename 2>/dev/null | tail -1" 2>/dev/null || echo "dump.rdb")
     ssh ${REDIS_USER}@${node} "sudo cp ${RDB_DIR}/${RDB_FILE} ${BACKUP_DIR}/dump_${node}_${port}_${DATE}.rdb" 2>/dev/null
-    echo "  ✅ ${node}:${port} RDB备份完成"
+    log_ok "  ✅ ${node}:${port} RDB备份完成"
 
     # 备份AOF文件(如果存在)
     AOF_FILE=$(ssh ${REDIS_USER}@${node} "sudo REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli -p ${port} CONFIG GET appendfilename 2>/dev/null | tail -1" 2>/dev/null || echo "appendonly.aof")
@@ -53,14 +71,14 @@ for node in ${REDIS_NODES}; do
         sleep 1
         AOF_WAITED=$((AOF_WAITED+1))
         if [ $AOF_WAITED -ge $MAX_AOF_WAIT ]; then
-          echo "  ⚠️ AOF重写超时(${MAX_AOF_WAIT}s),跳过AOF备份"
+          log_warn "  ⚠️ AOF重写超时(${MAX_AOF_WAIT}s),跳过AOF备份"
           break
         fi
       done
       ssh ${REDIS_USER}@${node} "sudo cp ${RDB_DIR}/${AOF_FILE} ${BACKUP_DIR}/appendonly_${node}_${port}_${DATE}.aof" 2>/dev/null
-      echo "  ✅ ${node}:${port} AOF备份完成"
+      log_ok "  ✅ ${node}:${port} AOF备份完成"
     else
-      echo "  ℹ️ ${node}:${port} 未启用AOF,跳过"
+      log_info "  ℹ️ ${node}:${port} 未启用AOF,跳过"
     fi
   done
 done
@@ -69,4 +87,4 @@ done
 find ${BACKUP_DIR} -name "dump_*.rdb" -mtime +${KEEP_DAYS} -delete
 find ${BACKUP_DIR} -name "appendonly_*.aof" -mtime +${KEEP_DAYS} -delete
 
-echo "✅ Redis集群备份完成: ${DATE}"
+log_ok "✅ Redis集群备份完成: ${DATE}"

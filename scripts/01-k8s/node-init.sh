@@ -7,6 +7,24 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 NODE_IP=$(hostname -I | awk '{print $1}')
 K8S_VERSION="${K8S_VERSION:-1.31}"
 K8S_PKG_VERSION="${K8S_PKG_VERSION:-1.31.0}"  # 具体patch版本
@@ -15,8 +33,8 @@ SERVICE_CIDR="${SERVICE_CIDR:-10.96.0.0/12}"
 
 # 幂等性检查(重复执行时跳过已完成的步骤)
 if kubectl get nodes &>/dev/null && kubectl get node $(hostname) --show-labels 2>/dev/null | grep -q 'node.kubernetes.io'; then
-  echo "⚠️ 此节点已初始化(K8s已安装)，跳过初始化"
-  echo "如需重新初始化，请先执行: kubeadm reset -f"
+  log_info "此节点已初始化(K8s已安装)，跳过初始化"
+  log_info "如需重新初始化，请先执行: kubeadm reset -f"
   exit 0
 fi
 
@@ -27,10 +45,10 @@ else
   PKG_MGR="yum"
 fi
 
-echo "=== Step 1: 系统配置 ==="
-echo "节点IP: ${NODE_IP}"
-echo "包管理器: ${PKG_MGR}"
-echo "K8s版本: ${K8S_PKG_VERSION}"
+log_info "=== Step 1: 系统配置 ==="
+log_info "节点IP: ${NODE_IP}"
+log_info "包管理器: ${PKG_MGR}"
+log_info "K8s版本: ${K8S_PKG_VERSION}"
 
 # 关闭swap
 swapoff -a
@@ -58,7 +76,7 @@ sysctl --system
 if systemctl is-active firewalld &>/dev/null; then
   systemctl stop firewalld
   systemctl disable firewalld
-  echo "已关闭firewalld"
+  log_info "已关闭firewalld"
 fi
 
 # SELinux(生产环境使用permissive而非disabled，便于审计)
@@ -69,7 +87,7 @@ if [ -f /etc/selinux/config ]; then
   # 完全disabled会丢失安全审计日志
 fi
 
-echo "=== Step 2: 安装containerd ==="
+log_info "=== Step 2: 安装containerd ==="
 if [ "$PKG_MGR" = "apt" ]; then
   apt-get update
   apt-get install -y containerd
@@ -86,7 +104,7 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 systemctl restart containerd
 systemctl enable containerd
 
-echo "=== Step 3: 安装K8s组件 ==="
+log_info "=== Step 3: 安装K8s组件 ==="
 if [ "$PKG_MGR" = "apt" ]; then
   curl -fsSL https://mirrors.aliyun.com/kubernetes-new/core/stable/v${K8S_VERSION}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes.gpg
   echo "deb [signed-by=/etc/apt/keyrings/kubernetes.gpg] https://mirrors.aliyun.com/kubernetes-new/core/stable/v${K8S_VERSION}/deb/ /" > /etc/apt/sources.list.d/kubernetes.list
@@ -106,5 +124,5 @@ fi
 
 systemctl enable kubelet
 
-echo "✅ 节点初始化完成: ${NODE_IP}"
-echo "下一步: Master节点执行 kubeadm init"
+log_ok "节点初始化完成: ${NODE_IP}"
+log_info "下一步: Master节点执行 kubeadm init"

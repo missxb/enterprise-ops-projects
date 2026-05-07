@@ -6,20 +6,38 @@
 set -euo pipefail
 umask 077
 
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 NAMESPACE="${NAMESPACE:-cicd}"
 REGISTRY="${REGISTRY:-harbor.example.com}"
 
-echo "=== CI/CD完整部署 ==="
+log_info "=== CI/CD完整部署 ==="
 
 # 1. 创建命名空间
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 # 1.1 检查节点sysctl设置(SonarQube需要vm.max_map_count>=524288)
-echo "检查节点vm.max_map_count..."
+log_info "检查节点vm.max_map_count..."
 for node in $(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null); do
   current=$(ssh -o ConnectTimeout=3 root@${node} "sysctl -n vm.max_map_count" 2>/dev/null || echo "0")
   if [ "${current:-0}" -lt 524288 ]; then
-    echo "  警告: 节点 ${node} vm.max_map_count=${current}，SonarQube要求>=524288"
-    echo "  请在节点上执行: echo 'vm.max_map_count=524288' >> /etc/sysctl.d/99-sonarqube.conf && sysctl -p"
+    log_warn "节点 ${node} vm.max_map_count=${current}，SonarQube要求>=524288"
+    log_warn "请在节点上执行: echo 'vm.max_map_count=524288' >> /etc/sysctl.d/99-sonarqube.conf && sysctl -p"
   fi
 done
 
@@ -133,7 +151,7 @@ spec:
 EOF
 
 # 6. SonarQube PostgreSQL(必须先部署)
-echo "部署SonarQube PostgreSQL..."
+log_info "部署SonarQube PostgreSQL..."
 SONAR_DB_PASS="${SONAR_DB_PASS:?请设置SONAR_DB_PASS}"
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: v1
@@ -207,7 +225,7 @@ spec:
 EOF
 
 # 7. SonarQube
-echo "部署SonarQube..."
+log_info "部署SonarQube..."
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -270,11 +288,11 @@ spec:
 EOF
 
 # 8. ArgoCD
-echo "部署ArgoCD..."
+log_info "部署ArgoCD..."
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-echo "✅ CI/CD完整部署完成"
-echo "  Jenkins:   http://<EXTERNAL-IP>:8080"
-echo "  SonarQube: http://<EXTERNAL-IP>:9000"
-echo "  ArgoCD:    kubectl -n argocd get svc argocd-server"
+log_ok "CI/CD完整部署完成"
+log_info "Jenkins:   http://<EXTERNAL-IP>:8080"
+log_info "SonarQube: http://<EXTERNAL-IP>:9000"
+log_info "ArgoCD:    kubectl -n argocd get svc argocd-server"

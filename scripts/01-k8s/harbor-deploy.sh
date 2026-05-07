@@ -2,6 +2,25 @@
 # Harbor双节点部署脚本
 set -euo pipefail
 umask 077
+
+# === 日志配置 ===
+LOG_DIR="/var/log/k8s-ops"
+LOG_FILE="${LOG_DIR}/$(basename $0 .sh)-$(date +%Y%m%d).log"
+mkdir -p ${LOG_DIR}
+
+log() {
+    local level=$1; shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] $*" | tee -a ${LOG_FILE}
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+log_ok()   { log "OK"   "$@"; }
+
+# 错误处理
+trap 'log_error "脚本执行失败，行号: $LINENO"' ERR
+
 # 依赖: docker-ce, docker-compose-plugin
 # 前置: node-init.sh(节点初始化)
 # HA部署: 请使用 scripts/01-k8s/harbor-ha.sh
@@ -18,8 +37,8 @@ HARBOR_HOST="${HARBOR_HOST:?请设置HARBOR_HOST}"
 HARBOR_ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:?请设置HARBOR_ADMIN_PASSWORD}"
 HARBOR_DB_PASSWORD="${HARBOR_DB_PASSWORD:?请设置HARBOR_DB_PASSWORD}"
 
-echo "=== Harbor单实例部署(学习验证用) ==="
-echo "⚠️ 生产环境请参考Harbor官方HA文档"
+log_info "=== Harbor单实例部署(学习验证用) ==="
+log_warn "生产环境请参考Harbor官方HA文档"
 
 wget https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-online-installer-v${HARBOR_VERSION}.tgz
 tar xzf harbor-online-installer-v${HARBOR_VERSION}.tgz
@@ -31,20 +50,18 @@ sed -i "s|harbor_admin_password: Harbor12345|harbor_admin_password: ${HARBOR_ADM
 HARBOR_DB_PASSWORD="${HARBOR_DB_PASSWORD:?请设置HARBOR_DB_PASSWORD}"
 sed -i "s|  password: root123|  password: ${HARBOR_DB_PASSWORD}|" harbor.yml
 
-echo "⚠️ 请先配置外部数据库和Redis，然后执行: ./install.sh --with-trivy"
-echo "⚠️ 本脚本仅用于学习验证，生产环境需配置HA"
+log_warn "请先配置外部数据库和Redis，然后执行: ./install.sh --with-trivy"
+log_warn "本脚本仅用于学习验证，生产环境需配置HA"
 
 # === 证书自动续期(cert-manager) ===
-echo ""
-echo "=== 配置cert-manager自动证书续期 ==="
-echo "[推荐] 使用cert-manager替代手动openssl生成证书"
-echo "安装cert-manager:"
-echo "  helm repo add jetstack https://charts.jetstack.io"
-echo "  helm install cert-manager jetstack/cert-manager \\"
-echo "    --namespace cert-manager --create-namespace \\"
-echo "    --set crds.enabled=true"
-echo ""
-echo "ClusterIssuer示例(Let's Encrypt):"
+log_info "配置cert-manager自动证书续期"
+log_info "[推荐] 使用cert-manager替代手动openssl生成证书"
+log_info "安装cert-manager:"
+log_info "  helm repo add jetstack https://charts.jetstack.io"
+log_info "  helm install cert-manager jetstack/cert-manager \\"
+log_info "    --namespace cert-manager --create-namespace \\"
+log_info "    --set crds.enabled=true"
+log_info "ClusterIssuer示例(Let's Encrypt):"
 cat << 'CERT_EOF'
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -61,9 +78,8 @@ spec:
         ingress:
           class: nginx
 CERT_EOF
-echo ""
-echo "[内网环境] 使用自签CA + cert-manager:"
-echo "  1. 创建自签CA: openssl req -x509 -nodes -days 3650 ..."
-echo "  2. 配置cert-manager CA Issuer"
-echo "  3. Harbor ingress注解: cert-manager.io/cluster-issuer: ca-issuer"
-echo "  cert-manager会自动在到期前30天续期证书"
+log_info "[内网环境] 使用自签CA + cert-manager:"
+log_info "  1. 创建自签CA: openssl req -x509 -nodes -days 3650 ..."
+log_info "  2. 配置cert-manager CA Issuer"
+log_info "  3. Harbor ingress注解: cert-manager.io/cluster-issuer: ca-issuer"
+log_info "  cert-manager会自动在到期前30天续期证书"
