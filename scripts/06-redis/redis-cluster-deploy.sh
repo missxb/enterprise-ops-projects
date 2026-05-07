@@ -1,6 +1,6 @@
 #!/bin/bash
 # Redis Cluster生产级部署(3主3从)
-# 依赖: redis 7.2+, ssh(节点间免密)
+# 依赖: redis 8.6+, ssh(节点间免密)
 # 前置: 至少6个节点, 节点间网络互通, 每个节点至少4G空闲内存
 set -euo pipefail
 umask 077
@@ -10,7 +10,7 @@ REDIS_PASSWORD="${REDIS_PASSWORD:?请设置REDIS_PASSWORD}"
 NODES="${NODES:-10.10.40.11 10.10.40.12 10.10.40.13 10.10.40.14 10.10.40.15 10.10.40.16}"
 REDIS_USER="${REDIS_USER:-redis}"
 PORT="${PORT:-6379}"
-REDIS_VERSION="${REDIS_VERSION:-7.2.4}"
+REDIS_VERSION="${REDIS_VERSION:-8.6.3}"
 
 echo "=== Redis Cluster生产级部署(3主3从) ==="
 echo "节点: ${NODES}"
