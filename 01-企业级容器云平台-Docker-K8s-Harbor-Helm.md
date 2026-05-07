@@ -196,6 +196,32 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ```
+
+> restricted级别要求: 非root运行、只读rootfs、drop ALL capabilities、seccomp runtime default。
+
+```yaml
+# Pod Security Admission配置示例
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+```
+
+```yaml
+# Seccomp配置
+securityContext:
+  seccompProfile:
+    type: RuntimeDefault
+# AppArmor注解(非CRI-O环境)
+metadata:
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/app: runtime/default
+```
+
 ---
 ## 二、服务器规划
 ### 2.1 节点清单
@@ -279,6 +305,7 @@ setenforce 0 2>/dev/null || true
 # 解决方案: 1)使用SELinux策略模块替代直接关闭 2)非K8s节点保持enforcing
 sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 echo "SELinux已关闭"
+> **等保说明**: SELinux permissive模式记录违规但不阻止。等保三级要求enforcing,但K8s节点需要permissive。生产建议: K8s节点保持permissive,非K8s节点使用enforcing。
 echo "========== [3/8] 关闭防火墙 =========="
 # [K8s节点专用] K8s不兼容firewalld，生产环境使用NetworkPolicy
 systemctl stop firewalld 2>/dev/null || true
@@ -394,7 +421,9 @@ echo "========== [6/8] 安装containerd =========="
 # Docker已内置containerd，也可独立安装
 yum install -y yum-utils device-mapper-persistent-data lvm2
 yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-yum install -y containerd.io
+# [国内加速] 替换为阿里云镜像: yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+yum install -y containerd.io-2.0.*
+> containerd 2.0支持CRI v1和NRI插件,与K8s 1.35完全兼容
 # 配置containerd (version 3格式 - containerd 2.x)
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
@@ -529,6 +558,7 @@ cat > /etc/keepalived/keepalived.conf << KVCFG
 !   sed -i 's/\${KEEPALIVED_AUTH_PASS:-CHANGEME}/实际密码/' /etc/keepalived/keepalived.conf
 !   sed -i 's|\${VIP}/24 dev \${KEEPALIVED_IFACE:-eth0}|实际VIP/24 dev 实际网卡|' /etc/keepalived/keepalived.conf
 ! auth_pass限制: 最多8个字符(Keepalived硬编码限制),超出会被截断
+> **生产建议**: 使用sed替换而非heredoc变量展开,避免密码在配置文件中明文出现。
 global_defs {
     router_id LVS_K8S_MASTER
     script_user root
@@ -655,6 +685,25 @@ echo ""
 echo "请保存以下命令，在其他Master节点上执行:"
 kubeadm token create --print-join-command --certificate-ttl 2h
 ```
+> **生产建议**: 使用长期bootstrap token替代短效token:
+> kubeadm token create --print-join-command --ttl 87600h (10年)
+> 或使用kubelet TLS bootstrap自动证书轮换
+### 4.2.1 自动批准kubelet CSR
+```yaml
+# 自动批准 kubelet CSR
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: auto-approve-csrs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:nodeclient
+subjects:
+- kind: Group
+  name: system:nodes
+  apiGroup: rbac.authorization.k8s.io
+```
 ### 4.3 加入其他Master节点
 ```bash
 #!/bin/bash
@@ -663,7 +712,7 @@ kubeadm token create --print-join-command --certificate-ttl 2h
 set -euo pipefail
 echo "========== 配置Keepalived为BACKUP =========="
 # Master-02: state=BACKUP, priority=100
-# Master-03: state=BACKUP, priority=99
+# Master-03: state=BACKUP, priority=99 (第三节点优先级最低)
 # (请根据实际节点修改)
 echo "========== 加入集群 =========="
 # 使用Master-01生成的join命令，例如:
@@ -748,7 +797,8 @@ spec:
       natOutgoing: true
       nodeSelector: all()
     nodeAddressAutodetectionV4:
-      interface: eth.*
+      interface: eth0
+> 生产环境建议指定具体网卡名称,避免匹配多个接口导致路由异常
     # eBPF模式配置
     nodeMetricsPort: 9091
     # 资源需求(每个节点)
@@ -768,6 +818,15 @@ kubectl -n calico-system rollout status daemonset/calico-node --timeout=300s
 echo "验证网络..."
 kubectl get pods -n calico-system
 kubectl get ippool -o wide
+```
+### 4.5 自动配置Node标签和Taint
+```bash
+# 自动配置节点标签和Taint
+for node in $(kubectl get nodes -l '!node-role.kubernetes.io/worker' --no-headers | awk '{print $1}'); do
+  kubectl label node $node node-role.kubernetes.io/worker= --overwrite
+done
+# GPU节点Taint
+kubectl taint nodes k8s-worker-05 nvidia.com/gpu=true:NoSchedule
 ```
 ### 4.6 安装MetalLB（裸金属负载均衡）
 > ⚠️ MetalLB L2模式要求同一VLAN，云环境(阿里云/AWS)不支持ARP广播，应使用云厂商SLB/CLB替代。
@@ -1144,6 +1203,18 @@ systemctl restart containerd
 echo "✅ K8s节点已信任Harbor"
 ```
 
+> **注意**: 生产环境需要为每个业务namespace创建secret,或使用ImagePullSecrets自动注入(K8s 1.32+):
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: production
+imagePullSecrets:
+- name: harbor-secret
+```
+
 ### 5.3 Harbor生产级HA配置
 
 > **存储后端配置**：生产环境Harbor必须使用共享存储（S3/OSS/NFS），避免本地存储单点故障
@@ -1167,6 +1238,18 @@ storage_service:
     enabled: true  # 启用删除策略
   redirect:
     disable: false
+```
+
+```yaml
+# 阿里云OSS配置(替代AWS S3)
+storage_service:
+  s3:
+    accesskey: ${OSS_ACCESS_KEY}
+    secretkey: ${OSS_SECRET_KEY}
+    region: oss-cn-hangzhou
+    bucket: harbor-prod
+    rootdirectory: harbor
+    regionendpoint: https://oss-cn-hangzhou.aliyuncs.com
 ```
 
 > **镜像复制策略**：配置跨数据中心镜像复制，实现异地容灾
@@ -1220,6 +1303,19 @@ curl -k -u admin:${HARBOR_ADMIN_PASSWORD} \
   }'
 # crontab: 0 2 * * * /opt/scripts/harbor_gc.sh >> /var/log/harbor-gc.log 2>&1
 ```
+
+```bash
+# 外部PostgreSQL部署(生产级)
+helm install harbor-pg bitnami/postgresql -n harbor \
+  --set auth.postgresPassword=${PG_PASSWORD} \
+  --set primary.persistence.size=50Gi
+
+# 外部Redis部署(生产级)
+helm install harbor-redis bitnami/redis -n harbor \
+  --set auth.password=${REDIS_PASSWORD} \
+  --set master.persistence.size=10Gi
+```
+
 ---
 ## 六、Helm Chart应用编排
 ### 6.1 安装Helm并配置仓库
@@ -1383,6 +1479,14 @@ ingress:
       hosts:
         - api.ecommerce.com
 ```
+
+> **2026趋势**: K8s Gateway API正在替代Ingress。新项目建议直接使用Gateway API,存量Ingress可渐进迁移。
+
+> **生产建议**: 数据库/Kafka连接串应通过K8s Service Discovery获取,而非硬编码IP/主机名。示例:
+> `ecommerce-mysql-primary.default.svc.cluster.local`
+
+> 生产环境应使用GitOps动态管理镜像标签(如ArgoCD Image Updater),避免硬编码。
+
 ---
 ## 七、Pod自动扩缩（HPA）
 ### 7.1 通用HPA配置
@@ -1480,6 +1584,16 @@ spec:
           type: AverageValue
           averageValue: "50"
 ```
+
+> HPA自定义指标需要Prometheus Adapter将Prometheus指标转换为K8s Metrics API格式。
+
+```yaml
+# Prometheus Adapter配置(支持自定义指标)
+# helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#   --set prometheus.url=http://prometheus-server \
+#   --set prometheus.port=9090
+```
+
 ---
 ## 八、PodDisruptionBudget（PDB）
 ```yaml
@@ -1624,6 +1738,8 @@ echo "✅ etcd备份完成: etcd-snapshot-${DATE}.db"
 # 0 */6 * * * /opt/scripts/etcd_backup.sh >> /var/log/etcd-backup.log 2>&1
 ```
 
+> **生产建议**: 高频变更集群建议每1-2小时备份一次。可使用etcd-daily-backup进行增量备份。
+
 ### 11.2 生产级etcd备份增强
 
 > **等保要求**：备份数据需加密存储、异地备份、定期验证恢复
@@ -1684,6 +1800,8 @@ if [ $(date +%d) -eq 1 ]; then
   ETCDCTL_API=3 etcdctl snapshot status ${VERIFY_DIR}/etcd-snapshot-${DATE}.db --write-out=table
   # 清理验证目录
   rm -rf ${VERIFY_DIR}
+  # [安全] 建议使用trap确保清理:
+  # trap 'rm -rf ${VERIFY_DIR}' EXIT
   echo "月度恢复验证通过"
 fi
 
@@ -2484,6 +2602,28 @@ kubectl top pods -A --sort-by=cpu | head -20
 # 4. 升级Worker节点(kubectl drain + uncordon)
 # 5. 验证应用正常
 ```
+
+### 升级回滚SOP
+1. 备份etcd快照
+2. 备份/etc/kubernetes/ manifests
+3. 执行kubeadm upgrade
+4. 验证集群状态
+5. 如异常: 恢复etcd快照 + 恢复manifests
+
+### 证书轮换SOP
+1. kubeadm certs check-expiration
+2. kubeadm certs renew all
+3. 重启control plane组件
+4. 验证API Server连接
+
+### 灾难恢复演练SOP
+1. 选择非业务高峰期
+2. 通知相关团队
+3. 执行故障注入
+4. 执行恢复流程
+5. 验证业务功能
+6. 复盘总结
+
 ---
 ## 踩坑记录
 ### Q1: kubeadm init卡在[wait-control-plane]
