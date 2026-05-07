@@ -22,9 +22,13 @@ helm install kong kong/kong -n ${NAMESPACE} --create-namespace \
 echo "[2/5] 部署Istio..."
 ISTIO_URL="https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-linux-amd64.tar.gz"
 curl -L -o /tmp/istio.tar.gz "${ISTIO_URL}"
-  # 校验SHA256(如有校验和文件)
-  if [ -f /tmp/istio.sha256 ]; then
-    sha256sum -c /tmp/istio.sha256 || { echo "SHA256校验失败"; exit 1; }
+  # 下载并校验SHA256
+  curl -L -o /tmp/istio.sha256 "${ISTIO_URL}.sha256sum" 2>/dev/null || true
+  if [ -f /tmp/istio.sha256 ] && [ -s /tmp/istio.sha256 ]; then
+    cd /tmp && sha256sum -c istio.sha256 || { echo "SHA256校验失败"; exit 1; }
+    cd -
+  else
+    echo "⚠️  SHA256校验文件不可用，跳过校验"
   fi
 cd /tmp && tar xzf istio.tar.gz
 cd istio-${ISTIO_VERSION}

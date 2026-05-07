@@ -833,9 +833,9 @@ SHOW PROCESSLIST;
 -- 找到正在执行的大DELETE语句
 
 -- 2. 临时跳过该事务(危险操作，需确认数据一致性)
-STOP SLAVE;
+STOP REPLICA;
 SET GLOBAL replica_skip_counter = 1;
-START SLAVE;
+START REPLICA;
 
 -- 3. 验证复制状态
 SHOW REPLICA STATUS\G

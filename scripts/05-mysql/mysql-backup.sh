@@ -46,10 +46,10 @@ CURRENT_BINLOG=$(mysql --defaults-extra-file=${MYSQL_CNF} -e "SHOW BINARY LOG ST
 mysqlbinlog --read-from-remote-server --raw --to-last-log --defaults-extra-file=${MYSQL_CNF} \
   --host=127.0.0.1 \
   ${CURRENT_BINLOG} \
-  --result-file=${BACKUP_DIR}/binlog/
+  --result-file=${BACKUP_DIR}/binlog/${DATE}_
 
 echo "清理过期备份..."
 find ${BACKUP_DIR}/full -maxdepth 1 -type d -mtime +${KEEP_DAYS} -exec rm -rf {} \;
-find ${BACKUP_DIR}/binlog -name "mysql-bin.*" -mtime +${KEEP_DAYS} -delete
+find ${BACKUP_DIR}/binlog -name "*mysql-bin.*" -mtime +${KEEP_DAYS} -delete
 
 echo "✅ MySQL备份完成"
