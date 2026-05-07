@@ -2259,6 +2259,164 @@ jenkins:
 
 ---
 
+## 策略控制器(Policy Controller)
+
+> 部署前策略检查：OPA/Gatekeeper/Kyverno在部署前验证资源合规性
+
+### Kyverno配置
+
+```yaml
+# kyverno-install.yaml - 安装Kyverno
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno-system
+
+---
+# kyverno-policies.yaml - 策略配置
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: check-team-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+      validate:
+        message: "资源必须包含team标签"
+        pattern:
+          metadata:
+            labels:
+              team: "?*"
+
+---
+# 禁止特权容器
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: deny-privileged
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "禁止运行特权容器"
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  privileged: "false"
+
+---
+# 要求镜像签名验证
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signature
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "harbor.internal.com/*"
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: |-
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
+                      -----END PUBLIC KEY-----
+```
+
+### Gatekeeper配置
+
+```yaml
+# gatekeeper-constraints.yaml
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredlabels
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredLabels
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            labels:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredlabels
+        violation[{"msg": msg, "details": {"missing_labels": missing}}] {
+          provided := {label | input.review.object.metadata.labels[label]}
+          required := {label | label := input.parameters.labels[_]}
+          missing := required - provided
+          count(missing) > 0
+          msg := sprintf("缺少必要标签: %v", [missing])
+        }
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: require-team-label
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet"]
+  parameters:
+    labels:
+      - "team"
+      - "environment"
+```
+
+---
+
+## K8s 1.35兼容性说明
+
+> 本项目CI/CD流水线与K8s 1.35完全兼容
+
+| 组件 | K8s 1.35兼容性 | 注意事项 |
+|------|----------------|----------|
+| Jenkins Kubernetes Plugin | ✅ 兼容 | Pod Template支持所有K8s 1.35特性 |
+| ArgoCD v3.4.1 | ✅ 兼容 | 原生支持ApplicationSet和Gateway API |
+| Argo Rollouts v1.9.0 | ✅ 兼容 | 支持Canary/Blue-Green渐进式发布 |
+| Kyverno 1.13+ | ✅ 兼容 | 支持所有K8s 1.35资源类型 |
+| Cosign 2.4+ | ✅ 兼容 | 支持K8s 1.35的ServiceAccount Token |
+
+### K8s 1.35新特性在CI/CD中的应用
+
+- **Sidecar容器GA**：Jenkins Agent可使用sidecar容器运行辅助工具
+- **ImagePullSecrets链式查找**：Agent Pod自动继承SA的镜像拉取凭证
+- **FlowSchema v1 API**：CI/CD API请求优先级配置已使用v1版本
+
+---
+
 ## 完整运维SOP
 
 ### 日常巡检
