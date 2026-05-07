@@ -1090,6 +1090,8 @@ echo "Grafana: http://10.10.10.210 (密码请查看: kubectl -n monitoring get s
 ```
 ---
 ## 十三、EFK日志系统
+> **[架构说明]** 本节EFK用于K8s集群内部日志采集,项目04的ELK用于独立应用日志。
+> 两者不冲突: EFK采集K8s Pod日志,ELK采集非K8s应用日志。如已部署ELK,可跳过本节。
 ```bash
 #!/bin/bash
 # install_efk.sh - 安装EFK日志收集
