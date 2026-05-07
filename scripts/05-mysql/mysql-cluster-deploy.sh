@@ -135,7 +135,8 @@ group_replication_bootstrap_group=OFF
 
 # === 性能优化 ===
 innodb_buffer_pool_size=${INNODB_BUFFER_POOL}
-innodb_log_file_size=2G
+# MySQL 8.4推荐使用innodb_redo_log_capacity替代innodb_log_file_size
+innodb_redo_log_capacity=8589934592  # 8GB, 替代innodb_log_file_size+innodb_log_files_in_group
 innodb_flush_log_at_trx_commit=1
 sync_binlog=1
 max_connections=1000
@@ -176,19 +177,26 @@ ssh root@${FIRST_NODE} mysql --defaults-extra-file=/tmp/mysql.cnf << MGR_INIT
   SET GLOBAL group_replication_bootstrap_group=OFF;
 MGR_INIT
 
-# 其他节点加入集群
+# 其他节点加入集群(两种方式: Clone Plugin推荐, CHANGE REPLICATION SOURCE备选)
 OTHER_NODES=$(echo ${NODES} | awk '{for(i=2;i<=NF;i++) print $i}')
 for node in ${OTHER_NODES}; do
 #   将密码配置文件传到每个节点
     scp -o StrictHostKeyChecking=no "${MYSQL_CNF}" root@${node}:/tmp/mysql.cnf
+    # 方式1(推荐): 使用Clone Plugin从主节点克隆数据,自动加入MGR
+    # Clone Plugin比手动CHANGE REPLICATION SOURCE更快,特别是大数据量场景
     ssh root@${node} mysql --defaults-extra-file=/tmp/mysql.cnf << MGR_JOIN
-    CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
-    GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
-    CHANGE REPLICATION SOURCE TO SOURCE_USER='repl', SOURCE_PASSWORD='${MYSQL_REPL_PASSWORD}'
-      FOR CHANNEL 'group_replication_recovery';
+    -- 安装Clone Plugin
+    INSTALL PLUGIN clone SONAME 'mysql_clone.so';
+    -- 创建clone用户(在主节点执行一次即可)
+    CREATE USER IF NOT EXISTS 'clone_user'@'%' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
+    GRANT CLONE_ADMIN ON *.* TO 'clone_user'@'%';
+    -- 从主节点克隆数据并自动加入MGR
+    SET GLOBAL clone_valid_donor_list = '${FIRST_NODE}:3306';
+    CLONE INSTANCE FROM 'clone_user'@'${FIRST_NODE}' IDENTIFIED BY '${MYSQL_REPL_PASSWORD}';
+    -- 克隆完成后START GROUP_REPLICATION会自动执行(如果group_replication_start_on_boot=ON)
     START GROUP_REPLICATION;
 MGR_JOIN
-  log_ok "  ✅ ${node} 已加入MGR集群"
+  log_ok "  ✅ ${node} 已通过Clone Plugin加入MGR集群"
 done
 
 # Step 3: 验证集群状态

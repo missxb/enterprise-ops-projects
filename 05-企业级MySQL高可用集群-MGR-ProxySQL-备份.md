@@ -363,6 +363,17 @@ du -sh ${BACKUP_DIR}/full/full-${DATE}
 
 ## 六、PITR恢复
 
+> **⚠️ 加密Binlog注意**: 如果启用了binlog_encryption=ON(MySQL 8.4新特性)，
+> mysqlbinlog无法直接读取加密的binlog文件。恢复前需先解密:
+> ```bash
+> # 解密binlog文件(需要keyring组件)
+> mysqlbinlog --decrypt-keyring --read-from-remote-server ... 
+> # 或从keyring获取密钥后本地解密
+> xbcrypt --decrypt --encrypt-key="${BINLOG_ENCRYPT_KEY}" \
+>   --input-file=encrypted-binlog.xbcrypt > decrypted-binlog
+> ```
+> 建议: 生产环境关闭binlog_encryption或确保恢复环境有相同的keyring配置。
+
 ```bash
 #!/bin/bash
 # pitr_restore.sh - 基于时间点恢复
@@ -372,14 +383,15 @@ set -euo pipefail
 RESTORE_DIR="/data/restore"
 BACKUP_DIR="/data/backup/mysql"
 # [修复] TARGET_TIME不再硬编码，改为从参数/环境变量读取
-# 用法: TARGET_TIME="2024-01-15 14:30:00" ./pitr_restore.sh
+# 用法: TARGET_TIME="2024-01-15 14:30:00.123456" ./pitr_restore.sh
 # 或: ./pitr_restore.sh (将交互式提示输入)
+# MySQL 8.4支持微秒级精度(格式: YYYY-MM-DD HH:MM:SS.ffffff)
 TARGET_TIME="${TARGET_TIME:-}"
 if [ -z "${TARGET_TIME}" ]; then
-  read -p "请输入恢复目标时间(格式: YYYY-MM-DD HH:MM:SS): " TARGET_TIME
+  read -p "请输入恢复目标时间(格式: YYYY-MM-DD HH:MM:SS[.ffffff]): " TARGET_TIME
 fi
-if [[ ! "${TARGET_TIME}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
-  echo "❌ 时间格式错误，应为: YYYY-MM-DD HH:MM:SS"
+if [[ ! "${TARGET_TIME}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?$ ]]; then
+  echo "❌ 时间格式错误，应为: YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD HH:MM:SS.ffffff"
   exit 1
 fi
 
@@ -503,7 +515,7 @@ SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
 | 故障转移 | 自动(基于MGR) | 自动(MySQL Router) | 自动 |
 | 运维工具 | 原生SQL | MySQL Shell + Router | 原生SQL |
 | 应用透明度 | 需要代理层 | Router自动路由 | 需要代理层 |
-| 适用版本 | MySQL 5.7.17+ | MySQL 8.0+ | MariaDB 10.x |
+| 适用版本 | MySQL 8.4+ | MySQL 8.4+ | MariaDB 10.x+ |
 | 最大节点数 | 9个 | 9个 | 16个 |
 | 推荐场景 | 中小企业 | 中大型企业 | 需要多主写入 |
 

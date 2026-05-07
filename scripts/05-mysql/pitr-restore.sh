@@ -8,6 +8,11 @@ umask 077
 MYSQL_PASS="${MYSQL_PASS:?请设置MYSQL_PASS}"
 FULL_BACKUP="${1:?用法: $0 <全量备份目录> <目标时间>}"
 TARGET_TIME="${2:?用法: $0 <全量备份目录> <目标时间>}"
+# MySQL 8.4支持微秒级精度(格式: YYYY-MM-DD HH:MM:SS[.ffffff])
+if [[ ! "${TARGET_TIME}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?$ ]]; then
+  echo "❌ 时间格式错误，应为: YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD HH:MM:SS.ffffff"
+  exit 1
+fi
 BINLOG_DIR="${3:-/data/mysql-backup/binlog}"
 DATA_DIR="/var/lib/mysql"
 
