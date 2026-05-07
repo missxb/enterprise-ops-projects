@@ -1455,7 +1455,7 @@ groups:
 
       # 复制延迟告警
       - alert: MySQLReplicationLag
-        expr: mysql_slave_status_seconds_behind_master > 30
+        expr: mysql_slave_status_seconds_behind_master > 30  # 新版exporter使用mysql_replica_status_seconds_behind_source
         for: 5m
         labels:
           severity: warning

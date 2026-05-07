@@ -21,4 +21,3 @@ key_name = "deploy-key"
 admin_cidr = "10.10.0.0/16"
 
 # 允许访问HTTP/HTTPS的CIDR(限制Web访问)
-allowed_cidr = "10.10.0.0/16"

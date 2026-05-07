@@ -970,7 +970,7 @@ spec:
     spec:
       containers:
       - name: mc
-        image: minio/mc:latest
+        image: minio/mc:RELEASE.2024-11-07T00-52-20Z
         command:
         - /bin/sh
         - -c
@@ -1606,7 +1606,7 @@ echo "================================================"
 echo "  ✅ 监控体系部署完成！"
 echo "================================================"
 echo "  Prometheus: http://prometheus:9090"
-echo "  Grafana:    http://grafana:3000 (${GRAFANA_ADMIN_PASSWORD})"
+echo "  Grafana:    http://grafana:3000 (密码见.env)"
 echo "  AlertMgr:   http://alertmanager:9093"
 echo "  Thanos:     http://thanos-query:10902"
 echo "================================================"

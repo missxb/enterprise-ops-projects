@@ -1242,6 +1242,7 @@ echo "创建监控namespace..."
 kubectl create namespace monitoring
 
 echo "部署kube-prometheus-stack..."
+echo "[注意] 如已按03-监控文档部署,请跳过本节避免资源冲突"
 helm install prometheus prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \
