@@ -179,6 +179,8 @@ else
   firewall-cmd --permanent --add-service=ssh
   firewall-cmd --permanent --add-port=80/tcp
   firewall-cmd --permanent --add-port=443/tcp
+  # [已修复] 放行VRRP协议(Keepalived VIP故障转移需要)
+  firewall-cmd --permanent --add-protocol=vrrp
   # [修复] 添加数据库端口限制(仅允许内网访问)
   firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/16" port port="3306" protocol="tcp" accept'
   firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.10.0.0/16" port port="6379" protocol="tcp" accept'
