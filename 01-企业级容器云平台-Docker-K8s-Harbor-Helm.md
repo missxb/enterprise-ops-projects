@@ -1094,6 +1094,8 @@ echo "Grafana: http://10.10.10.210 (密码请查看: kubectl -n monitoring get s
 set -euo pipefail
 echo "部署Elasticsearch..."
 # 替换为实际环境的StorageClass名称
+# [私有云] 需先部署NFS或Ceph provisioner创建StorageClass
+# [阿里云] 使用aliyun-disk-ssd(已预置)
 helm install elasticsearch elastic/elasticsearch \
   --set persistence.storageClass=${STORAGE_CLASS:-aliyun-disk-ssd} \
   --namespace logging --create-namespace \
