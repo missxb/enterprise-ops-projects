@@ -80,6 +80,7 @@ innodb_buffer_pool_size=48G          # 75%内存
 log-error=/data/mysql/error.log      # 错误日志路径
 innodb_buffer_pool_instances=16
 innodb_log_file_size=2G
+> **MySQL 8.4注意**: innodb_log_file_size可动态调整。建议使用innodb_redo_log_capacity替代(8.4推荐)
 innodb_log_buffer_size=64M
 innodb_flush_log_at_trx_commit=1     # MGR必须=1保证一致性
 innodb_flush_method=O_DIRECT
@@ -96,6 +97,9 @@ log_bin=mysql-bin
 binlog_format=ROW
 max_binlog_size=512M
 binlog_expire_logs_seconds=604800  # 7天
+> **冲突风险**: binlog保留7天,备份保留也是7天。如果备份失败,binlog可能被清理导致PITR失败。建议:
+> 1. binlog保留14天(2倍备份保留期)
+> 2. 或备份服务器独立存储binlog(不依赖MySQL本地binlog)
 
 # [已修复] MGR内部使用Paxos协议同步，不需要半同步复制
 # 半同步复制(semisync)与MGR会冲突，已移除
@@ -533,6 +537,11 @@ mysqlsh root@mysql-04:3306 -- clusterset add-instance clusterB \
   --cluster=clusterB
 ```
 
+> **注意**: MGR要求奇数节点(3/5/7)。4节点部署需要:
+> 1. 使用InnoDB ClusterSet(2个独立集群各3节点)
+> 2. 或配置仲裁节点(Recovery Channel)
+> 3. 或使用Group Replication的unreachable_majority_timeout
+
 #### Clone Plugin (在线扩容)
 
 ```sql
@@ -787,9 +796,11 @@ SAVE MYSQL SERVERS TO DISK;
 | 指标 | 目标值 | 实现方式 |
 |------|--------|---------|
 | RPO(数据丢失) | < 1秒 | MGR强一致性 + sync_binlog |
-| RTO(恢复时间) | < 5分钟 | MGR自动failover |
+| RTO(恢复时间) | < 15分钟 | MGR自动failover |
+> MGR自动failover秒级,但应用重连+ProxySQL切换+缓存预热可能需要10-15分钟
 | 备份频率 | 每天全量 + 每小时增量 | xtrabackup |
-| 备份保留 | 7天 | 自动清理 |
+| 备份保留 | 30天(本地) + 180天(OSS归档) | 自动清理 |
+> 等保三级要求审计日志留存180天,备份也应满足此要求
 
 ### 11.1.1 增量备份示例
 
@@ -857,7 +868,11 @@ MySQL服务器内存分配(64GB):
 数据盘计算:
 - 当前数据量: 500GB
 - 年增长率: 100%
-- 3年数据量: 500 × 2^3 = 4TB
+> 实际增长通常线性而非指数。建议:
+> - 第1年: +500GB
+> - 第2年: +750GB (增长放缓)
+> - 第3年: +1000GB
+> - 3年总计约2.25TB,不是4TB(指数)
 - 冗余系数: 1.5
 - 所需磁盘: 6TB
 - 建议: 4 × 2TB NVMe SSD (RAID10，最少4块盘)
@@ -1231,6 +1246,7 @@ innodb_buffer_pool_dump_pct=40
 # innodb_log_file_size: 越大写入性能越好，但恢复时间越长
 # 推荐: 1-2GB (MySQL 8.0.30+支持动态调整)
 innodb_log_file_size=2G
+> **MySQL 8.4注意**: innodb_log_file_size可动态调整。建议使用innodb_redo_log_capacity替代(8.4推荐)
 
 # innodb_log_files_in_group: redo log文件组数量
 # MySQL 8.0.30+ 默认4个文件
