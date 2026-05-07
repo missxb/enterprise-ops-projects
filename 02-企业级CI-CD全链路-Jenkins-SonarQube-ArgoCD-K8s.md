@@ -209,6 +209,10 @@ spec:
   provider:
     vault:
       server: "https://vault.internal:8200"
+      # TLS证书验证(生产环境必须配置)
+      # caCert: /etc/vault/ca.crt
+      # 使用自签CA时:
+      # vault server -tls-cert-file=/etc/vault/tls.crt -tls-key-file=/etc/vault/tls.key
       path: "secret"
       version: "v2"
       auth:
@@ -772,6 +776,8 @@ echo "安装SonarQube..."
 cd /opt
 SONAR_VERSION="2026.2.0"  # SonarQube 2026年版本(Community Edition)
 wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-${SONAR_VERSION}.zip
+# 校验SHA256(防止下载被篡改)
+# echo "<sha256hash>  sonarqube-${SONAR_VERSION}.zip" | sha256sum -c -
 unzip sonarqube-${SONAR_VERSION}.zip
 ln -sf sonarqube-${SONAR_VERSION} sonarqube
 
@@ -1092,7 +1098,8 @@ echo "创建namespace..."
 kubectl create namespace argocd
 
 echo "安装ArgoCD..."
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.12.0/manifests/install.yaml
+# > 生产环境应锁定具体版本号,避免stable标签自动升级导致意外
 
 echo "等待就绪..."
 kubectl -n argocd rollout status deployment/argocd-server --timeout=300s
@@ -1517,6 +1524,9 @@ EOF
 
 echo "✅ 金丝雀晋升完成，全部流量已切换到 ${CANARY_VERSION}"
 ```
+
+> **GitOps冲突警告**: kubectl apply直接修改VirtualService会与ArgoCD冲突(ArgoCD会检测到状态不一致并回滚)。
+> 生产环境应通过修改Git仓库中的YAML文件实现灰度切换,让ArgoCD自动同步。
 
 ---
 
@@ -2540,9 +2550,14 @@ kubectl get pods -n jenkins
 4. 验证: kubectl get nodes && kubectl get pods -A
 5. 通知: 告知团队回滚完成
 
+### 回滚后根因分析
+1. 收集日志: kubectl logs <pod> --previous
+2. 检查事件: kubectl get events --sort-by=.lastTimestamp
+3. 分析变更: git log --oneline -10
+4. 编写RCA报告: 5-Why分析法
+5. 预防措施: 更新CI/CD检查项,避免同类问题
+
 ---
-
-
 
 ## 踩坑记录
 
