@@ -162,6 +162,12 @@ spec:
           command: ['sysctl', '-w', 'vm.max_map_count=262144']
           # [注意] 这只在Pod运行时生效。节点重启后需在初始化脚本中持久化:
           # echo "vm.max_map_count=262144" >> /etc/sysctl.d/99-elasticsearch.conf && sysctl -p
+          # 节点初始化时持久化(非Pod内):
+          # echo "vm.max_map_count=262144" > /etc/sysctl.d/99-elasticsearch.conf
+          # sysctl -p /etc/sysctl.d/99-elasticsearch.conf
+
+> vm.max_map_count必须在节点层面持久化,Pod重启后不会自动恢复
+
       containers:
         - name: elasticsearch
           image: elasticsearch:8.17.0
@@ -218,6 +224,18 @@ spec:
         resources:
           requests:
             storage: 200Gi
+
+---
+# 创建local-ssd StorageClass(需要预先在节点上准备磁盘)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-ssd
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+
+> local-ssd需要预先在K8s节点上挂载SSD磁盘,并创建对应的Local PV
 
 ---
 # Data Hot节点 (NVMe SSD)
@@ -346,11 +364,13 @@ curl -k -X POST 'https://es-master:9200/_snapshot/cold-backup/_verify'
 #   -H 'Content-Type: application/json' -d '{
 #   "type": "fs",
 #   "settings": {
-#     "location": "/mnt/nfs/es-snapshots",
+  # "location": "/mnt/nfs/es-snapshots",
 #     "compress": true
 #   }
 # }'
 ```
+
+> **执行顺序**: 必须先创建Snapshot仓库(第16.2节),再应用ILM策略。否则Cold阶段的searchable_snapshot会失败。
 
 ```bash
 # 创建Index Template
@@ -381,13 +401,17 @@ curl -k -X PUT "https://es-master-0:9200/_index_template/enterprise-logs" -H 'Co
         "status_code": { "type": "integer" },
         "response_time": { "type": "float" },
         "client_ip": { "type": "ip" },
-        "user_agent": { "type": "text" }
+        "user_agent": { "type": "text" },
+        "thread.name": { "type": "keyword" },
+        "logger.name": { "type": "keyword" }
       }
     }
   },
   "priority": 200
 }'
 ```
+
+> Java应用日志通常包含thread和logger字段,用于按线程/类名聚合分析
 
 ---
 
@@ -504,7 +528,9 @@ data:
               tokenizer: '%{client_ip} - %{remote_user} [%{timestamp}] "%{method} %{path} HTTP/%{http_version}" %{status_code} %{body_bytes_sent} "%{referrer}" "%{user_agent}" %{response_time}'
               field: "message"
               target_prefix: "nginx"
-      
+
+> **注意**: 此dissect模式匹配标准Nginx combined日志格式。如使用自定义格式(如JSON),需调整tokenizer。建议使用Filebeat Nginx Module自动适配。
+
       # Java应用日志（多行合并）
       - type: container
         enabled: true
@@ -1574,6 +1600,8 @@ GET /logs-*/_search
   },
   "size": 10000
 }
+```
+> **性能提示**: query_string性能较差且易出错。生产环境建议使用match或simple_query_string替代。
 
 # 优化后的查询:
 GET /logs-*/_search
@@ -1590,6 +1618,8 @@ GET /logs-*/_search
   "size": 100,
   "terminate_after": 1000
 }
+```
+> **注意**: terminate_after会提前终止搜索,可能导致结果不准确。生产环境建议移除此参数或增大到10000。
 
 # 使用滚动搜索代替深分页
 GET /logs-*/_search
@@ -1737,6 +1767,8 @@ chmod +x /usr/local/bin/es_snapshot_backup.sh
 
 ```
 # 主集群故障切换流程 (RTO < 30分钟)
+
+> **实际RTO**: DNS传播+数据验证可能增加5-10分钟。建议提前配置DNS TTL=60s,并在切换前验证目标集群数据完整性。
 
 ## 阶段1: 确认故障 (5分钟)
 1. 检查主集群状态
