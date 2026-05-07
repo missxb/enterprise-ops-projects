@@ -25,8 +25,8 @@ output.elasticsearch:
   hosts: ["${ES_HOST:elasticsearch:9200}"]
   username: "${ELASTIC_USERNAME:elastic}"
   password: "${ELASTIC_PASSWORD:changeme}"
-  # 如果使用自签证书:
-  # ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
-  # ssl.verification_mode: certificate
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
+  ssl.verification_mode: certificate
 
 logging.level: info

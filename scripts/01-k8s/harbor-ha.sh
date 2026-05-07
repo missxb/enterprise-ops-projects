@@ -244,7 +244,7 @@ done
 echo ""
 CURRENT_STEP=6
 echo ">>> Step 6: 下载并安装Harbor"
-INSTALL_SCRIPT="https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-online-installer-v${HARBOR_VERSION}.tgz"
+INSTALL_SCRIPT="https://github.com/goharbor/harbor/releases/download/v${HARBOR_VERSION}/harbor-offline-installer-v${HARBOR_VERSION}.tgz"
 for node in ${MASTER_NODES} ${BACKUP_NODES}; do
   ssh root@${node} bash << HARBOR_INSTALL_EOF
     cd /opt/harbor

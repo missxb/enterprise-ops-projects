@@ -57,7 +57,7 @@ df -h / /data 2>/dev/null | awk 'NR>1 && int($5)>80{printf "  ⚠️  %s 使用�
 # 3. MySQL连接数
 echo ""
 echo ">>> MySQL连接使用率:"
-mysql -uroot -p${MYSQL_ROOT_PASSWORD:-} -e "SHOW STATUS LIKE 'Threads_connected'" -N 2>/dev/null |   awk '{printf "  当前连接: %s (max: 2000, 使用率: %.1f%%)\n", $2, $2/2000*100}'
+mysql --defaults-extra-file=<(printf "[client]\nuser=root\npassword=%s\n" "${MYSQL_ROOT_PASSWORD:-}") -e "SHOW STATUS LIKE 'Threads_connected'" -N 2>/dev/null |   awk '{printf "  当前连接: %s (max: 2000, 使用率: %.1f%%)\n", $2, $2/2000*100}'
 
 # 4. Redis内存使用率
 echo ""

@@ -98,8 +98,6 @@ cat > /etc/audit/rules.d/99-custom.rules << 'AUDITEOF'
 -w /etc/shadow -p wa -k identity
 -w /etc/sudoers -p wa -k sudoers
 -w /var/log/secure -p wa -k logins
-# [修复] 添加-e 2使审计规则不可变(需要重启才能修改，防止攻击者篡改)
--e 2
 AUDITEOF
 augenrules --load 2>/dev/null || true
 
@@ -209,4 +207,15 @@ cat > /etc/logrotate.d/audit << 'LOGROTATE'
 LOGROTATE
 LOGROTATE_EOF
   echo "  ✅ ${node} 审计日志轮转已配置(保留30天)"
+done
+
+# Step 4: 锁定审计规则(必须最后执行，-e 2锁定后需要重启才能修改)
+echo ""
+echo ">>> Step 4: 锁定审计规则"
+for node in ${NODES}; do
+  ssh root@${node} bash << 'AUDITLOCK_EOF'
+# [安全] 锁定审计规则(-e 2)，锁定后需要重启才能修改，防止攻击者篡改
+auditctl -e 2 2>/dev/null || true
+AUDITLOCK_EOF
+  echo "  ✅ ${node} 审计规则已锁定(-e 2)"
 done

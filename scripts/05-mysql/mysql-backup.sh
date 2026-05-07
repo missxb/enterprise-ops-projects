@@ -13,7 +13,7 @@ KEEP_DAYS="${KEEP_DAYS:-30}"
 
 # 创建临时配置文件(避免命令行密码暴露)
 MYSQL_CNF=$(mktemp /tmp/mysql-XXXXXX.cnf)
-trap "rm -f $MYSQL_CNF" EXIT
+trap "rm -f \"$MYSQL_CNF\"" EXIT
 cat > $MYSQL_CNF << EOF
 [client]
 user=${MYSQL_USER}
