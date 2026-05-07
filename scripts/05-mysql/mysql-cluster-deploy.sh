@@ -1,6 +1,6 @@
 #!/bin/bash
 # MySQL MGR集群生产级部署
-# 依赖: mysql 8.0, ssh(节点间免密)
+# 依赖: mysql 8.4, ssh(节点间免密)
 # 前置: 至少3个节点, 节点间网络互通, 每个节点16G+内存
 set -euo pipefail
 umask 077
@@ -10,7 +10,7 @@ MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:?请设置MYSQL_ROOT_PASSWORD}"
 MYSQL_REPL_PASSWORD="${MYSQL_REPL_PASSWORD:?请设置MYSQL_REPL_PASSWORD}"
 MYSQL_APP_PASSWORD="${MYSQL_APP_PASSWORD:?请设置MYSQL_APP_PASSWORD}"
 NODES="${NODES:-10.10.30.11 10.10.30.12 10.10.30.13}"
-MYSQL_VERSION="${MYSQL_VERSION:-8.0.36}"
+MYSQL_VERSION="${MYSQL_VERSION:-8.4.4}"
 
 # 创建临时密码文件(避免密码暴露在命令行和进程列表中)
 MYSQL_CNF=$(mktemp /tmp/mysql.cnf.XXXXXX)
@@ -196,7 +196,7 @@ docker run -d --name proxysql --restart=always \\
   -p 3306:3306 -p 6032:6032 \
   -e MYSQL_ADMIN_USER=admin \
   -e MYSQL_ADMIN_PASSWORD=${PROXYSQL_ADMIN_PASSWORD} \
-  proxysql/proxysql:2.6.0
+  proxysql/proxysql:2.7.0
 
 # 配置ProxySQL
 docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P 6032 -e "

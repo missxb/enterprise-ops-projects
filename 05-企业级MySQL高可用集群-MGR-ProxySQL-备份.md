@@ -1793,7 +1793,7 @@ mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
 # 1. 升级从库MySQL-03
 echo "升级MySQL-03..."
 systemctl stop mysqld
-yum install -y mysql-community-server-8.0.36
+yum install -y mysql-community-server-8.4.4
 systemctl start mysqld
 
 # 等待从库启动
@@ -1802,7 +1802,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "SELECT VERSION();"
 # 2. 升级从库MySQL-02
 echo "升级MySQL-02..."
 systemctl stop mysqld
-yum install -y mysql-community-server-8.0.36
+yum install -y mysql-community-server-8.4.4
 systemctl start mysqld
 
 # 3. 升级主库MySQL-01
@@ -1821,7 +1821,7 @@ mysql -h 10.10.30.12 --defaults-extra-file=${MYSQL_CNF} -e "
 
 # 升级MySQL-01
 systemctl stop mysqld
-yum install -y mysql-community-server-8.0.36
+yum install -y mysql-community-server-8.4.4
 systemctl start mysqld
 
 # 将MySQL-01重新加入集群
@@ -1885,7 +1885,7 @@ mysqlslap --user=app_user --defaults-extra-file=${MYSQL_CNF} \
 systemctl stop mysqld
 
 # 2. 恢复旧版本
-yum downgrade mysql-community-server-8.0.35
+yum downgrade mysql-community-server-8.4.3
 
 # 3. 恢复数据
 systemctl start mysqld

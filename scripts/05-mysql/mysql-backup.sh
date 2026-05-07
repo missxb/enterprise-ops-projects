@@ -28,9 +28,9 @@ if ! command -v xtrabackup &>/dev/null; then
   if command -v yum &>/dev/null; then
     yum install -y https://repo.percona.com/yum/percona-release-latest.noarch.rpm
     percona-release enable-only tools
-    yum install -y percona-xtrabackup-80
+    yum install -y percona-xtrabackup-84
   elif command -v apt-get &>/dev/null; then
-    apt-get install -y percona-xtrabackup-80
+    apt-get install -y percona-xtrabackup-84
   else
     echo "❌ 无法自动安装xtrabackup，请手动安装"
     exit 1
