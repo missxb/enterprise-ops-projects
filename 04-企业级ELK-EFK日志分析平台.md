@@ -36,6 +36,14 @@
 
 ## 三、Elasticsearch集群部署
 
+> **生产环境节点角色分离建议**:
+> - Master节点: 3台,仅负责集群管理(不存储数据)
+> - Data-Hot节点: 存储近期数据(30天),SSD存储
+> - Data-Warm节点: 存储历史数据(90天),HDD存储
+> - Data-Cold节点: 存储归档数据(365天),对象存储
+> - Ingest节点: 处理日志解析(可选)
+> - Coordinating节点: 处理客户端请求(可选)
+
 ```yaml
 # elasticsearch-statefulset.yaml
 ---
@@ -345,6 +353,12 @@ curl -k -X PUT "https://es-master-0:9200/_index_template/enterprise-logs" -H 'Co
 
 ## 五、Filebeat DaemonSet
 
+> **生产环境Filebeat配置要点**:
+> - Registry持久化: 使用hostPath或PVC持久化registry文件,防止Pod重启后日志重复发送
+> - multiline处理: 合并多行日志(如Java异常堆栈)
+> - drop_fields: 删除不需要的字段减少存储开销
+> - processors: 添加kubernetes元数据、过滤系统日志
+
 ```yaml
 # filebeat-daemonset.yaml
 ---
@@ -493,6 +507,12 @@ data:
 ---
 
 ## 六、Kafka缓冲层(可选但推荐)
+
+> **Kafka生产环境运维要点**:
+> - 模式选择: KRaft(无ZooKeeper依赖,推荐) vs ZooKeeper(传统)
+> - 分区策略: 日志topic建议分区数=消费者数,保证并行消费
+> - 副本因子: 生产环境至少replication.factor=3
+> - 消费者组: 监控consumer lag,避免消费堆积
 
 > **[推荐]** 生产环境建议在Filebeat和Logstash之间部署Kafka作为缓冲层，
 > 防止ES写入压力反压导致Filebeat日志丢失。
