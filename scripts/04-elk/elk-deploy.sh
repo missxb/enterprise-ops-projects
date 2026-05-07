@@ -146,6 +146,38 @@ EOF
 
 # Step 5: 部署Logstash
 echo ">>> Step 5: 部署Logstash"
+# 创建Logstash配置
+cat << LOGSTASHCONF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: logging
+data:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    filter {
+      grok {
+        match => { "message" => "%{COMBINEDAPACHELOG}" }
+      }
+      date {
+        match => [ "timestamp", "dd/MMM/yyyy:HH:mm:ss Z" ]
+      }
+    }
+    output {
+      elasticsearch {
+        hosts => ["https://elasticsearch-0.elasticsearch:9200"]
+        user => "elastic"
+        password => "${ES_PASSWORD}"
+        ssl_certificate_verification => false
+      }
+    }
+LOGSTASHCONF
+
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -183,6 +215,26 @@ EOF
 
 # Step 6: 部署Filebeat(DaemonSet)
 echo ">>> Step 6: 部署Filebeat"
+# 创建Filebeat配置
+cat << FILEBEATCONF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: logging
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: container
+        paths:
+          - '/var/log/pods/*/*.log'
+    processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+    output.logstash:
+      hosts: ["logstash:5044"]
+FILEBEATCONF
+
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: DaemonSet
@@ -201,6 +253,11 @@ spec:
       containers:
         - name: filebeat
           image: elastic/filebeat:${ES_VERSION}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           volumeMounts:
             - name: varlog
               mountPath: /var/log

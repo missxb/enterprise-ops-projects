@@ -74,6 +74,8 @@ echo "  ✅ 前置检查通过"
 CURRENT_STEP=1
 echo ">>> Step 1: 创建命名空间"
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+# 为NetworkPolicy打标签(允许production命名空间访问监控)
+kubectl label namespace ${NAMESPACE} name=monitoring --overwrite
 
 # Step 2: 部署Prometheus StatefulSet(2副本+PVC)
 CURRENT_STEP=2
@@ -261,6 +263,29 @@ EOF
 # Step 3: 部署AlertManager
 CURRENT_STEP=3
 echo ">>> Step 3: 部署AlertManager"
+# 创建AlertManager配置
+cat << ALERTMGRCONF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_by: ['alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    receivers:
+      - name: default
+        webhook_configs:
+          - url: 'http://localhost:9095/'
+ALERTMGRCONF
+
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -303,6 +328,11 @@ EOF
 # Step 4: 部署Grafana
 CURRENT_STEP=4
 echo ">>> Step 4: 部署Grafana"
+# 创建Grafana Secret
+kubectl create secret generic grafana-secret -n ${NAMESPACE} \
+  --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD:-admin}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
