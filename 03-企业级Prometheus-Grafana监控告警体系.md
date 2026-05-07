@@ -91,7 +91,9 @@ data:
         # Prometheus A: replica: prometheus-a
         # Prometheus B: replica: prometheus-b
         # 通过Downward API注入: --label replica="$(POD_NAME)"
-        replica: 'prometheus'  # 已废弃! 必须使用Downward API注入唯一值，见StatefulSet env配置
+        replica: $(POD_NAME)  # 通过Downward API注入,见StatefulSet env
+
+> **关键**: 两个Prometheus实例必须使用不同的replica标签,否则Thanos去重会失败
     
     # 告警规则文件
     rule_files:
@@ -651,7 +653,7 @@ metadata:
   name: thanos-sidecar
   namespace: monitoring
 spec:
-  replicas: 1
+  replicas: 2  # 生产环境至少2副本,数据源通过Thanos Query HA
   selector:
     matchLabels:
       app: thanos-sidecar
@@ -814,8 +816,11 @@ spec:
         - /bin/sh
         - -c
         - |
-          sed -i "s/placeholder/${ACCESS_KEY}/" /etc/thanos/objstore.yml
-          sed -i "s/placeholder/${SECRET_KEY}/" /etc/thanos/objstore.yml
+          # 使用Secret挂载完整objstore.yml(推荐)
+          # 或使用initContainer复制到emptyDir后修改:
+          cp /etc/thanos/objstore.yml.tmpl /etc/thanos/objstore.yml && \
+          sed -i "s/ACCESS_KEY_PLACEHOLDER/${ACCESS_KEY}/" /etc/thanos/objstore.yml && \
+          sed -i "s/SECRET_KEY_PLACEHOLDER/${SECRET_KEY}/" /etc/thanos/objstore.yml
         env:
         - name: ACCESS_KEY
           valueFrom:
@@ -830,6 +835,9 @@ spec:
         volumeMounts:
         - name: objstore-config
           mountPath: /etc/thanos
+> ConfigMap是只读的,sed无法直接修改。解决方案:
+> 1. 使用Secret挂载完整配置(推荐)
+> 2. 使用emptyDir+initContainer复制后修改
       containers:
       - name: thanos-store-gateway
         image: quay.io/thanos/thanos:v0.41.0
@@ -1508,6 +1516,9 @@ data:
           text: '{{ template "ding.link.content" . }}'
   template.tmpl: |
     {{ define "ding.link.title" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ end }}
+
+> **安全**: 生产环境必须使用Secret挂载token,不要硬编码:
+> kubectl create secret generic dingtalk-webhook --from-literal=token=YOUR_TOKEN
     {{ define "ding.link.content" }}
     ## {{ .CommonLabels.alertname }}
 
@@ -1616,6 +1627,16 @@ echo "  如需使用Helm，请先删除YAML部署的资源，然后运行:"
 echo "  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts"
 echo "  helm install kube-prometheus prometheus-community/kube-prometheus-stack \\"
 echo "    --version 65.1.0 --namespace monitoring"
+
+# 验证部署状态
+echo "=== 验证部署 ==="
+for ns in monitoring; do
+  kubectl get pods -n $ns --field-selector=status.phase!=Running
+  if [ $? -eq 0 ]; then
+    echo "⚠️ 存在非Running状态的Pod"
+    kubectl get pods -n $ns
+  fi
+done
 
 echo ""
 echo "================================================"
@@ -1939,8 +1960,8 @@ max_idle_connections = 100
 enabled = true
 backend = "memory"
 ```
-
 ### 案例4: 远程写入延迟导致数据丢失
+> **架构说明**: 本项目使用Thanos Sidecar模式(直接读取本地TSDB),不使用remote-write。remote-write是Thanos Receive模式,两者互斥。
 
 **故障现象**: Thanos Store查询结果有时间间隙
 
@@ -2154,7 +2175,7 @@ global:
 storage:
   tsdb:
     retention.time: 15d
-    retention.size: 50GB
+    retention.size: 200GB
     path: /prometheus
     min-block-duration: 2h
     max-block-duration: 36h
@@ -2218,7 +2239,7 @@ kind: StatefulSet
 metadata:
   name: victoria-metrics
 spec:
-  replicas: 2  # 双副本实现高可用，避免单点故障
+  replicas: 1  # VM单节点不支持多副本,如需HA使用VM Cluster
   template:
     spec:
       containers:
@@ -2305,7 +2326,7 @@ groups:
         for: 5m
         labels: { severity: warning }
       - alert: RequestSpike
-        expr: sum(rate(http_requests_total[5m])) / sum(rate(http_requests_total[5m] offset 1h)) > 3
+        expr: sum(rate(http_requests_total[5m])) / sum(rate(http_requests_total[5m] offset 1d)) > 3
         for: 5m
         labels: { severity: info }
   
@@ -2324,6 +2345,45 @@ groups:
         expr: prometheus_target_interval_length_seconds{quantile="0.99"} > 30
         for: 10m
         labels: { severity: warning }
+
+  # 安全与运维
+  - name: security
+    rules:
+      # 证书过期告警
+      - alert: CertificateExpiringSoon
+        expr: (x509_certificate_not_after - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "证书将在{{ $value }}天后过期"
+
+      # 时钟偏移告警
+      - alert: ClockSkewDetected
+        expr: abs(node_timex_offset_seconds) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "节点时钟偏移{{ $value }}秒"
+
+      # 文件描述符耗尽
+      - alert: FileDescriptorsExhausted
+        expr: node_filefd_allocated / node_filefd_maximum > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "文件描述符使用率{{ $value | humanizePercentage }}"
+
+      # 僵尸进程
+      - alert: ZombieProcessesDetected
+        expr: node_processes_state{state="Z"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "检测到{{ $value }}个僵尸进程"
 ```
 
 ---
