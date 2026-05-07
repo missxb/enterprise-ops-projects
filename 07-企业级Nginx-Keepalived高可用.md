@@ -10,6 +10,7 @@
 > - Nginx+Keepalived: 适用于裸金属/私有云环境,成本低但运维复杂
 > - 云厂商SLB/ALB: 适用于公有云环境,托管服务免运维,推荐生产使用
 > - MetalLB/Kube-vip: 适用于K8s环境,与K8s Service集成
+> - HAProxy+Nginx: HAProxy做L4 TCP负载均衡(如数据库/Redis),Nginx做L7 HTTP,适合混合场景
 
 ```
                     ┌─────────────────────┐
@@ -103,9 +104,15 @@ http {
                image/svg+xml;
 
     # 限流配置
-    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
-    limit_req_zone $binary_remote_addr zone=login_limit:10m rate=20r/m;  # 登录限流: 20次/分钟，防暴力破解同时允许正常用户多次尝试
-    limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
+    # [修复] 基于X-Forwarded-For提取真实客户端IP进行限流，避免CDN/反向代理后所有用户共享出口IP导致限流失效
+    # 使用map模块提取X-Forwarded-For中的第一个IP（即真实客户端IP）
+    map $http_x_forwarded_for $client_real_ip {
+        default $binary_remote_addr;  # 无X-Forwarded-For时使用连接IP
+        "~^(?<ip>\d+\.\d+\.\d+\.\d+)" $ip;  # 取第一个IP（真实客户端IP）
+    }
+    limit_req_zone $client_real_ip zone=api_limit:10m rate=100r/s;
+    limit_req_zone $client_real_ip zone=login_limit:10m rate=20r/m;  # 登录限流: 20次/分钟，防暴力破解同时允许正常用户多次尝试
+    limit_conn_zone $client_real_ip zone=conn_limit:10m;
 
     # 隐藏版本号
     server_tokens off;
@@ -132,12 +139,17 @@ http {
     ssl_dhparam /etc/nginx/ssl/dhparam.pem;
     ssl_ecdh_curve X25519:secp384r1:secp256r1;
     '> ECDH曲线配置优先使用X25519(性能最好),回退到NIST曲线'
-    # [⚠️ 重要] ssl_stapling_responder必须替换为实际CA的OCSP responder URL
+    # ssl_stapling_responder: OCSP装订响应地址，需根据实际CA设置
     # 获取方式: openssl x509 -in /etc/nginx/ssl/ecommerce.com.pem -noout -ocsp_uri
-    # Let's Encrypt当前地址: http://r3.o.lencr.org
-    # DigiCert/GlobalSign等商业CA请从CA官网获取实际地址
-    # [警告] 使用占位符http://ocsp.example.com/会导致SSL Stapling失败，浏览器可能提示证书吊销状态未知
-    ssl_stapling_responder http://r3.o.lencr.org;
+    # 通过map模块根据域名动态选择对应的OCSP responder URL，支持多证书场景
+    map $ssl_server_name $ssl_stapling_ocsp_url {
+        default                  http://r3.o.lencr.org;  # Let's Encrypt默认
+        ~^.*\.ecommerce\.com$    http://r3.o.lencr.org;  # Let's Encrypt通配符
+        # 商业CA示例(取消注释并填入实际地址):
+        # ~^.*\.corp\.com$      http://ocsp.digicert.com;  # DigiCert
+        # ~^.*\.bank\.com$      http://ocsp.globalsign.com; # GlobalSign
+    }
+    ssl_stapling_responder $ssl_stapling_ocsp_url;
 
     # Upstream后端池
     upstream app_backend {
@@ -162,6 +174,7 @@ http {
         server 10.10.50.22:8081 max_fails=3;
     }
 
+    # [注意] server块顺序：具体域名应在通配符域名之前，避免请求被错误的server块处理
     # HTTP -> HTTPS重定向
     server {
         listen 80;
@@ -188,11 +201,19 @@ http {
         add_header X-XSS-Protection "1; mode=block" always;
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         # CSP策略: 允许自身域名资源和CDN，生产环境应根据实际资源来源收紧
-        # [修复] CSP策略使用nonce替代unsafe-inline，避免XSS风险
-        # 生成nonce: openssl rand -base64 16 | 每次请求动态生成
-        # 此处使用变量方式，实际需配合lua/set变量动态生成
-        set $csp_nonce $request_id;  # 注意: 需要服务端生成相同nonce嵌入HTML,否则CSP会阻止内联脚本
-> **CSP nonce最佳实践**: 生产环境应使用服务端模板(如Lua)生成随机nonce,并嵌入到HTML的<script nonce="xxx">中。$request_id作为fallback。
+        # [修复] CSP策略: 使用Lua生成随机nonce替代unsafe-inline，避免XSS风险
+        # ⚠️ 关键: 每次请求必须生成唯一nonce，并在HTML模板的<script>和<style>标签上嵌入相同nonce
+        # 例如: <script nonce="$csp_nonce">...</script>  — nonce值必须与CSP头中一致，否则浏览器会阻止该资源
+        # Nginx不支持在add_header中直接引用Lua变量，需通过set传递
+        set_by_lua_block $csp_nonce {
+            local random = require "resty.random"
+            local str = require "resty.string"
+            return str.to_hex(random.bytes(16))
+        }
+        # [⚠️ HTML模板侧] 后端模板渲染时必须将$ csp_nonce注入到HTML中:
+        #   <script nonce="{{ csp_nonce }}">...</script>
+        #   <style nonce="{{ csp_nonce }}">...</style>
+        # 若不注入nonce到HTML，所有内联<script>/<style>都会被CSP阻止
         add_header Content-Security-Policy "default-src 'self' https://cdn.example.com; script-src 'self' 'nonce-$csp_nonce'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.example.com" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
@@ -281,10 +302,17 @@ http {
         ssl_certificate /etc/nginx/ssl/admin.ecommerce.com.pem;
         ssl_certificate_key /etc/nginx/ssl/admin.ecommerce.com.key;
 
-        # IP白名单
-        allow 10.10.0.0/16;
-        allow 192.168.0.0/16;
-        deny all;
+    # IP白名单
+    allow 10.10.0.0/16;
+    allow 192.168.0.0/16;
+    deny all;
+
+    # 安全头
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
 
         location / {
             proxy_pass http://app_backend;
@@ -315,6 +343,9 @@ vrrp_instance VI_1 {
     virtual_router_id 51
     priority 101
     advert_int 1
+    # [重要] nopreempt防止网络恢复后MASTER抢占，避免脑裂抖动
+    # 生产环境必须使用nopreempt，BACKUP接管后不会被原MASTER抢回
+    nopreempt
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
@@ -341,7 +372,7 @@ if ! /usr/sbin/nginx -t 2>/dev/null; then
     echo "❌ Nginx配置语法检查失败，跳过重启"
     exit 1
 fi
-if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 3; then
+if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 5; then
     # 重启前再次确认配置正确，避免错误配置导致服务中断
     if ! /usr/sbin/nginx -t 2>/dev/null; then
         echo "❌ Nginx配置语法错误，终止重启"
@@ -350,7 +381,7 @@ if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 3; then
     systemctl restart nginx
     sleep 2
     # 重启后验证健康状态
-    if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 3; then
+    if ! curl -sf -o /dev/null http://127.0.0.1/health --max-time 5; then
         echo "❌ 重启后仍不健康，检查Nginx日志: /var/log/nginx/error.log"
         exit 1
     fi
@@ -367,6 +398,28 @@ exit 0
 # ssl_renew.sh - Let's Encrypt自动续期
 
 certbot renew --quiet --deploy-hook "systemctl reload nginx"
+
+# 续期成功后同步证书到备份节点(Keepalived BACKUP)
+BACKUP_HOST="10.10.50.12"  # 备份Nginx节点IP
+BACKUP_USER="root"
+SSL_DIR="/etc/nginx/ssl"
+
+echo "正在同步SSL证书到备份节点 ${BACKUP_HOST}..."
+rsync -avz --delete \
+    -e "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no" \
+    ${SSL_DIR}/ \
+    ${BACKUP_USER}@${BACKUP_HOST}:${SSL_DIR}/
+
+if [ $? -eq 0 ]; then
+    echo "✅ 证书同步成功，验证远程证书有效期..."
+    ssh ${BACKUP_USER}@${BACKUP_HOST} \
+        "for cert in ${SSL_DIR}/*.pem; do echo \"\$(basename \$cert): \$(openssl x509 -enddate -noout -in \$cert)\"; done"
+    # 通知备份节点重载Nginx使新证书生效
+    ssh ${BACKUP_USER}@${BACKUP_HOST} "nginx -t && nginx -s reload"
+else
+    echo "❌ 证书同步失败，请手动检查备份节点证书状态！"
+    exit 1
+fi
 
 # crontab: 每天凌晨3点检查
 # 0 3 * * * /opt/scripts/ssl_renew.sh >> /var/log/ssl-renew.log 2>&1
@@ -437,14 +490,49 @@ spec:
 
 ```nginx
 # Coraza WAF配置示例(替代ModSecurity)
+# 安装: 需要编译Coraza模块或使用动态加载
+# 参考: https://github.com/corazawaf/coraza
+
+# 方法1: 使用Nginx Dynamic Module
 load_module modules/ngx_http_coraza_module.so;
 
 http {
     coraza_enable on;
-    coraza_rules "SecRuleEngine On\nSecRule REQUEST_URI \"@rx /admin\" \"id:1001,phase:1,deny,status:403\"";
+
+    # 方法2: 使用外部规则文件(推荐生产使用)
+    # coraza_rules_file /etc/nginx/coraza/coraza.conf;
+
+    # 方法3: 内联规则(适合简单场景)
+    coraza_rules "
+        SecRuleEngine On
+        SecRequestBodyAccess On
+        SecResponseBodyAccess Off
+
+        # OWASP CRS规则集(需单独下载)
+        # Include /etc/nginx/coraza/rules/*.conf
+
+        # 自定义规则示例: 拦截admin路径
+        SecRule REQUEST_URI \"@rx /admin\" \"id:1001,phase:1,deny,status:403,log,msg:'Admin Access Blocked'\"
+        SecRule REQUEST_URI \"@rx \\.(env|git|svn)\" \"id:1002,phase:1,deny,status:403,log,msg:'Hidden File Access'\"
+    ";
+
+    server {
+        listen 443 ssl http2;
+        server_name www.ecommerce.com;
+
+        # 在server块中启用WAF
+        coraza_enable on;
+
+        location / {
+            proxy_pass http://app_backend;
+            # ... 其他配置
+        }
+    }
 }
 ```
 > Coraza是ModSecurity的现代替代品,使用OWASP CRS规则,兼容Nginx/Envoy。配置更简洁,性能更好。
+> 安装Coraza模块: git clone https://github.com/corazawaf/coraza.git && cd coraza && make nginx-module
+> 编译Nginx时添加: --add-dynamic-module=/path/to/coraza/plugins/nginx/Module
 
 ### 5.2 负载均衡算法对比
 
@@ -519,6 +607,8 @@ vrrp_instance VI_1 {
     virtual_router_id 51
     priority 101
     advert_int 1
+    # [重要] nopreempt防止网络恢复后抢占，避免脑裂
+    nopreempt
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
@@ -547,6 +637,8 @@ vrrp_instance VI_2 {
     virtual_router_id 52
     priority 100
     advert_int 1
+    # [重要] nopreempt防止网络恢复后抢占
+    nopreempt
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
@@ -558,7 +650,7 @@ vrrp_instance VI_2 {
     unicast_peer {
         10.10.50.12
     }
-> VI_2的unicast_src_ip应该是本机IP,unicast_peer应该指向对端IP
+    # VI_2与VI_1使用相同的unicast配置(同一台机器上两个VRRP实例共享相同的peer)
     virtual_ipaddress {
         10.10.50.101/24 dev eth0
     }
@@ -589,12 +681,12 @@ if ! pgrep -x nginx > /dev/null; then
 fi
 
 # 检查HTTP健康端点
-HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1/health --max-time 3)
+HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1/health --max-time 5)
 if [ "${HTTP_CODE}" != "200" ]; then
     echo "健康检查失败: HTTP ${HTTP_CODE}"
     systemctl restart nginx
     sleep 3
-    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1/health --max-time 3)
+    HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1/health --max-time 5)
     if [ "${HTTP_CODE}" != "200" ]; then
         echo "重启后仍然失败"
         exit 1
@@ -664,9 +756,21 @@ touch ${CA_DIR}/index.txt
 echo 1000 > ${CA_DIR}/serial
 
 # CA根证书
-openssl genrsa -aes256 -out ${CA_DIR}/private/ca.key 4096
-openssl req -new -x509 -days 730 -sha512   -key ${CA_DIR}/private/ca.key   -out ${CA_DIR}/certs/ca.crt   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Enterprise-CA"
-> 证书有效期建议1-2年,配合cert-manager自动轮换
+# [修复] 使用-passout避免交互式密码输入，方便自动化部署
+CA_PASS="change_me_in_production"
+openssl genrsa -aes256 -passout pass:${CA_PASS} -out ${CA_DIR}/private/ca.key 4096
+openssl req -new -x509 -days 730 -sha512 \
+    -passin pass:${CA_PASS} \
+    -key ${CA_DIR}/private/ca.key \
+    -out ${CA_DIR}/certs/ca.crt \
+    -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Enterprise-CA"
+# 证书有效期730天(2年),配合cert-manager自动轮换
+
+# CRL(证书吊销列表)配置
+# 生成CRL初始文件: openssl ca -gencrl -config ${CA_DIR}/openssl.cnf -out ${CA_DIR}/crl/ca.crl
+# 吊销证书示例: openssl ca -revoke /path/to/cert.pem -config ${CA_DIR}/openssl.cnf -passin pass:${CA_PASS}
+# 更新CRL: openssl ca -gencrl -config ${CA_DIR}/openssl.cnf -out ${CA_DIR}/crl/ca.crl -passin pass:${CA_PASS}
+# Nginx中引用CRL: ssl_crl /etc/nginx/ssl/ca.crl;
 
 # 服务器证书签名配置
 cat > ${CA_DIR}/openssl.cnf << 'EOF'
@@ -730,7 +834,8 @@ wrk -t${THREADS} -c${CONNECTIONS} -d${DURATION}s   --latency ${TARGET}/static/cs
 echo ""
 echo "--- 测试2: API接口(带认证) ---"
 wrk -t${THREADS} -c${CONNECTIONS} -d${DURATION}s   -H "Authorization: Bearer ${API_TOKEN}"   --latency ${TARGET}/api/v1/products
-> 压测前需设置环境变量: export API_TOKEN=your_token
+# [注意] 以下为占位符，实际使用前必须替换为真实Token
+# export API_TOKEN=your_actual_token_here  # 替换为真实的JWT或API Key
 
 # 测试3: 上传接口
 echo ""
@@ -790,9 +895,9 @@ server {
 ```conf
 # /etc/nginx/modsecurity/main.conf
 # [注意] SecRuleEngine只应设置一次，重复设置会被后者覆盖
-# 生产环境建议先用DetectionOnly观察，稳定后改为On
-SecRuleEngine DetectionOnly
-> **生产环境**: 观察1-2周后改为SecRuleEngine On,否则攻击不会被拦截。
+# 生产环境使用On模式拦截恶意请求，而非仅记录
+SecRuleEngine On
+> **注意**: 新部署建议先用DetectionOnly观察1-2周，确认规则误报率可控后再切换为On
 SecRequestBodyAccess On
 SecResponseBodyAccess Off
 
@@ -807,7 +912,25 @@ SecRule REQUEST_URI|REQUEST_HEADERS|REQUEST_BODY   "@rx (?i:(?:<script|javascrip
 SecRule REQUEST_URI|REQUEST_BODY   "@rx (?i:(?:\.\.\/|\.\.\\|etc\/passwd|proc\/self))"   "id:1003,phase:1,deny,status:403,log,msg:'Path Traversal Detected'"
 
 # CC攻击防护
-SecRule IP:REQUEST_RATE "@gt 100"   "id:1004,phase:1,deny,status:429,log,msg:'Rate Limit Exceeded'"
+SecRule IP:REQUEST_RATE "@gt 100" "id:1004,phase:1,deny,status:429,log,msg:'Rate Limit Exceeded'"
+
+# 命令注入防护
+SecRule REQUEST_URI|REQUEST_BODY "@rx (?i:(?:;\s*(?:cat|ls|id|whoami|wget|curl|bash|sh|python|perl|ruby)\b|`[^`]*`|\\$\\([^)]*\\)))" "id:1005,phase:1,deny,status:403,log,msg:'Command Injection Detected'"
+
+# XML外部实体注入(XXE)防护
+SecRule REQUEST_BODY "@rx (?i:(?:<!ENTITY|SYSTEM\s+[\"']file://|SYSTEM\s+[\"']http))" "id:1006,phase:2,deny,status:403,log,msg:'XXE Attack Detected'"
+
+# SSRF防护(禁止访问内网地址)
+SecRule REQUEST_BODY|REQUEST_URI "@rx (?i:(?:127\.0\.0\.1|192\.168\.|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.))" "id:1007,phase:2,deny,status:403,log,msg:'SSRF Attack Detected - Internal IP Access'"
+
+# 敏感信息泄露检测
+SecRule REQUEST_URI "@rx (?i:(?:\.env|\.git|\.svn|\.htaccess|wp-config|web\.config|\.DS_Store))" "id:1008,phase:1,deny,status:403,log,msg:'Sensitive File Access Attempt'"
+
+# HTTP方法限制(仅允许常见方法)
+SecRule REQUEST_METHOD "!@rx ^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$" "id:1009,phase:1,deny,status:405,log,msg:'Unsupported HTTP Method'"
+
+# User-Agent黑名单(常见攻击工具)
+SecRule REQUEST_HEADERS:User-Agent "@rx (?i:(?:sqlmap|nikto|nmap|masscan|dirbuster|gobuster|wfuzz|ffuf|nuclei))" "id:1010,phase:1,deny,status:403,log,msg:'Malicious User-Agent Detected'"
 ```
 
 ---
@@ -917,33 +1040,101 @@ done
 
 ### 11.2 紧急预案
 
-```
-场景1: Nginx 502 Bad Gateway
-  1. 检查upstream服务器是否存活
-  2. 检查upstream端口是否正确
-  3. 检查防火墙规则
-  4. 检查Nginx error.log
-  5. 临时方案: 将故障服务器从upstream中移除
+```bash
+#!/bin/bash
+# emergency_fix.sh - Nginx紧急故障自动处理脚本
 
-场景2: Nginx 504 Gateway Timeout
-  1. 检查proxy_read_timeout配置
-  2. 检查后端应用响应时间
-  3. 增加timeout时间
-  4. 启用proxy_next_upstream
+set -euo pipefail
 
-场景3: Keepalived VIP不漂移
-  1. 检查组播/单播配置
-  2. 检查防火墙是否放行VRRP协议(协议号112)
-  3. 检查virtual_router_id是否一致
-  4. 检查priority优先级
-  5. 手动触发: systemctl restart keepalived
+VIP="10.10.50.100"
+UPSTREAM_BACKENDS=("10.10.50.11:8080" "10.10.50.12:8080" "10.10.50.13:8080")
 
-场景4: SSL证书过期
-  1. 立即使用自签名证书临时恢复
-  2. 申请新证书
-  3. 部署新证书
-  4. 配置自动续期
-  5. 添加证书过期监控告警
+echo "============================================"
+echo "  Nginx紧急故障处理 $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
+
+# 场景1: Nginx 502 Bad Gateway - 自动移除故障后端
+fix_502() {
+    echo "[502处理] 检查upstream后端..."
+    for backend in "${UPSTREAM_BACKENDS[@]}"; do
+        IP=$(echo $backend | cut -d: -f1)
+        PORT=$(echo $backend | cut -d: -f2)
+        if ! curl -sf -o /dev/null --max-time 3 "http://${backend}/health" 2>/dev/null; then
+            echo "  ❌ 后端 ${backend} 不可达，临时从upstream移除"
+            # 注释掉故障后端(需配合sed实际使用)
+            # sed -i "s|server ${backend}|# server ${backend} # DOWN|g" /etc/nginx/conf.d/upstream.conf
+        else
+            echo "  ✅ 后端 ${backend} 正常"
+        fi
+    done
+    nginx -t 2>/dev/null && nginx -s reload
+}
+
+# 场景2: Nginx 504 Gateway Timeout - 增加超时时间
+fix_504() {
+    echo "[504处理] 临时增加proxy_read_timeout..."
+    sed -i 's/proxy_read_timeout 60s;/proxy_read_timeout 120s;/' /etc/nginx/nginx.conf
+    nginx -t 2>/dev/null && nginx -s reload
+    echo "  ⚠️ 已临时将proxy_read_timeout增加到120s，故障恢复后请回滚"
+}
+
+# 场景3: Keepalived VIP不漂移 - 重启Keepalived
+fix_keepalived() {
+    echo "[Keepalived处理] 检查VIP状态..."
+    if ! ip addr show | grep -q "${VIP}"; then
+        echo "  ❌ VIP不在本机，尝试重启Keepalived..."
+        systemctl restart keepalived
+        sleep 3
+        if ip addr show | grep -q "${VIP}"; then
+            echo "  ✅ VIP已漂移到本机"
+        else
+            echo "  ❌ VIP仍未漂移，检查VRRP配置和防火墙"
+            echo "  手动干预: systemctl stop keepalived (在对端执行)"
+        fi
+    else
+        echo "  ✅ VIP正常"
+    fi
+}
+
+# 场景4: SSL证书过期 - 使用自签名证书临时恢复
+fix_ssl() {
+    echo "[SSL处理] 检查证书过期..."
+    for cert in /etc/nginx/ssl/*.pem; do
+        if [ -f "${cert}" ]; then
+            EXPIRY=$(openssl x509 -enddate -noout -in ${cert} 2>/dev/null | cut -d= -f2)
+            DAYS_LEFT=$(( ($(date -d "${EXPIRY}" +%s) - $(date +%s)) / 86400 )) 2>/dev/null || DAYS_LEFT=0
+            if [ ${DAYS_LEFT} -lt 1 ]; then
+                echo "  ❌ 证书 ${cert} 已过期，生成临时自签名证书..."
+                openssl req -x509 -nodes -days 7 -newkey rsa:2048 \
+                    -keyout ${cert%.pem}.key -out ${cert} \
+                    -subj "/CN=*.ecommerce.com" 2>/dev/null
+                echo "  ⚠️ 已生成7天临时证书，请尽快申请正式证书"
+            fi
+        fi
+    done
+    nginx -t 2>/dev/null && nginx -s reload
+}
+
+# 主逻辑
+case ${1:-all} in
+    502) fix_502 ;;
+    504) fix_504 ;;
+    keepalived|vip) fix_keepalived ;;
+    ssl) fix_ssl ;;
+    all)
+        fix_502
+        fix_keepalived
+        fix_ssl
+        ;;
+    *)
+        echo "用法: $0 [502|504|keepalived|ssl|all]"
+        exit 1
+        ;;
+esac
+
+echo "============================================"
+echo "  紧急处理完成 $(date '+%Y-%m-%d %H:%M:%S')"
+echo "============================================"
 ```
 
 ---
@@ -956,6 +1147,8 @@ done
 | VIP(弹性IP) | 50元/月 | 1个 | 50元 |
 | SSL证书(通配符) | 200元/年 | 1个 | 17元 |
 | 带宽(10Mbps) | 800元/月 | 1个 | 800元 |
+| 磁盘(500G SSD) | 200元/月 | 2块 | 400元 |
+| 备份存储(1TB) | 100元/月 | 1个 | 100元 |
 | **总计** | | | **3,767元/月** |
 > 成本估算因配置差异可能不同,以详细计算为准(第16节)
 
@@ -978,21 +1171,21 @@ done
 02:00  监控告警: VIP不可达
 02:01  值班工程师收到电话告警
 02:05  登录堡垒机检查，发现两台Nginx均存活
-02:08  发现LVS健康检查脚本超时阈值设为2秒
-02:10  分析: LVS检查脚本使用curl请求/health，后端响应慢导致超时
-02:15  修改健康检查超时为5秒，LVS恢复转发
+02:08  发现Keepalived健康检查脚本超时阈值设为2秒
+02:10  分析: Keepalived检查脚本使用curl请求/health，后端响应慢导致超时
+02:15  修改健康检查超时为5秒，Keepalived恢复正常检查
 02:18  业务恢复正常
 ```
 
 **根因分析**:
 ```
-LVS健康检查脚本:
+Keepalived健康检查脚本:
 #!/bin/bash
 # 故障配置：超时太短
 curl -sf -o /dev/null http://10.10.50.11/health --max-time 2
-# 高峰期后端GC暂停3秒，健康检查超时，LVS将节点标记为down
+# 高峰期后端GC暂停3秒，健康检查超时，Keepalived将节点标记为down
 # 两台Nginx的upstream后端都在GC，同时被标记down
-# LVS无可用后端，返回503
+# Keepalived无可用后端，返回503
 ```
 
 **修复方案**:
@@ -1045,11 +1238,14 @@ tail -100 /var/log/nginx/error.log | grep 12345
 
 **根因分析**:
 ```nginx
+# [注意] 以下为简化的故障示例。实际故障发生在新增的server块中，遗漏了proxy_http_version配置。
+# 本项目主配置(第二节)已正确配置proxy_http_version 1.1，此处展示的是常见遗漏模式。
 # 配置问题：proxy_http_version未指定为1.1
 location /api/ {
     proxy_pass http://backend;
-    # 缺少: proxy_http_version 1.1;
-    # 缺少: proxy_set_header Connection "";
+    # 故障场景: 新增server块遗漏了以下两行
+    # proxy_http_version 1.1;
+    # proxy_set_header Connection "";
     # 导致Nginx使用HTTP/1.0与后端通信
     # 部分后端返回chunked编码但HTTP/1.0不支持
     # 触发Nginx解析bug进入死循环
@@ -1346,6 +1542,9 @@ grep -r "limit_req" /etc/nginx/conf.d/
 
 **修复方案**:
 ```nginx
+# [注意] geo模块是Nginx默认编译的内置模块，无需额外安装
+# 但geo指令只能在http块中使用，不能在location块中使用
+
 # 1. 使用geo模块区分用户真实IP
 geo $real_ip {
     default $binary_remote_addr;
@@ -1593,6 +1792,26 @@ gzip_types
     image/x-icon;
 
 # Brotli压缩(比Gzip更好，需要编译模块)
+# 编译安装Brotli模块:
+# 1. 安装依赖
+#    yum install -y git pcre-devel zlib-devel openssl-devel gcc make
+# 2. 克隆ngx_brotli模块
+#    cd /usr/local/src
+#    git clone --recurse-submodules https://github.com/google/ngx_brotli.git
+# 3. 下载Nginx源码(与当前安装版本一致)
+#    cd /usr/local/src
+#    wget http://nginx.org/download/nginx-1.26.2.tar.gz
+#    tar xzf nginx-1.26.2.tar.gz && cd nginx-1.26.2
+# 4. 编译(保留原有模块参数，追加brotli)
+#    ./configure --prefix=/etc/nginx \
+#        --with-http_ssl_module --with-http_v2_module \
+#        --with-http_realip_module --with-http_gzip_static_module \
+#        --with-http_stub_status_module --with-stream \
+#        --add-module=/usr/local/src/ngx_brotli
+#    make -j$(nproc) && make install
+# 5. 验证
+#    nginx -V 2>&1 | grep -o 'brotli'
+# 6. 启用Brotli(取消下方注释)
 # brotli on;
 # brotli_comp_level 6;
 # brotli_types text/plain text/css application/json application/javascript text/xml application/xml;
@@ -1912,18 +2131,30 @@ ROI = (22,200 - 6,400) / 6,400 = 247%
 
 ```yaml
 # prometheus.yml - Nginx监控配置
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
 scrape_configs:
   - job_name: 'nginx'
+    # 需要先安装nginx-prometheus-exporter:
+    # 下载: https://github.com/nginxinc/nginx-prometheus-exporter/releases
+    # 运行: nginx-prometheus-exporter -nginx.scrape-uri=http://127.0.0.1/nginx_status
     static_configs:
       - targets: ['10.10.50.11:9113', '10.10.50.12:9113']
+        labels:
+          cluster: 'production'
+          env: 'prod'
+    scrape_interval: 10s
+    metrics_path: /metrics
     
   - job_name: 'keepalived'
+    # 需要安装keepalived_exporter:
+    # https://github.com/mirthlab/keepalived_exporter
     static_configs:
       - targets: ['10.10.50.11:9165', '10.10.50.12:9165']
-
-# nginx-exporter安装
-# yum install -y nginx-module-prometheus
-# 或使用 nginx-vts-exporter
+        labels:
+          cluster: 'production'
 ```
 
 ```yaml
@@ -2033,6 +2264,25 @@ receivers:
 }
 ```
 
+**Grafana Dashboard导入方法**:
+
+```bash
+# 方法1: 通过Grafana UI导入(推荐)
+# 1. 登录Grafana -> Dashboards -> Import
+# 2. 粘贴上方JSON内容，或点击"Upload JSON file"上传文件
+# 3. 选择Prometheus数据源 -> 点击Import
+
+# 方法2: 通过Grafana API导入
+curl -X POST http://admin:admin@localhost:3000/api/dashboards/db \
+    -H "Content-Type: application/json" \
+    -d "{\"dashboard\": $(cat nginx_keepalived_dashboard.json), \"overwrite\": true, \"inputs\": [{\"name\": \"DS_PROMETHEUS\", \"type\": \"datasource\", \"pluginId\": \"prometheus\", \"value\": \"Prometheus\"}]}"
+
+# 方法3: 使用Grafana.com预置模板(快速上手)
+# - Nginx Dashboard模板ID: 12708 (推荐)
+# - Keepalived模板ID: 15660
+# 导入步骤: Grafana UI -> Dashboards -> Import -> 输入模板ID -> Load -> 选择数据源 -> Import
+```
+
 ---
 
 ## 十八、完整运维SOP手册
@@ -2047,8 +2297,15 @@ echo "========== Nginx+Keepalived 日常运维检查 $(date '+%Y-%m-%d %H:%M') =
 
 # 1. 进程健康检查
 echo "1. 进程健康检查"
-MASTER_HOST=$(ip addr show eth0 | grep -oP '10\.10\.50\.1[0-9]+' | head -1)
-echo "   当前VIP持有者: ${MASTER_HOST}"
+# [修复] 使用VIP地址判断当前MASTER节点，而非本地IP
+VIP="10.10.50.100"
+if ip addr show | grep -q "${VIP}"; then
+    MASTER_HOST=$(hostname)
+    echo "   当前节点为MASTER(VIP持有者): ${MASTER_HOST}"
+else
+    MASTER_HOST=$(ssh -o ConnectTimeout=2 root@${VIP} hostname 2>/dev/null || echo "无法获取")
+    echo "   当前节点为BACKUP, MASTER节点: ${MASTER_HOST}"
+fi
 
 # 2. 配置文件检查
 echo "2. 配置文件语法检查"
