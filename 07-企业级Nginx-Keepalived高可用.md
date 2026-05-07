@@ -128,6 +128,8 @@ http {
     ssl_stapling_verify on;
     # DH参数: 增强前向保密，生成命令: openssl dhparam -out /etc/nginx/ssl/dhparam.pem 2048
     ssl_dhparam /etc/nginx/ssl/dhparam.pem;
+    ssl_ecdh_curve X25519:secp384r1:secp256r1;
+    '> ECDH曲线配置优先使用X25519(性能最好),回退到NIST曲线'
     # [⚠️ 重要] ssl_stapling_responder必须替换为实际CA的OCSP responder URL
     # 获取方式: openssl x509 -in /etc/nginx/ssl/ecommerce.com.pem -noout -ocsp_uri
     # Let's Encrypt当前地址: http://r3.o.lencr.org
@@ -187,8 +189,12 @@ http {
         # [修复] CSP策略使用nonce替代unsafe-inline，避免XSS风险
         # 生成nonce: openssl rand -base64 16 | 每次请求动态生成
         # 此处使用变量方式，实际需配合lua/set变量动态生成
-        set $csp_nonce $request_id;
+        set $csp_nonce $request_id;  # 注意: 需要服务端生成相同nonce嵌入HTML,否则CSP会阻止内联脚本
+> **CSP nonce最佳实践**: 生产环境应使用服务端模板(如Lua)生成随机nonce,并嵌入到HTML的<script nonce="xxx">中。$request_id作为fallback。
         add_header Content-Security-Policy "default-src 'self' https://cdn.example.com; script-src 'self' 'nonce-$csp_nonce'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.example.com" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        '> 安全头应完整: CSP + HSTS + X-Frame-Options + X-Content-Type-Options + Referrer-Policy + Permissions-Policy'
 
         # 健康检查端点
         location /health {
@@ -217,6 +223,8 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
+            proxy_next_upstream error timeout http_502 http_503 http_504;
+            '> 后端失败时自动重试其他节点,减少502错误'
             proxy_connect_timeout 5s;
             proxy_send_timeout 60s;
             proxy_read_timeout 60s;
@@ -308,6 +316,9 @@ vrrp_instance VI_1 {
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+> **注意**: Keepalived配置文件中的环境变量不会自动展开。需要:
+> 1. 使用sed替换: sed -i "s/KEEPALIVED_AUTH_PASS/${KEEPALIVED_AUTH_PASS}/g" /etc/keepalived/keepalived.conf
+> 2. 或使用Keepalived的include机制: include /etc/keepalived/secrets.conf
     }
     virtual_ipaddress {
         10.10.50.100/24 dev eth0
@@ -417,7 +428,8 @@ spec:
 - 通用Web服务 + 静态资源 → Nginx
 - 纯TCP/HTTP负载均衡 → HAProxy
 - 微服务架构 + Service Mesh → Envoy
-- 本项目选择: Nginx(前端) + Keepalived(VIP) + HAProxy(后端TCP)
+- 本项目选择: Nginx(前端) + Keepalived(VIP)。如需后端TCP负载均衡,可额外部署HAProxy。
+> HAProxy用于纯TCP负载均衡(如数据库连接池),本项目Nginx已覆盖HTTP/HTTPS场景
 
 **2026年推荐**: Coraza是ModSecurity的现代替代品，兼容OWASP CRS规则，维护成本更低
 
@@ -497,6 +509,9 @@ vrrp_instance VI_1 {
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+> **注意**: Keepalived配置文件中的环境变量不会自动展开。需要:
+> 1. 使用sed替换: sed -i "s/KEEPALIVED_AUTH_PASS/${KEEPALIVED_AUTH_PASS}/g" /etc/keepalived/keepalived.conf
+> 2. 或使用Keepalived的include机制: include /etc/keepalived/secrets.conf
     }
     unicast_src_ip 10.10.50.11
     unicast_peer {
@@ -522,11 +537,15 @@ vrrp_instance VI_2 {
     authentication {
         auth_type PASS
         auth_pass ${KEEPALIVED_AUTH_PASS}  # 必须恰好8字符: export KEEPALIVED_AUTH_PASS=$(openssl rand -hex 4)
+> **注意**: Keepalived配置文件中的环境变量不会自动展开。需要:
+> 1. 使用sed替换: sed -i "s/KEEPALIVED_AUTH_PASS/${KEEPALIVED_AUTH_PASS}/g" /etc/keepalived/keepalived.conf
+> 2. 或使用Keepalived的include机制: include /etc/keepalived/secrets.conf
     }
-    unicast_src_ip 10.10.50.12
+    unicast_src_ip 10.10.50.11
     unicast_peer {
-        10.10.50.11
+        10.10.50.12
     }
+> VI_2的unicast_src_ip应该是本机IP,unicast_peer应该指向对端IP
     virtual_ipaddress {
         10.10.50.101/24 dev eth0
     }
@@ -633,7 +652,8 @@ echo 1000 > ${CA_DIR}/serial
 
 # CA根证书
 openssl genrsa -aes256 -out ${CA_DIR}/private/ca.key 4096
-openssl req -new -x509 -days 3650 -sha512   -key ${CA_DIR}/private/ca.key   -out ${CA_DIR}/certs/ca.crt   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Enterprise-CA"
+openssl req -new -x509 -days 730 -sha512   -key ${CA_DIR}/private/ca.key   -out ${CA_DIR}/certs/ca.crt   -subj "/C=CN/ST=Beijing/L=Beijing/O=Enterprise/CN=Enterprise-CA"
+> 证书有效期建议1-2年,配合cert-manager自动轮换
 
 # 服务器证书签名配置
 cat > ${CA_DIR}/openssl.cnf << 'EOF'
@@ -696,7 +716,8 @@ wrk -t${THREADS} -c${CONNECTIONS} -d${DURATION}s   --latency ${TARGET}/static/cs
 # 测试2: API接口
 echo ""
 echo "--- 测试2: API接口(带认证) ---"
-wrk -t${THREADS} -c${CONNECTIONS} -d${DURATION}s   -H "Authorization: Bearer <token>"   --latency ${TARGET}/api/v1/products
+wrk -t${THREADS} -c${CONNECTIONS} -d${DURATION}s   -H "Authorization: Bearer ${API_TOKEN}"   --latency ${TARGET}/api/v1/products
+> 压测前需设置环境变量: export API_TOKEN=your_token
 
 # 测试3: 上传接口
 echo ""
@@ -758,6 +779,7 @@ server {
 # [注意] SecRuleEngine只应设置一次，重复设置会被后者覆盖
 # 生产环境建议先用DetectionOnly观察，稳定后改为On
 SecRuleEngine DetectionOnly
+> **生产环境**: 观察1-2周后改为SecRuleEngine On,否则攻击不会被拦截。
 SecRequestBodyAccess On
 SecResponseBodyAccess Off
 
@@ -921,7 +943,8 @@ done
 | VIP(弹性IP) | 50元/月 | 1个 | 50元 |
 | SSL证书(通配符) | 200元/年 | 1个 | 17元 |
 | 带宽(10Mbps) | 800元/月 | 1个 | 800元 |
-| **总计** | | | **3,267元/月** |
+| **总计** | | | **3,767元/月** |
+> 成本估算因配置差异可能不同,以详细计算为准(第16节)
 
 ---
 
@@ -932,7 +955,8 @@ done
 
 ## 十三、真实故障案例深度分析
 
-### 案例1：LVS健康检查误判导致全站不可用
+### 案例1：Keepalived健康检查误判导致全站不可用
+> 本项目使用Keepalived(非LVS),但健康检查原理类似
 
 **故障现象**: 凌晨2点，线上告警Nginx集群全面无响应，用户无法访问任何页面。
 
