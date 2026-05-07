@@ -106,3 +106,110 @@ argocd app rollback user-service 1
 # 查看差异
 argocd app diff user-service
 ```
+
+## ApplicationSet高级Generator
+
+### Git Generator
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: microservices
+spec:
+  generators:
+  - git:
+      repoURL: https://github.com/org/k8s-manifests
+      revision: main
+      directories:
+      - path: apps/*
+  template:
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/org/k8s-manifests
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path.basename}}'
+```
+
+### Cluster Generator（多集群管理）
+```yaml
+  generators:
+  - clusters:
+      selector:
+        matchLabels:
+          env: production
+```
+
+### Matrix Generator（组合Git+Cluster）
+```yaml
+  generators:
+  - matrix:
+      generators:
+      - git:
+          repoURL: https://github.com/org/manifests
+          revision: main
+          directories:
+          - path: apps/*
+      - clusters:
+          selector:
+            matchLabels:
+              env: production
+```
+
+## 多环境管理
+
+### Kustomize Overlays
+```
+├── base/                    # 共享资源
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── kustomization.yaml
+├── overlays/
+│   ├── dev/                 # 开发环境
+│   │   ├── kustomization.yaml  # replicas: 1, 小资源
+│   │   └── patches/
+│   ├── staging/             # 预发布环境
+│   │   ├── kustomization.yaml  # replicas: 2, 中等资源
+│   │   └── patches/
+│   └── production/          # 生产环境
+│       ├── kustomization.yaml  # replicas: 3, 完整资源+HPA
+│       └── patches/
+```
+
+### Helm Values覆盖
+```bash
+# 不同环境使用不同values文件
+helm install app -f values-base.yaml -f values-prod.yaml
+```
+
+## Secret管理方案
+
+| 方案 | 原理 | 适用场景 |
+|------|------|----------|
+| External Secrets Operator | 从云KMS/HashiCorp Vault同步 | 已有Vault/KMS |
+| Sealed Secrets | K8s加密后提交Git | 简单场景 |
+| SOPS + KMS | 文件级加密 | GitOps工作流 |
+| Vault Agent | 动态Secret注入 | 高安全要求 |
+
+### External Secrets Operator示例
+```yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: app-secrets
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: app-secrets
+  data:
+  - secretKey: db-password
+    remoteRef:
+      key: secret/data/app
+      property: db-password
+```

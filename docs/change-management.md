@@ -199,6 +199,40 @@ echo ""
 echo "审核完成。如需在生产环境执行:"
 echo "  mysql --defaults-extra-file=/etc/mysql/prod.cnf < ${DDL_FILE}"
 ```
+## Feature Flags（功能开关）
+
+> 2026年趋势：Feature Flags实现部署与发布的解耦，支持灰度、A/B测试、紧急回滚。
+
+### 方案对比
+
+| 工具 | 类型 | 特点 | 适用场景 |
+|------|------|------|----------|
+| Unleash | 开源自托管 | 特性丰富，SDK多语言 | 中小团队 |
+| Flagsmith | 开源自托管 | 简洁API，支持多种环境 | 快速上手 |
+| LaunchDarkly | SaaS | 企业级，实时推送 | 大型企业 |
+
+### 使用示例
+
+```python
+# Python SDK
+from unleash import UnleashClient
+client = UnleashClient(url="http://unleash:4242/api", app_name="my-app")
+client.initialize()
+
+if client.is_enabled("new-checkout-flow", {"user_id": "123"}):
+    # 新版结账流程
+    return new_checkout()
+else:
+    # 旧版结账流程
+    return old_checkout()
+```
+
+### 与灰度发布配合
+
+1. **基础设施灰度**：K8s Deployment滚动更新（已有）
+2. **功能灰度**：Feature Flags控制功能可见性
+3. **A/B测试**：结合业务指标自动回滚
+
 ## 变更记录模板
 - 变更编号:
 - 变更级别:
