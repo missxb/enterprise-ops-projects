@@ -4,7 +4,12 @@
 set -euo pipefail
 umask 077
 
-BACKUP_DIR="/data/etcd-backup"
+# === 参数化配置(兼容不同部署工具) ===
+ETCD_CACERT="${ETCD_CACERT:-/etc/kubernetes/pki/etcd/ca.crt}"
+ETCD_CERT="${ETCD_CERT:-/etc/kubernetes/pki/etcd/server.crt}"
+ETCD_KEY="${ETCD_KEY:-/etc/kubernetes/pki/etcd/server.key}"
+ETCD_ENDPOINT="${ETCD_ENDPOINT:-https://127.0.0.1:2379}"
+BACKUP_DIR="${BACKUP_DIR:-/data/etcd-backup}"
 DATE=$(date +%Y%m%d_%H%M%S)
 KEEP_DAYS=7
 

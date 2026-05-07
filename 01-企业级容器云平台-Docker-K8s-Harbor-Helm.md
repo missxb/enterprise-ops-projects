@@ -168,6 +168,7 @@ echo "========== [7/8] 安装kubeadm/kubelet/kubectl =========="
 cat > /etc/yum.repos.d/kubernetes.repo << EOF
 [kubernetes]
 name=Kubernetes
+# 国内环境可替换为阿里云镜像: https://mirrors.aliyun.com/kubernetes-new/core/stable/v1.31/rpm/
 baseurl=https://pkgs.k8s.io/core:/stable:/v1.31/rpm/
 enabled=1
 gpgcheck=1

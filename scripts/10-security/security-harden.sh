@@ -22,7 +22,13 @@ for node in ${NODES}; do
 # 1. 禁用root远程登录(保留sudo)
 echo ">>> 1. 配置SSH安全"
 sed -E -i 's/^#?PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-sed -E -i 's/^#?PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+# 先检查是否已配置SSH密钥
+if [ ! -f /root/.ssh/authorized_keys ] || [ ! -s /root/.ssh/authorized_keys ]; then
+  echo "  ⚠️  未检测到SSH密钥,跳过禁用密码登录(否则会导致无法登录)"
+else
+  sed -E -i 's/^#?PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+  echo "  ✅ 已禁用密码登录(使用SSH密钥)"
+fi
 
 # 2. 配置SSH端口和白名单(生产环境修改默认端口)
 # sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config
