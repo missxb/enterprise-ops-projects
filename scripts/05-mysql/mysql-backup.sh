@@ -70,4 +70,18 @@ log_info "清理过期备份..."
 find ${BACKUP_DIR}/full -maxdepth 1 -type d -mtime +${KEEP_DAYS} -exec rm -rf {} \;
 find ${BACKUP_DIR}/binlog -name "*mysql-bin.*" -mtime +${KEEP_DAYS} -delete
 
+# 加密备份(使用xbcrypt)
+if command -v xbcrypt &>/dev/null; then
+  log_info "加密备份文件..."
+  ENCRYPT_KEY="${BACKUP_KEY:?请设置BACKUP_KEY用于加密}"
+  for backup_dir in ${BACKUP_DIR}/full/${DATE}; do
+    xbcrypt --encrypt-key="${ENCRYPT_KEY}" --encrypt-threads=4 \
+      --read-stdin-from="${backup_dir}" > "${backup_dir}.xbcrypt"
+    rm -rf "${backup_dir}"
+    log_ok "  加密完成: ${backup_dir}.xbcrypt"
+  done
+else
+  log_warn "xbcrypt未安装，跳过加密(生产环境建议安装percona-xtrabackup-utils)"
+fi
+
 log_ok "✅ MySQL备份完成"

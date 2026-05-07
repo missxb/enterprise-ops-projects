@@ -63,6 +63,7 @@ xtrabackup --copy-back --target-dir=${FULL_BACKUP}
 echo "Step 5: 预生成binlog应用文件..."
 BINLOG_SQL="/tmp/pitr_binlog_$(date +%Y%m%d%H%M%S).sql"
 BINLOG_FILES=$(ls ${BINLOG_DIR}/*mysql-bin.* ${BINLOG_DIR}/mysql-bin.* 2>/dev/null | sort -V)
+GTID_PURGE="${GTID_PURGE:-}"
 if [ -z "$BINLOG_FILES" ]; then
   echo "  ⚠️ 无binlog文件，跳过binlog生成"
   touch ${BINLOG_SQL}
@@ -71,7 +72,12 @@ else
   # 逐文件处理，避免命令行参数过长导致E2BIG错误
   > ${BINLOG_SQL}  # 清空输出文件
   for binlog in ${BINLOG_FILES}; do
-    mysqlbinlog --stop-datetime="${TARGET_TIME}" "${binlog}" >> ${BINLOG_SQL}
+    # 支持GTID过滤或时间过滤
+    if [ -n "${GTID_PURGE}" ]; then
+      mysqlbinlog --exclude-gtids="${GTID_PURGE}" --stop-datetime="${TARGET_TIME}" "${binlog}" >> ${BINLOG_SQL}
+    else
+      mysqlbinlog --stop-datetime="${TARGET_TIME}" "${binlog}" >> ${BINLOG_SQL}
+    fi
   done
   echo "  binlog SQL大小: $(wc -c < ${BINLOG_SQL}) 字节"
 fi

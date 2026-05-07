@@ -1544,7 +1544,7 @@ spec:
     spec:
       containers:
         - name: mysql-exporter
-          image: prom/mysqld-exporter:v0.15.1
+          image: prom/mysqld-exporter:v0.16.0
 > 生产环境应使用最新稳定版,查看https://github.com/prometheus/mysqld_exporter/releases
           args:
             - "--collect.auto_increment.columns"
