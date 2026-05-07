@@ -760,7 +760,7 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  access_key: "${MINIO_ACCESS_KEY}"    # 通过kubectl create secret或Vault注入
+  access_key: "${MINIO_ACCESS_KEY}"    # [安全] 必须通过kubectl create secret注入,切勿明文存储
   secret_key: "${MINIO_SECRET_KEY}"    # 切勿在版本控制中存储真实值
 ---
 # thanos-objstore-config-configmap.yaml

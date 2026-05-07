@@ -22,6 +22,10 @@ helm install kong kong/kong -n ${NAMESPACE} --create-namespace \
 echo "[2/5] 部署Istio..."
 ISTIO_URL="https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-linux-amd64.tar.gz"
 curl -L -o /tmp/istio.tar.gz "${ISTIO_URL}"
+  # 校验SHA256(如有校验和文件)
+  if [ -f /tmp/istio.sha256 ]; then
+    sha256sum -c /tmp/istio.sha256 || { echo "SHA256校验失败"; exit 1; }
+  fi
 cd /tmp && tar xzf istio.tar.gz
 cd istio-${ISTIO_VERSION}
 kubectl apply -f manifests/profiles/default.yaml

@@ -9,7 +9,7 @@ groups:
           severity: critical
         annotations:
           summary: "节点 {{ $labels.instance }} 宕机(超过3分钟)"
-          description: "节点已宕机超过1分钟"
+          description: "节点已宕机超过3分钟"
 
       - alert: HighCPU
         expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
