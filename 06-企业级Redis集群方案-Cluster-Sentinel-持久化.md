@@ -30,7 +30,9 @@
 | 运维复杂度 | ⭐ | ⭐⭐ | ⭐⭐⭐ |
 | 适用场景 | 小型项目 | 中小型项目 | 大型项目 |
 | 最低服务器数 | 2台 | 3台 | 6台(3主3从) |
-| 月成本(参考) | ~2000元 | ~3000元 | ~12000元 |
+| 月成本(参考) | ~2000元 | ~3000元 | ~16800元 |
+
+> 6台服务器×2800元/台=16800元/月
 
 ### 1.2 选型建议
 
@@ -156,7 +158,7 @@ chown -R redis:redis /data/redis /var/log/redis /var/run/redis
 
 echo "========== 5. 安装Redis =========="
 cd /tmp
-REDIS_VERSION="7.2.4"
+REDIS_VERSION="8.6.3"
 wget https://download.redis.io/releases/redis-${REDIS_VERSION}.tar.gz
 tar xzf redis-${REDIS_VERSION}.tar.gz
 cd redis-${REDIS_VERSION}
@@ -236,6 +238,7 @@ io-threads 2
 # 8C服务器建议2-4，不宜超过CPU核心数的一半
 # io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
 io-threads-do-reads yes
+> 对于8C服务器,可增大到4个IO线程(io-threads 4),但需测试验证。官方建议IO线程数不超过CPU核心数的一半。
 
 # 内存碎片主动整理
 activedefrag yes
@@ -276,11 +279,18 @@ cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
 cluster-allow-reads-when-down no  # 默认关闭，故障时可临时开启
 cluster-allow-pubsub-shard-down no
 
+# Cluster节点宣告配置(NAT/容器环境必须)
+cluster-announce-ip 10.10.40.11  # 节点真实IP
+cluster-announce-port 6379
+cluster-announce-bus-port 16379
+
 # ===== 危险命令禁用 =====
 rename-command KEYS "KEYS_b2c0a7e1"
 rename-command SHUTDOWN "SHUTDOWN_b2c0a7e1"
 rename-command REPLICAOF "REPLICAOF_b2c0a7e1"  # Redis 5.0+使用REPLICAOF
 ```
+
+> 在NAT或容器环境中,必须配置cluster-announce-*参数,否则其他节点无法通信
 
 ### 3.3 Systemd服务文件
 
@@ -297,6 +307,9 @@ User=redis
 Group=redis
 Environment=REDISCLI_AUTH=${REDIS_PASSWORD}
 ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_%i.conf --supervised systemd
+> **注意**: Systemd服务文件中的环境变量不会自动展开。需要:
+> 1. 创建/etc/default/redis文件: REDISCLI_AUTH=your_password
+> 2. 或在ExecStart前添加: EnvironmentFile=/etc/default/redis
 ExecStop=/usr/local/redis/bin/redis-cli -p %i shutdown
 ExecReload=/bin/kill -USR2 $MAINPID
 Restart=always
@@ -354,7 +367,9 @@ echo "========== 3. 创建集群(3主3从) =========="
 redis-cli --cluster create \
   10.10.40.11:6379 10.10.40.12:6379 10.10.40.13:6379 \
   10.10.40.14:6379 10.10.40.15:6379 10.10.40.16:6379 \
-  --cluster-replicas 1
+  --cluster-replicas 1 \
+  -a "${REDIS_PASSWORD}" --no-auth-warning
+> 如果配置了requirepass,必须使用-a参数,否则集群创建会失败
 
 echo "========== 4. 验证集群状态 =========="
 redis-cli cluster info
@@ -797,7 +812,7 @@ export REDISCLI_AUTH="${REDIS_PASSWORD}"
 # 查看慢查询日志
 redis-cli -c -h 10.10.40.11 slowlog get 50
 
-# 发现大量 KEYS 命令(已禁用但仍有)
+# 发现大量 KEYS 命令(虽已rename但仍可通过重命名后的命令执行)
 # 发现大量 SORT 命令(对大集合排序)
 # 发现 SCAN 命令在大key上执行
 ```
@@ -857,6 +872,14 @@ for node in 10.10.40.{11..16}; do
     echo "  ✅ ${node}:${port} 备份完成"
   done
 done
+
+# AOF备份(如果启用了AOF)
+if [ -f /var/lib/redis/appendonly.aof ]; then
+  cp /var/lib/redis/appendonly.aof ${BACKUP_DIR}/appendonly_$(date +%Y%m%d).aof
+fi
+
+> 如果启用了AOF持久化,应同时备份AOF文件
+
 echo "========== 清理过期备份 =========="
 find ${BACKUP_DIR} -name "*.rdb" -mtime +${KEEP_DAYS} -delete
 
@@ -875,6 +898,11 @@ done
 
 echo "✅ 备份完成"
 ```
+
+> **安全建议**: RDB文件可能包含敏感数据,生产环境应:
+> 1. 使用gpg加密: gpg --symmetric --cipher-algo AES256 dump.rdb
+> 2. 或使用openssl加密
+> 3. 加密后上传到OSS,并设置过期策略
 
 ### 9.2 恢复流程
 
@@ -1060,7 +1088,7 @@ ssh root@10.10.40.17 "systemctl stop redis@6379"
 ### 12.1 迁移前提
 
 ```bash
-# Sentinel和Cluster可以并行运行(Redis 7.0+)
+> **注意**: Sentinel和Cluster是互斥的,不能在同一套数据上并行运行。Redis 7.0+的Sentinel可以监控Cluster节点状态,但不能用于故障转移。
 # Sentinel和Cluster是两套独立的高可用方案，不建议混用
 # 推荐: 根据场景二选一。Cluster适合大数据量分片，Sentinel适合小规模简单HA
 # 如果需要从Sentinel迁移到Cluster，应先完成迁移再下线Sentinel
@@ -1334,6 +1362,34 @@ groups:
         annotations:
           summary: "Redis缓存命中率<80%"
 ```
+
+```yaml
+# Redis Cluster告警规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: redis-cluster-alerts
+spec:
+  groups:
+  - name: redis-cluster
+    rules:
+    - alert: RedisClusterNodeDown
+      expr: redis_cluster_state != 1
+      for: 1m
+      labels:
+        severity: critical
+    - alert: RedisHighMemory
+      expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+    - alert: RedisSlowQueries
+      expr: redis_slowlog_length > 100
+      for: 5m
+      labels:
+        severity: warning
+```
+> 使用PrometheusRule实现Redis Cluster自动化监控
 
 ---
 
