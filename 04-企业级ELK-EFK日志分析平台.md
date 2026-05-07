@@ -3,6 +3,40 @@
 > 完整实现企业级日志收集、存储、检索、可视化全链路
 > 覆盖: Elasticsearch集群 + Filebeat + Kibana + ILM生命周期 + 安全加固
 
+> **⚠️ 版本说明**：本文档基于2026年5月最新版本编写。
+> - Elasticsearch 8.17.x (最新稳定版，安全功能默认启用)
+> - Kibana 8.17.x (最新稳定版)
+> - Filebeat 8.17.x (最新稳定版)
+> - Kafka 3.9+ (支持KRaft模式，无ZooKeeper依赖)
+> - Logstash 8.17.x (最新稳定版)
+> 
+> **2026年日志方案趋势**：
+> - **Grafana Loki** 在K8s场景更轻量，成本比ELK低60-80%
+> - **Vector** 替代Filebeat/Fluentd，性能更好，资源消耗更低
+> - **ClickHouse** 替代Elasticsearch用于结构化日志分析
+> - 本项目使用ELK方案，如需轻量方案可考虑Loki+Vector组合
+>
+> **Kafka模式选择**：
+> - **KRaft模式**（推荐）：无ZooKeeper依赖，部署更简单，性能更好
+> - **ZooKeeper模式**（传统）：兼容性好，但需要额外维护ZooKeeper集群
+> - 本项目使用KRaft模式
+
+---
+
+## 2026年日志方案对比
+
+| 方案 | 优势 | 劣势 | 适用场景 | 成本 |
+|------|------|------|----------|------|
+| **ELK (Elasticsearch)** | 功能全面，生态成熟 | 资源消耗高，成本高 | 大规模日志分析 | 高 |
+| **Grafana Loki** | 轻量级，成本低60-80% | 查询能力较弱 | K8s环境 | 低 |
+| **ClickHouse** | 列式存储，查询快 | 运维复杂度高 | 结构化日志 | 中 |
+| **Vector + Loki** | 性能最优，资源消耗最低 | 功能相对简单 | 轻量级场景 | 最低 |
+
+> **推荐选择**：
+> - **大规模企业级**：ELK (本项目方案)
+> - **K8s轻量级**：Loki + Vector (成本最优)
+> - **高性能查询**：ClickHouse (结构化日志)
+
 ---
 
 ## 一、架构总览
@@ -614,9 +648,62 @@ spec:
 > }
 > ```
 
-## 七、Kibana部署
+---
 
-```yaml
+## ELK深度健康检查脚本
+
+```bash
+#!/bin/bash
+# elk-deep-check.sh - ELK深度健康检查
+set -euo pipefail
+
+ES_HOST="http://elasticsearch:9200"
+KIBANA_HOST="http://kibana:5601"
+KAFKA_HOST="kafka-0.kafka:9092"
+
+echo "===== ELK深度健康检查 ====="
+
+# 1. ES集群健康状态
+echo "1. Elasticsearch集群状态:"
+curl -s ${ES_HOST}/_cluster/health | jq '{status, number_of_nodes, active_shards}'
+
+# 2. ES索引ILM状态
+echo "2. ILM生命周期状态:"
+curl -s ${ES_HOST}/_ilm/explain/filebeat-* | jq '.indices | to_entries[] | {key, value: {step, step_info}}' | head -20
+
+# 3. ES磁盘使用率
+echo "3. ES磁盘使用率:"
+curl -s ${ES_HOST}/_cat/allocation?v | grep -E 'heap|disk'
+
+# 4. Kafka消费者组滞后
+echo "4. Kafka消费者组滞后:"
+kubectl exec -it kafka-0 -n logging -- kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe --group logstash-consumers 2>/dev/null | grep -E 'TOPIC|filebeat'
+
+# 5. Filebeat状态
+echo "5. Filebeat状态:"
+kubectl get pods -n logging -l app=filebeat -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount'
+
+# 6. Filebeat注册表文件
+echo "6. Filebeat注册表(检查日志偏移量):"
+kubectl exec -it $(kubectl get pod -n logging -l app=filebeat -o jsonpath='{.items[0].metadata.name}') -n logging -- cat /var/lib/filebeat/registry/filebeat/log.json 2>/dev/null | tail -5
+
+# 7. Kibana状态
+echo "7. Kibana状态:"
+curl -s ${KIBANA_HOST}/api/status | jq '.status.overall'
+
+# 8. ES JVM内存使用
+echo "8. ES JVM内存使用:"
+curl -s "${ES_HOST}/_nodes/jvm" | jq '.nodes | to_entries[] | {name: .value.name, heap_used: .value.jvm.mem.heap_used_in_bytes, heap_max: .value.jvm.mem.heap_max_in_bytes}'
+
+echo ""
+echo "===== 健康检查完成 ====="
+```
+
+---
+
+## 七、Kibana部署
 # kibana-deployment.yaml
 ---
 apiVersion: apps/v1
