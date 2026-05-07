@@ -67,6 +67,7 @@ http {
 
     log_format json escape=json '{'
         '"time":"$time_iso8601",'
+        '"trace_id":"$request_id",'
         '"remote_addr":"$remote_addr",'
         '"request":"$request",'
         '"status":$status,'
@@ -77,6 +78,7 @@ http {
     '}';
 
     access_log /var/log/nginx/access.log json;
+> request_id作为trace_id用于链路追踪。如需OpenTelemetry集成,可使用$opentelemetry_trace_id(需Nginx编译otel模块)
 
     # 性能优化
     sendfile on;
@@ -432,6 +434,17 @@ spec:
 > HAProxy用于纯TCP负载均衡(如数据库连接池),本项目Nginx已覆盖HTTP/HTTPS场景
 
 **2026年推荐**: Coraza是ModSecurity的现代替代品，兼容OWASP CRS规则，维护成本更低
+
+```nginx
+# Coraza WAF配置示例(替代ModSecurity)
+load_module modules/ngx_http_coraza_module.so;
+
+http {
+    coraza_enable on;
+    coraza_rules "SecRuleEngine On\nSecRule REQUEST_URI \"@rx /admin\" \"id:1001,phase:1,deny,status:403\"";
+}
+```
+> Coraza是ModSecurity的现代替代品,使用OWASP CRS规则,兼容Nginx/Envoy。配置更简洁,性能更好。
 
 ### 5.2 负载均衡算法对比
 
@@ -1747,7 +1760,10 @@ log-bin=mysql-bin
 binlog-format=ROW
 sync_binlog=1
 innodb_flush_log_at_trx_commit=1
-binlog-ignore-db=information_schema
+binlog-ignore-db=information_schema  # [注意] information_schema是虚拟库,不需要忽略。此配置无效,可删除。
+
+> information_schema是内存中的元数据视图,不是物理数据库,不会产生binlog。此配置无效。
+
 
 # 机房B my.cnf
 [mysqld]
