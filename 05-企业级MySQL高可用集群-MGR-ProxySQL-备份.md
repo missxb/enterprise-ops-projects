@@ -2,10 +2,23 @@
 
 > 完整实现MySQL高可用方案，覆盖MGR集群、读写分离、自动备份、PITR恢复、慢查询优化
 
-> **⚠️ 版本说明**：本文档基于MySQL 8.4 LTS（2026年4月发布）编写。MySQL 8.0已于2026-04-30 EOL，必须升级到8.4 LTS。
+> **⚠️ 版本说明**：本文档基于MySQL 8.4 LTS（2026年4月发布）编写。
+> - **MySQL 8.0已于2026-04-30 EOL**，不可用于新部署，必须升级到8.4 LTS
 > - MySQL 8.4 LTS支持周期8年（至2032年），是生产环境首选
-> - 主要变化：认证插件默认caching_sha2_password、SQL Mode更严格、MGR增强
-> - 升级工具：mysqlsh util.checkForServerUpgrade() 预检兼容性
+> - **主要变化**：认证插件默认caching_sha2_password、SQL Mode更严格、MGR增强
+> - **升级工具**：mysqlsh util.checkForServerUpgrade() 预检兼容性
+> 
+> **MySQL 8.4 LTS新特性**：
+> - **InnoDB ClusterSet**：支持跨机房部署，解决MGR的网络延迟敏感问题
+> - **Clone Plugin增强**：在线扩容优化，新节点加入更快
+> - **MGR自动故障转移改进**：更智能的故障检测和切换
+> - **Binlog加密**：支持Binlog加密存储，提升安全性
+> - **微秒级时间戳**：PITR恢复支持微秒级精度
+> 
+> **配套组件版本**：
+> - **ProxySQL 2.7+**：支持MySQL 8.4认证插件
+> - **Xtrabackup 8.4.x**：支持MySQL 8.4备份（版本必须匹配）
+> - **MySQL Shell 8.4**：管理工具
 
 ---
 
@@ -454,10 +467,71 @@ SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
 | 推荐场景 | 中小企业 | 中大型企业 | 需要多主写入 |
 
 **选型建议**:
-- MySQL 8.0+ → InnoDB Cluster (MGR + Router)
+- MySQL 8.4+ → InnoDB Cluster (MGR + Router)
 - 需要强一致性 → MGR单主模式
 - 需要多点写入 → Galera Cluster
 - 本项目选择: MGR单主模式 + ProxySQL
+
+### 8.3 MySQL 8.4 LTS新特性
+
+#### InnoDB ClusterSet (跨机房部署)
+
+```sql
+-- 创建ClusterSet (跨机房高可用)
+-- 主集群: 机房A
+mysqlsh root@mysql-01:3306 -- cluster create clusterA \
+  --user=clusterAdmin --password=xxx
+
+-- 添加从集群: 机房B
+mysqlsh root@mysql-04:3306 -- cluster create clusterB \
+  --user=clusterAdmin --password=xxx
+
+-- 创建ClusterSet
+mysqlsh root@mysql-01:3306 -- clusterset create \
+  --primary-cluster=clusterA \
+  --clusterset-domain=clusterset.example.com
+
+-- 添加从集群到ClusterSet
+mysqlsh root@mysql-04:3306 -- clusterset add-instance clusterB \
+  --cluster=clusterB
+```
+
+#### Clone Plugin (在线扩容)
+
+```sql
+-- 启用Clone Plugin
+INSTALL PLUGIN clone SONAME 'mysql_clone.so';
+
+-- 验证Clone状态
+SELECT PLUGIN_NAME, PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS
+WHERE PLUGIN_NAME = 'clone';
+
+-- 从主节点克隆数据到新节点
+-- 在新节点执行:
+SET GLOBAL clone_valid_donor_list = 'mysql-01:3306';
+CLONE INSTANCE FROM 'cloneUser'@'mysql-01':3306
+  IDENTIFIED BY 'xxx';
+
+-- 克隆完成后，新节点自动加入MGR
+```
+
+#### Binlog加密 (8.4新特性)
+
+```sql
+-- 启用Binlog加密
+-- 在my.cnf中配置:
+[mysqld]
+binlog_encryption = ON
+binlog_encryption_key_id = 1
+
+-- 查看加密状态
+SHOW BINARY LOG STATUS;
+SELECT * FROM performance_schema.keyring_component_status;
+
+-- 备份时解密
+xtrabackup --backup --decrypt-threads=4 \
+  --target-dir=/data/backup/
+```
 
 ### 8.2 ProxySQL vs MySQL Router vs HAProxy
 
