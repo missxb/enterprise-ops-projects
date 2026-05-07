@@ -100,6 +100,8 @@ sed -i '/swap/s/^/#/' /etc/fstab
 echo "Swap已关闭"
 echo "========== [2/8] 关闭SELinux =========="
 setenforce 0 2>/dev/null || true
+# [等保说明] K8s节点需permissive，等保三级要求enforcing
+# 解决方案: 1)使用SELinux策略模块替代直接关闭 2)非K8s节点保持enforcing
 sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 echo "SELinux已关闭"
 echo "========== [3/8] 关闭防火墙 =========="
