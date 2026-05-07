@@ -713,6 +713,7 @@ RUN groupadd -r appgroup && useradd -r -g appgroup -s /bin/false appuser
 
 # 安装时区(Ubuntu用apt-get)
 RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
+    apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/* && \
     ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone
@@ -809,9 +810,12 @@ sonar.core.serverBaseURL=https://sonar.internal.com
 sonar.authenticator.downcased=true
 EOF
 
-> **内存警告**: SonarQube总内存需求约8G,占16G机器50%。建议:
+> **⚠️ 内存警告**: SonarQube总内存需求约8G(web 2G + CE 4G + Search 2G),占16G机器50%。
+> **生产环境强烈建议**:
 > 1. 将SonarQube部署到独立节点(8C/16G)
-> 2. 或降低CE内存: sonar.ce.javaAdditionalOpts=-Xms512m -Xmx2g
+> 2. 或降低CE内存: sonar.ce.javaAdditionalOpts=-Xms512m -Xmx2g (CE是内存消耗大户)
+> 3. 监控SonarQube JVM堆使用率,超过80%需扩容或优化扫描队列
+> 4. 16G节点不要同时部署SonarQube + Jenkins + 数据库,会导致OOM
 
 # 内核参数（SonarQube需要）
 echo "vm.max_map_count=524288" >> /etc/sysctl.d/99-sonarqube.conf
@@ -1235,6 +1239,58 @@ spec:
 
 ```
 
+### 7.1.1 ArgoCD通知配置 (Notifications)
+
+```yaml
+# argocd-notifications.yaml - ArgoCD部署状态通知
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # 通知服务配置
+  service.webhook.feishu: |
+    url: https://open.feishu.cn/open-apis/bot/v2/hook/${FEISHU_WEBHOOK_TOKEN}
+    headers:
+    - name: Content-Type
+      value: application/json
+
+  # 通知模板
+  template.app-sync-succeeded: |
+    message: |
+      ArgoCD同步成功 ✅
+      应用: {{.app.metadata.name}}
+      环境: {{index .app.metadata.labels "env"}}
+      版本: {{.app.status.sync.revision | trimSuffix 12}}
+    webhook:
+      feishu: |
+        {"msg_type":"interactive","card":{"header":{"title":{"tag":"plain_text","content":"ArgoCD 部署成功"},"template":"green"},"elements":[{"tag":"div","text":{"tag":"lark_md","content":"**应用**: {{.app.metadata.name}}\n**环境**: {{index .app.metadata.labels \"env\"}}\n**版本**: {{.app.status.sync.revision | trimSuffix 12}}\n**时间**: {{.app.status.operationState.finishedAt}}"}}]}}
+
+  template.app-sync-failed: |
+    message: |
+      ArgoCD同步失败 ❌
+      应用: {{.app.metadata.name}}
+      错误: {{.app.status.operationState.message}}
+    webhook:
+      feishu: |
+        {"msg_type":"interactive","card":{"header":{"title":{"tag":"plain_text","content":"ArgoCD 部署失败"},"template":"red"},"elements":[{"tag":"div","text":{"tag":"lark_md","content":"**应用**: {{.app.metadata.name}}\n**错误**: {{.app.status.operationState.message}}"}}]}}
+
+  # 触发器定义
+  trigger.on-sync-succeeded: |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-sync-succeeded]
+  trigger.on-sync-failed: |
+    - when: app.status.operationState.phase in ['Error', 'Failed']
+      send: [app-sync-failed]
+```
+
+```bash
+# 启用通知
+argocd notification secret create --from-literal=token=${FEISHU_WEBHOOK_TOKEN} -n argocd
+argocd admin notifications secret add feishu-secret --from-literal=token=${FEISHU_WEBHOOK_TOKEN}
+```
+
 ### 7.2 K8s部署清单 - Kustomize结构
 
 ```yaml
@@ -1266,6 +1322,45 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
+
+### Pipeline Duration Alert Rule (Prometheus)
+
+```yaml
+# prometheus-rules/pipeline-alerts.yaml
+groups:
+  - name: pipeline-alerts
+    rules:
+      - alert: PipelineDurationTooLong
+        expr: |
+          gitlab_pipeline_duration_seconds{stage="main"} > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline执行时间超过10分钟"
+          description: "项目 {{ $labels.project }} 的Pipeline已运行 {{ $value }} 秒"
+
+      - alert: PipelineFailureRateHigh
+        expr: |
+          rate(gitlab_pipeline_failed_total[1h]) / rate(gitlab_pipeline_total[1h]) > 0.1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline失败率超过10%"
+          description: "过去1小时Pipeline失败率达 {{ $value | humanizePercentage }}"
+
+      - alert: PipelineQueueTimeLong
+        expr: |
+          gitlab_pipeline_queue_duration_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline排队超过5分钟"
+          description: "请检查Runner资源是否充足"
+```
+
     spec:
       serviceAccountName: user-service
       securityContext:
@@ -2189,6 +2284,16 @@ cosign sign --key cosign.key harbor.internal.com/production/myapp:v1.0.0
 cosign verify --key cosign.pub harbor.internal.com/production/myapp:v1.0.0
 ```
 
+> **⚠️ 生产环境Cosign密钥管理**: 上述示例使用本地密钥对,不适用于生产环境。
+> **生产推荐方案**:
+> - **HashiCorp Vault + KMS**: `cosign sign --key hashivault://cosign-key harbor.internal.com/...`
+>   需要配置 Vault transit engine 和 cosign 的 vault provider
+> - **Google Cloud KMS**: `cosign sign --key gcpkms://projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY`
+> - **AWS KMS**: `cosign sign --key awskms:///KEY_ID`
+> - **Azure Key Vault**: `cosign sign --key azurekv://VAULT_NAME/KEY_NAME`
+>
+> 密钥轮换建议: 每90天轮换一次签名密钥,保留旧密钥用于历史镜像验证。
+
 ### SBOM生成(Syft)
 
 ```bash
@@ -2248,6 +2353,81 @@ jobs:
         env:
           COSIGN_EXPERIMENTAL: 1
 ```
+
+### GitLab CI SLSA合规示例
+
+```yaml
+# .gitlab-ci.yml - SLSA Level 2+ 合规流水线
+stages:
+  - build
+  - sign
+  - attest
+
+build-image:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    IMAGE_TAG: "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+  script:
+    - docker build -t ${IMAGE_TAG} .
+    - docker push ${IMAGE_TAG}
+    - |
+      # 记录构建元数据(满足SLSA Level 1)
+      cat > build-metadata.json << EOF
+      {"build_id": "${CI_PIPELINE_ID}", "commit": "${CI_COMMIT_SHA}",
+       "source": "${CI_PROJECT_URL}", "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+      EOF
+    - curl -X PUT "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/slsa-metadata/${CI_PIPELINE_ID}/build-metadata.json" \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file build-metadata.json
+
+generate-sbom:
+  stage: attest
+  image: anchore/syft:v1.20
+  script:
+    - syft ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA} -o spdx-json > sbom.spdx.json
+    - cosign attach sbom --sbom sbom.spdx.json ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+
+sign-image:
+  stage: sign
+  image: gcr.io/projectsigstore/cosign:v2.4.0
+  script:
+    - cosign sign --key ${COSIGN_KMS_KEY} ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# SLSA provenance attestation (git-commit predicate)
+generate-provenance:
+  stage: attest
+  image: alpine:3
+  script:
+    - |
+      cat > provenance.json << 'EOF'
+      {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [{"name": "IMAGE_URI", "digest": {"sha256": "IMAGE_DIGEST"}}],
+        "predicateType": "https://slsa.dev/provenance/v1",
+        "predicate": {
+          "builder": {"id": "gitlab-ci"},
+          "buildType": "https://gitlab.com/ci-cd",
+          "invocation": {"configSource": {"uri": "${CI_PROJECT_URL}", "digest": {"gitCommit": "${CI_COMMIT_SHA}"}}},
+          "metadata": {"buildInvocationId": "${CI_PIPELINE_ID}", "startedOn": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+        }
+      }
+      EOF
+    - |
+      # 使用cosign附加provenance
+      cosign attest --key ${COSIGN_KMS_KEY} \
+        --predicate provenance.json \
+        --type slsaprovenance \
+        ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+```
+
+> **SLSA GitLab要点**:
+> - SLSA Level 2需要: 版本控制 + 可重复构建 + 审计日志
+> - SLSA Level 3需要: 隔离构建环境 + 防篡改 provenance
+> - GitLab Runner使用Docker executor可满足Level 2,使用Kubernetes executor + Kaniko可接近Level 3
 
 ---
 
