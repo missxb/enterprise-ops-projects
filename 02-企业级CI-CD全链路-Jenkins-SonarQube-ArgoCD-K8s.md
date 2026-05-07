@@ -4,6 +4,15 @@
 > 覆盖: 代码扫描、单元测试、安全扫描、镜像构建、自动部署、灰度发布、自动回滚
 > 适用于: 中大型研发团队的DevOps转型
 
+> **⚠️ 版本说明**：本文档基于2026年5月最新版本编写。
+> - Jenkins 2.555.1 LTS + Kubernetes Plugin
+> - SonarQube 26.4.0 (Community Edition)
+> - ArgoCD v3.4.1 + ApplicationSet
+> - Argo Rollouts v1.9.0 (Canary/Blue-Green)
+> - Trivy 0.58+ (镜像扫描)
+> - Cosign 2.4+ (镜像签名)
+> - Syft 1.20+ (SBOM生成)
+
 ---
 
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
@@ -20,6 +29,10 @@
                     ▼                    ▼                    ▼
                代码评审             SonarQube            Trivy扫描
                Merge Request       代码质量              镜像安全
+                                            │
+                                            ▼
+                                      Cosign签名
+                                      SBOM生成
 ```
 
 ### 完整流水线阶段
@@ -29,10 +42,30 @@
 │ 代码检出 │→│ 依赖安装 │→│ 编译构建 │→│ 单元测试 │→│ 代码扫描 │→│ 镜像构建 │→│ 镜像推送 │
 └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘
                                                                               │
+                                                                              ▼
+                                                                    ┌─────────────┐
+                                                                    │ Cosign签名  │
+                                                                    │ SBOM生成    │
+                                                                    └─────────────┘
+                                                                              │
 ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐             │
 │ 生产验证 │←│ 灰度发布 │←│ 预发验证 │←│ Staging │←│ 安全扫描 │←────────────┘
 └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘
 ```
+
+### 制品晋升路径
+
+```
+Dev环境(开发) ──▶ Staging环境(预发) ──▶ Production环境(生产)
+    │                    │                    │
+    ▼                    ▼                    ▼
+  自动部署            手动审批             灰度发布
+  快速迭代            全量测试             Canary/Blue-Green
+```
+
+> **晋升条件**：
+> - Dev→Staging：SonarQube质量阈值通过 + Trivy扫描无HIGH/CRITICAL漏洞
+> - Staging→Production：Staging环境验证通过 + 人工审批 + 灰度验证
 
 ---
 
@@ -48,7 +81,126 @@
 | ArgoCD | 10.10.10.11(K8s) | - | GitOps部署 |
 | K8s集群 | 10.10.10.x | - | 运行环境 |
 
+> **制品管理建议**: Harbor主要用于容器镜像,生产环境建议额外部署Nexus/Artifactory管理Maven/PyPI/npm等制品
+
+### 1.2 Nexus制品仓库配置
+
+```bash
+#!/bin/bash
+# install_nexus.sh - 部署Nexus Repository
+set -euo pipefail
+
+# 创建Nexus持久化目录
+mkdir -p /data/nexus/{db,elasticsearch,etc,logs,work}
+
+# 部署Nexus (Docker方式)
+docker run -d \
+  --name nexus \
+  --restart=always \
+  -p 8081:8081 \
+  -v /data/nexus/nexus-data:/nexus-data \
+  -e INSTALL4J_ADD_VM_OPTS="-Xms2g -Xmx2g -XX:MaxDirectMemorySize=2g" \
+  sonatype/nexus3:latest
+
+# 配置Nginx反向代理
+cat > /etc/nginx/conf.d/nexus.conf << 'EOF'
+server {
+    listen 443 ssl;
+    server_name nexus.internal.com;
+    
+    ssl_certificate /etc/nginx/ssl/nexus.crt;
+    ssl_certificate_key /etc/nginx/ssl/nexus.key;
+    
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Nexus需要大文件上传
+        client_max_body_size 1G;
+        proxy_buffering off;
+    }
+}
+EOF
+
+echo "Nexus部署完成: https://nexus.internal.com"
+echo "默认密码: admin (首次登录后修改)"
+```
+
+### 1.3 Vault密钥管理配置
+
+```bash
+#!/bin/bash
+# install_vault.sh - 部署HashiCorp Vault
+set -euo pipefail
+
+# 部署Vault (Dev模式 - 仅用于测试)
+# 生产环境使用HA模式 + Raft存储后端
+docker run -d \
+  --name vault \
+  --restart=always \
+  -p 8200:8200 \
+  -v /data/vault:/vault/file \
+  -e VAULT_ADDR='http://127.0.0.1:8200' \
+  -e VAULT_API_ADDR='http://127.0.0.1:8200' \
+  hashicorp/vault:latest server
+
+# 初始化Vault
+vault operator init -key-shares=5 -key-threshold=3
+
+# 配置K8s认证
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+  kubernetes_host="https://kubernetes.default.svc"
+```
+
+### 1.4 External Secrets Operator配置
+
+```yaml
+# external-secrets.yaml - K8s Secret自动同步
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-credentials
+  namespace: production
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: harbor-credentials
+  data:
+    - secretKey: username
+      remoteRef:
+        key: secret/data/harbor
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: secret/data/harbor
+        property: password
+
 ---
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: vault-backend
+  namespace: production
+spec:
+  provider:
+    vault:
+      server: "http://vault.internal:8200"
+      path: "secret"
+      version: "v2"
+      auth:
+        kubernetes:
+          mountPath: "kubernetes"
+          role: "external-secrets"
+          serviceAccountRef:
+            name: "external-secrets-sa"
+```
 
 ## 三、GitLab部署与配置
 
@@ -1912,6 +2064,197 @@ groups:
         expr: harbor_project_storage_bytes / harbor_project_storage_quota_bytes > 0.9
         for: 5m
         labels: { severity: warning }
+```
+
+---
+
+## 供应链安全
+
+### 镜像签名(Cosign)
+
+```bash
+#!/bin/bash
+# sign_image.sh - 使用Cosign签名容器镜像
+set -euo pipefail
+
+# 安装Cosign
+go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+
+# 生成密钥对
+cosign generate-key-pair
+
+# 签名镜像
+cosign sign --key cosign.key harbor.internal.com/production/myapp:v1.0.0
+
+# 验证签名
+cosign verify --key cosign.pub harbor.internal.com/production/myapp:v1.0.0
+```
+
+### SBOM生成(Syft)
+
+```bash
+#!/bin/bash
+# generate_sbom.sh - 生成软件物料清单
+set -euo pipefail
+
+# 安装Syft
+curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+# 生成SBOM
+syft packages dir:/app -o spdx-json > sbom.spdx.json
+
+# 上传SBOM到Harbor
+cosign attach sbom --sbom sbom.spdx.json harbor.internal.com/production/myapp:v1.0.0
+```
+
+### SLSA合规检查
+
+> **SLSA (Supply chain Levels for Software Artifacts)**：Google提出的供应链安全框架
+> - **Level 1**：构建过程有文档记录
+> - **Level 2**：使用版本控制构建平台
+> - **Level 3**：构建平台防篡改
+> - **Level 4**：多人审核
+
+```yaml
+# slsa-check.yaml - GitHub Actions SLSA合规检查
+name: SLSA Compliance
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: harbor.internal.com/production/myapp:${{ github.sha }}
+      
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: harbor.internal.com/production/myapp:${{ github.sha }}
+          format: spdx-json
+      
+      - name: Sign image
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.0'
+      
+      - run: cosign sign harbor.internal.com/production/myapp:${{ github.sha }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+```
+
+---
+
+## Jenkins持久化与Agent动态伸缩
+
+### Jenkins PVC配置
+
+```yaml
+# jenkins-pvc.yaml - Jenkins持久化存储
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-data
+  namespace: jenkins
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: aliyun-disk-ssd  # 阿里云SSD
+  resources:
+    requests:
+      storage: 100Gi
+```
+
+### Jenkins Agent动态伸缩(Pod Template)
+
+```yaml
+# jenkins-agent-pod-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-agent-pod-template
+  namespace: jenkins
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        jenkins/agent: true
+    spec:
+      containers:
+        - name: jnlp
+          image: jenkins/inbound-agent:latest
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+        - name: maven
+          image: maven:3.9-eclipse-temurin-17
+          command: ['cat']
+          tty: true
+          volumeMounts:
+            - name: maven-cache
+              mountPath: /root/.m2
+      volumes:
+        - name: maven-cache
+          emptyDir: {}
+      nodeSelector:
+        node-role: ci-agent
+      tolerations:
+        - key: "ci"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+```
+
+### JCasC(Jenkins Configuration as Code)
+
+```yaml
+# jenkins-casc.yaml - Jenkins配置即代码
+jenkins:
+  systemMessage: "Jenkins - GitOps CI/CD"
+  securityRealm:
+    ldap:
+      configurations:
+        - server: "ldap.internal.com"
+          rootDN: "dc=company,dc=com"
+          userSearchBase: "ou=users"
+          userSearch: "uid={0}"
+  authorizationStrategy:
+    roleBased:
+      roles:
+        global:
+          - name: "admin"
+            permissions: ["Overall/Administer"]
+            entries:
+              - group: "jenkins-admins"
+          - name: "developer"
+            permissions: ["Overall/Read", "Job/Build", "Job/Read"]
+            entries:
+              - group: "developers"
+  pods:
+    - name: "maven-agent"
+      label: "maven"
+      containers:
+        - name: "jnlp"
+          image: "jenkins/inbound-agent:latest"
+          resourceRequestCpu: "500m"
+          resourceRequestMemory: "512Mi"
+        - name: "maven"
+          image: "maven:3.9-eclipse-temurin-17"
+          command: "cat"
+          ttyEnabled: true
 ```
 
 ---

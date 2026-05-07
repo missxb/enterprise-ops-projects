@@ -3,6 +3,19 @@
 > 完整实现企业级监控平台，覆盖基础设施、K8s集群、中间件、应用全链路
 > 包含: Prometheus HA + Thanos长期存储 + 50+告警规则 + Grafana仪表盘 + AlertManager多渠道通知
 
+> **⚠️ 版本说明**：本文档基于2026年5月最新版本编写。
+> - Prometheus 3.11.3 (最新稳定版)
+> - Thanos 0.41.0 (最新稳定版)
+> - Grafana 11.x (最新稳定版)
+> - Alertmanager 0.28+ (最新稳定版)
+> - OpenTelemetry Collector 0.120+ (可选集成)
+> 
+> **2026年监控趋势**：
+> - **OpenTelemetry Collector** 已成为标准，统一Metrics/Traces/Logs采集
+> - **Grafana Mimir** 替代Thanos成为大规模Prometheus远程存储首选
+> - **eBPF监控** (Pixie/Tetragon/Hubble) 提供无侵入指标采集
+> - 本项目使用Thanos方案，如需Mimir可参考Grafana官方文档迁移
+
 ---
 
 ## 一、架构总览
