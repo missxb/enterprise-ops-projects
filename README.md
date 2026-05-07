@@ -8,22 +8,47 @@
 
 ---
 
-## 📁 项目列表
+## 📁 项目列表（2026年5月更新）
 
 | # | 项目 | 技术栈 | 规模 |
 |---|------|--------|------|
-| 01 | [容器云平台](01-企业级容器云平台-Docker-K8s-Harbor-Helm.md) | containerd + K8s 1.31 + Harbor 2.12 + Helm | 56KB |
-| 02 | [CI/CD全链路](02-企业级CI-CD全链路-Jenkins-SonarQube-ArgoCD-K8s.md) | Jenkins + SonarQube + ArgoCD | 48KB |
-| 03 | [Prometheus监控](03-企业级Prometheus-Grafana监控告警体系.md) | Prometheus 2.50 + Thanos 0.34 + Grafana | 53KB |
+| 01 | [容器云平台](01-企业级容器云平台-Docker-K8s-Harbor-Helm.md) | containerd 2.3.0 + K8s 1.35.4 + Harbor 2.15.1 + Helm 3 + Calico 3.32.0 | 78KB |
+| 02 | [CI/CD全链路](02-企业级CI-CD全链路-Jenkins-SonarQube-ArgoCD-K8s.md) | Jenkins + SonarQube + ArgoCD + Trivy | 48KB |
+| 03 | [Prometheus监控](03-企业级Prometheus-Grafana监控告警体系.md) | Prometheus 3.11.3 + Thanos 0.41.0 + Grafana | 53KB |
 | 04 | [ELK日志平台](04-企业级ELK-EFK日志分析平台.md) | ES 8.x + Filebeat + Kafka + Kibana | 56KB |
-| 05 | [MySQL高可用](05-企业级MySQL高可用集群-MGR-ProxySQL-备份.md) | MySQL 8.0 MGR + ProxySQL + Xtrabackup | 50KB |
-| 06 | [Redis集群](06-企业级Redis集群方案-Cluster-Sentinel-持久化.md) | Redis 7.2 Cluster + Sentinel | 30KB |
+| 05 | [MySQL高可用](05-企业级MySQL高可用集群-MGR-ProxySQL-备份.md) | MySQL 8.4 LTS MGR + ProxySQL + Xtrabackup | 50KB |
+| 06 | [Redis集群](06-企业级Redis集群方案-Cluster-Sentinel-持久化.md) | Redis 8.6 Cluster + Sentinel | 30KB |
 | 07 | [Nginx高可用](07-企业级Nginx-Keepalived高可用.md) | Nginx + Keepalived + SSL + WAF | 59KB |
 | 08 | [Ansible+Terraform](08-企业级Ansible-Terraform自动化运维.md) | Ansible + Terraform(阿里云) | 47KB |
-| 09 | [K8s微服务网关](09-企业级K8s微服务网关-服务治理.md) | Kong 3.5 + Istio 1.20 + Jaeger | 55KB |
-| 10 | [安全加固与等保](10-企业级安全加固与等保合规.md) | 主机加固 + K8s安全 + 等保三级 | 53KB |
+| 09 | [K8s微服务网关](09-企业级K8s微服务网关-服务治理.md) | Kong 3.9.1 + Istio 1.29.2 + Jaeger | 55KB |
+| 10 | [安全加固与等保](10-企业级安全加固与等保合规.md) | 主机加固 + K8s安全 + 等保3.0(2025年发布) | 71KB |
 
-**总计: 10个项目, ~500KB**
+**总计: 10个项目, ~570KB**
+
+---
+
+## 📌 版本兼容性矩阵（2026年5月）
+
+> 本项目所有组件使用2026年5月最新版本，确保安全补丁和合规性。
+
+| 组件 | 版本 | 发布日期 | 支持周期 | 说明 |
+|------|------|----------|----------|------|
+| Kubernetes | 1.35.4 | 2026-04 | LTS | 当前最新稳定版 |
+| containerd | 2.3.0 | 2026-04 | - | 最新稳定版 |
+| Harbor | 2.15.1 | 2026-03 | LTS | 当前最新版 |
+| MySQL | 8.4 LTS | 2026-04 | 8年 | 长期支持版本 |
+| Redis | 8.6.3 | 2026-05 | - | 最新稳定版 |
+| Prometheus | 3.11.3 | 2026-04 | - | 最新稳定版 |
+| Thanos | 0.41.0 | 2026-04 | - | 最新稳定版 |
+| Kong | 3.9.1 | 2026-04 | LTS | 最新稳定版 |
+| Calico | 3.32.0 | 2026-04 | - | 最新稳定版 |
+| Istio | 1.29.2 | 2026-04 | LTS | 最新稳定版 |
+
+> **⚠️ EOL警告**：
+> - MySQL 8.0已于2026-04-30 EOL，本项目使用8.4 LTS
+> - Kubernetes 1.31已于2025-10 EOL，本项目使用1.35.4
+> - Harbor 2.12已于2026-03 EOL，本项目使用2.15.1
+> - 等保三级要求使用受支持的软件版本
 
 ---
 
@@ -43,10 +68,10 @@
 | 03 | [monitor-check.sh](scripts/03-monitor/monitor-check.sh) | 监控检查 | curl, jq |
 | 04 | [elk-deploy.sh](scripts/04-elk/elk-deploy.sh) | ELK日志平台 | kubectl, helm |
 | 04 | [elk-check.sh](scripts/04-elk/elk-check.sh) | ELK健康检查 | curl, jq |
-| 05 | [mysql-cluster-deploy.sh](scripts/05-mysql/mysql-cluster-deploy.sh) | MySQL MGR集群 | mysql 8.0 |
+| 05 | [mysql-cluster-deploy.sh](scripts/05-mysql/mysql-cluster-deploy.sh) | MySQL MGR集群 | mysql 8.4 LTS |
 | 05 | [mysql-backup.sh](scripts/05-mysql/mysql-backup.sh) | MySQL全量备份 | xtrabackup |
 | 05 | [pitr-restore.sh](scripts/05-mysql/pitr-restore.sh) | MySQL PITR恢复 | xtrabackup, mysqlbinlog |
-| 06 | [redis-cluster-deploy.sh](scripts/06-redis/redis-cluster-deploy.sh) | Redis Cluster | redis 7.2+ |
+| 06 | [redis-cluster-deploy.sh](scripts/06-redis/redis-cluster-deploy.sh) | Redis Cluster | redis 8.6+ |
 | 06 | [redis-backup.sh](scripts/06-redis/redis-backup.sh) | Redis集群备份 | redis-cli |
 | 07 | [nginx-ha-deploy.sh](scripts/07-nginx/nginx-ha-deploy.sh) | Nginx+Keepalived | nginx, keepalived |
 | 07 | [nginx-check.sh](scripts/07-nginx/nginx-check.sh) | Nginx配置检查 | nginx, curl |
@@ -75,16 +100,18 @@
 |------|----------|----------|
 | 01-K8s | 网络/存储 | 02-09全部项目 |
 | 02-CI/CD | 01-K8s, 05-MySQL | Harbor镜像, K8s部署 |
-| 03-监控 | 01-K8s | 告警→08-Ansible自动修复 |
-| 04-ELK | 01-K8s, 03-监控 | 日志→03-监控告警 |
+| 03-监控 | 01-K8s | 告警→PagerDuty→人工确认→Ansible |
+| 04-ELK | 01-K8s | 日志分析(与03并行) |
 | 05-MySQL | 01-K8s | 04-ELK收集慢查询日志 |
 | 06-Redis | 01-K8s | 04-ELK收集Redis日志 |
 | 07-Nginx | 01-K8s | 访问日志→04-ELK |
-| 08-Ansible | 01-K8s | 03-监控告警→自动修复 |
+| 08-Ansible | 01-K8s | 人工确认后执行修复 |
 | 09-网关 | 01-K8s | 流量→05-MySQL/06-Redis |
-| 10-安全 | 01-K8s | 镜像扫描→02-CI/CD |
+| 10-安全 | 01-K8s | CI/CD构建时触发Trivy扫描 |
 
-> **核心链路**: 代码→CI/CD构建→Harbor镜像→K8s部署→监控告警→安全审计
+> **核心链路**: 代码→CI/CD构建→Trivy扫描→Harbor镜像→ArgoCD部署→K8s(渐进式发布)→监控告警→安全审计
+>
+> **⚠️ 安全规则**: 监控告警→自动修复必须经过人工审批，禁止直接自动化执行
 
 ## 📌 项目定位
 
@@ -104,23 +131,24 @@
 
 ## 版本兼容性矩阵
 
-> **版本说明**: 以下版本为2024-2025年主流版本，生产环境请根据实际需求选择。
-> - containerd 2.0: 刚发布不久，生产环境多数还在1.7.x，建议验证后再升级
-> - Istio 1.20: 支持K8s 1.31，但Istio支持周期约6个月，建议关注新版本
-> - MetalLB 0.14: 仅适用于裸金属/私有云环境，公有云(阿里云)不支持L2模式
+> **版本说明**: 以下版本为2026年5月最新版本，确保安全补丁和合规性。
+> - MySQL 8.0已于2026-04-30 EOL，本项目使用8.4 LTS
+> - Kubernetes 1.31已于2025-10 EOL，本项目使用1.35.4
+> - Harbor 2.12已于2026-03 EOL，本项目使用2.15.1
+> - 等保三级要求使用受支持的软件版本
 
 | 组件 | 版本 | 依赖 | 兼容说明 |
 |------|------|------|----------|
-| K8s | 1.31 | containerd 2.0+ | LTS版本 |
-| Calico | 3.28 | K8s 1.31 | BGP模式需内核4.19+ |
-| MetalLB | 0.14 | K8s 1.24+ | L2模式需ARP |
-| Istio | 1.20 | K8s 1.31 | Sidecar兼容性 |
-| Harbor | 2.12 | K8s 1.31 | Helm安装 |
-| Prometheus | 2.50 | K8s 1.25+ | Thanos 0.34兼容 |
-| Thanos | 0.34 | Prometheus 2.30+ | Sidecar需Prometheus |
-| MySQL | 8.0 | ProxySQL 2.6+ | MGR需GTID |
-| Redis | 7.2 | - | Cluster需6节点 |
-| Kong | 3.5 | - | DB-less模式有限制 |
+| K8s | 1.35.4 | containerd 2.3.0+ | LTS版本 |
+| Calico | 3.32.0 | K8s 1.35 | 支持eBPF模式(内核5.10+) |
+| MetalLB | 0.15.3 | K8s 1.24+ | L2模式需ARP，公有云不支持 |
+| Istio | 1.29.2 | K8s 1.35 | 支持Ambient Mesh(已GA) |
+| Harbor | 2.15.1 | K8s 1.35 | Helm安装，需外部PG/Redis/S3 |
+| Prometheus | 3.11.3 | K8s 1.25+ | Thanos 0.41.0兼容 |
+| Thanos | 0.41.0 | Prometheus 3.x | Sidecar需Prometheus |
+| MySQL | 8.4 LTS | ProxySQL 2.6+ | MGR需GTID，支持8年 |
+| Redis | 8.6.3 | - | Cluster需6节点 |
+| Kong | 3.9.1 | - | 支持K8s Gateway API |
 
 ---
 

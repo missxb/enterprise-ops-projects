@@ -649,7 +649,7 @@ spec:
     spec:
       containers:
       - name: thanos-sidecar
-        image: quay.io/thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.41.0
         args:
         - sidecar
         - --log.level=info
@@ -704,7 +704,7 @@ spec:
     spec:
       containers:
       - name: thanos-query
-        image: quay.io/thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.41.0
         args:
         - query
         - --log.level=info
@@ -819,7 +819,7 @@ spec:
           mountPath: /etc/thanos
       containers:
       - name: thanos-store-gateway
-        image: quay.io/thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.41.0
         args:
         - store
         - --log.level=info
@@ -1029,7 +1029,7 @@ spec:
     spec:
       containers:
       - name: thanos-compactor
-        image: quay.io/thanos/thanos:v0.34.0
+        image: quay.io/thanos/thanos:v0.41.0
         args:
         - compact
         - --log.level=info
@@ -1107,7 +1107,7 @@ spec:
       containers:
         # Prometheus主容器
         - name: prometheus
-          image: prom/prometheus:v2.50.0
+          image: prom/prometheus:v3.11.3
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
@@ -1141,7 +1141,7 @@ spec:
         
         # Thanos Sidecar
         - name: thanos-sidecar
-          image: quay.io/thanos/thanos:v0.34.0  # [已修复] 统一Thanos版本和镜像仓库名
+          image: quay.io/thanos/thanos:v0.41.0  # [已修复] 统一Thanos版本和镜像仓库名
           args:
             - sidecar
             - --tsdb.path=/prometheus
