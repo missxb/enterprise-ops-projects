@@ -194,7 +194,7 @@ PROXYSQL_ADMIN_PASSWORD="${PROXYSQL_ADMIN_PASSWORD:-admin}"  # 生产环境请�
 docker run -d --name proxysql --restart=always \\
   -p 3306:3306 -p 6032:6032 \
   -e MYSQL_ADMIN_USER=admin \
-  -e MYSQL_ADMIN_PASSWORD=admin \
+  -e MYSQL_ADMIN_PASSWORD=${PROXYSQL_ADMIN_PASSWORD} \
   proxysql/proxysql:2.6.0
 
 # 配置ProxySQL
@@ -206,6 +206,7 @@ docker exec proxysql mysql -u admin -p${PROXYSQL_ADMIN_PASSWORD} -h 127.0.0.1 -P
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (2, '^SELECT', 20);
   INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup) VALUES (3, '.*', 10);
   INSERT INTO mysql_users(username, password, default_hostgroup) VALUES ('app_user', '${MYSQL_REPL_PASSWORD}', 10);
+  INSERT INTO mysql_users(username, password, default_hostgroup, active) VALUES ('monitor', '${MYSQL_REPL_PASSWORD}', 10, 1);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (10, '${PRIMARY_IP}', 3306, 1000);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.12', 3306, 1000);
   INSERT INTO mysql_servers(hostgroup_id, hostname, port, max_connections) VALUES (20, '10.10.30.13', 3306, 1000);
