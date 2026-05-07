@@ -30,7 +30,7 @@
 | 运维复杂度 | ⭐ | ⭐⭐ | ⭐⭐⭐ |
 | 适用场景 | 小型项目 | 中小型项目 | 大型项目 |
 | 最低服务器数 | 2台 | 3台 | 6台(3主3从) |
-| 月成本(参考) | ~2000元 | ~3000元 | ~16800元 |
+|| 月成本(参考) | ~2,000元 | ~3,000元 | ~16,800元 |
 
 > 6台服务器×2800元/台=16800元/月
 
@@ -222,6 +222,8 @@ save 60 10000
 > save 60 10000在高并发场景可能过于频繁(每分钟fork一次)。建议: save 300 10000
 stop-writes-on-bgsave-error yes
 rdbcompression yes
+# [注意] rdbcompression使用LZF压缩，CPU开销极小但可节省60-70%磁盘空间
+# 对于纯缓存场景(数据可丢失)，可关闭以节省CPU；持久化场景建议开启
 rdbchecksum yes
 dbfilename dump_6379.rdb
 dir /data/redis
@@ -243,12 +245,12 @@ lazyfree-lazy-expire yes
 lazyfree-lazy-server-del yes
 lazyfree-lazy-user-del yes
 lazyfree-lazy-user-flush yes
-io-threads 2
+io-threads 4
 # [说明] io-threads仅用于网络IO，Redis主线程仍为单线程
-# 8C服务器建议2-4，不宜超过CPU核心数的一半
-# io-threads在Redis 7.2中性能提升有限(官方benchmark<10%)，仅在高并发读写场景启用
+# 8C服务器建议4，不宜超过CPU核心数的一半(4)
+# io-threads在Redis 7.2+中对高并发读写场景有明显提升，8C服务器推荐4
 io-threads-do-reads yes
-> 对于8C服务器,可增大到4个IO线程(io-threads 4),但需测试验证。官方建议IO线程数不超过CPU核心数的一半。
+> 当前已配置io-threads 4。官方建议IO线程数不超过CPU核心数的一半。8C服务器可测试io-threads 6进一步提升。
 
 # 内存碎片主动整理
 activedefrag yes
@@ -280,6 +282,8 @@ requirepass ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 masterauth ${REDIS_PASSWORD}  # 生产环境用envsubst或sed替换
 rename-command FLUSHDB ""
 rename-command FLUSHALL ""
+# [生产警告] FLUSHALL会清空所有数据，在生产环境绝对禁止执行。
+# 已通过rename-command禁用，如需清理数据请使用SCAN+DEL逐key删除
 rename-command DEBUG ""
 rename-command CONFIG "CONFIG_b2c0a7e1"
 
@@ -290,6 +294,7 @@ cluster-node-timeout 15000
 cluster-require-full-coverage no  # 允许部分slot不可用时继续服务
 cluster-allow-reads-when-down no  # 默认关闭，故障时可临时开启
 cluster-allow-pubsub-shard-down no
+cluster-slave-validity-factor 10  # 从节点有效性判定因子(默认10)，超时=node-timeout*factor
 
 # Cluster节点宣告配置(NAT/容器环境必须)
 cluster-announce-ip 10.10.40.11  # 节点真实IP
@@ -318,10 +323,10 @@ Type=notify
 User=redis
 Group=redis
 Environment=REDISCLI_AUTH=${REDIS_PASSWORD}
+EnvironmentFile=/etc/default/redis
 ExecStart=/usr/local/redis/bin/redis-server /etc/redis/redis_%i.conf --supervised systemd
-> **注意**: Systemd服务文件中的环境变量不会自动展开。需要:
-> 1. 创建/etc/default/redis文件: REDISCLI_AUTH=your_password
-> 2. 或在ExecStart前添加: EnvironmentFile=/etc/default/redis
+> **注意**: 创建/etc/default/redis文件，写入 REDISCLI_AUTH=your_password
+> EnvironmentFile会覆盖同名Environment变量，确保密码从文件读取(避免明文写在service文件中)
 ExecStop=/usr/local/redis/bin/redis-cli -p %i shutdown
 ExecReload=/bin/kill -USR2 $MAINPID
 Restart=always
@@ -364,7 +369,7 @@ sleep 5
 echo "========== 2. 验证实例状态 =========="
 for i in {11..16}; do
   for port in 6379; do  # 验证集群节点
-    status=$(redis-cli -h 10.10.40.${i} -p ${port} ping 2>/dev/null)
+    status=$(redis-cli -h 10.10.40.${i} -p ${port} -a "${REDIS_PASSWORD}" --no-auth-warning ping 2>/dev/null)
     echo "  10.10.40.${i}:${port} -> ${status}"
     if [ "$status" != "PONG" ]; then
       echo "  ❌ Redis未正常响应"
@@ -392,11 +397,11 @@ redis-cli cluster nodes
 echo "========== 5. 测试集群功能 =========="
 echo "写入测试数据..."
 for i in {1..100}; do
-  redis-cli -c -h 10.10.40.11 -p 6379     SET "test:key:${i}" "value_${i}" > /dev/null 2>&1
+  redis-cli -c -h 10.10.40.11 -p 6379 -a "${REDIS_PASSWORD}" --no-auth-warning SET "test:key:${i}" "value_${i}" > /dev/null 2>&1
 done
 
 echo "读取测试数据..."
-redis-cli -c -h 10.10.40.14 -p 6379   GET "test:key:1" > /dev/null 2>&1 && echo "✅ 跨节点读写正常"
+redis-cli -c -h 10.10.40.14 -p 6379 -a "${REDIS_PASSWORD}" --no-auth-warning GET "test:key:1" > /dev/null 2>&1 && echo "✅ 跨节点读写正常"
 
 echo "✅ Redis Cluster创建完成"
 ```
@@ -443,45 +448,48 @@ sentinel client-reconfig-script mymaster /opt/scripts/redis-reconfig.sh
 ```bash
 #!/bin/bash
 # redis-notify.sh - Redis故障转移通知
-# 参数: $1=实例名称 $2=事件类型
-INSTANCE=$1
-EVENT=$2
-curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"Redis故障转移: ${INSTANCE} ${EVENT}\"}}"
-```
+# 参数: $1=master名称 $2=事件类型 $3=详情
+# 事件类型: +sdown, -sdown, +odown, -odown, +switch-master, +failover-end等
 
-# === 脚本内容示例 ===
-# --- /opt/scripts/redis-notify.sh ---
-# #!/bin/bash
-# # Sentinel通知脚本 - 哨兵事件回调
-# # 参数: $1=master名称 $2=事件类型 $3=详情
 MASTER_NAME=$1
 EVENT=$2
 DETAILS=$3
-MSG="Sentinel event: ${EVENT} master=${MASTER_NAME} ${DETAILS}"
-# echo "$(date): ${MSG}" >> /var/log/redis/notify.log
-# # 发送告警(邮件/钉钉/企业微信)
-# curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
-#   -H "Content-Type: application/json" \
-#   -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"Redis告警: ${MSG}\"}}" \
-#   > /dev/null 2>&1 || true
-# exit 0
-#
-# --- /opt/scripts/redis-reconfig.sh ---
-# #!/bin/bash
-# # Sentinel故障转移后重配置脚本
-# # 参数: $1=master名称 $2=角色 $3=旧IP $4=旧端口 $5=新IP $6=新端口
+
+LOG_FILE="/var/log/redis/notify.log"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] MASTER=${MASTER_NAME} EVENT=${EVENT} DETAILS=${DETAILS}" >> ${LOG_FILE}
+
+# 钉钉告警
+curl -s -X POST "https://oapi.dingtalk.com/robot/send?access_token=${DINGTALK_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"Redis告警: ${EVENT} master=${MASTER_NAME} ${DETAILS}\"}}" \
+  > /dev/null 2>&1 || true
+
+# 紧急事件发送邮件
+if [[ "${EVENT}" == *"+odown"* ]] || [[ "${EVENT}" == *"+failover"* ]]; then
+  echo "Redis紧急事件: ${EVENT} ${MASTER_NAME} ${DETAILS}" | mail -s "CRITICAL: Redis ${EVENT}" ops@company.com
+fi
+
+exit 0
+```
+
+```bash
+#!/bin/bash
+# redis-reconfig.sh - Sentinel故障转移后重配置脚本
+# 参数: $1=master名称 $2=角色 $3=旧IP $4=旧端口 $5=新IP $6=新端口
+
 MASTER_NAME=$1
 ROLE=$2
 OLD_HOST=$3
 OLD_PORT=$4
 NEW_HOST=$5
 NEW_PORT=$6
+
 echo "$(date): 故障转移 ${MASTER_NAME} ${OLD_HOST}:${OLD_PORT} -> ${NEW_HOST}:${NEW_PORT}" >> /var/log/redis/reconfig.log
-# # 更新应用端的服务发现(根据实际架构修改)
-# # 例: 更新consul/etcd中的redis服务地址
-# exit 0
+
+# 根据实际架构更新服务发现(如consul/etcd)
+# curl -X PUT "http://consul:8500/v1/kv/redis/master" -d "${NEW_HOST}:${NEW_PORT}"
+
+exit 0
 ```
 
 ### 4.2 Sentinel常用命令
@@ -578,7 +586,7 @@ echo ""
 echo "========== 内存碎片率诊断 =========="
 FRAG_RATIO=$(${REDIS_CMD} info memory | grep mem_fragmentation_ratio | cut -d: -f2 | tr -d '\r')
 if (( $(echo "${FRAG_RATIO} > 1.5" | bc -l) )); then
-> 脚本使用bc进行浮点运算。安装: yum install -y bc (CentOS)
+> [依赖警告] 脚本使用bc进行浮点运算。安装: yum install -y bc 或 apt install -y bc
   echo "⚠️ 碎片率过高 (${FRAG_RATIO})，建议执行 MEMORY PURGE"
   ${REDIS_CMD} memory purge
 elif (( $(echo "${FRAG_RATIO} < 1.0" | bc -l) )); then
@@ -672,7 +680,7 @@ tcp-keepalive 300          # 保活探测间隔
 timeout 300                # 空闲连接超时
 
 # ===== 应用层调优 =====
-io-threads 2               # IO线程数(8C服务器建议2，不宜超过核心数一半)
+io-threads 4               # IO线程数(8C服务器建议4，不宜超过核心数一半)
 io-threads-do-reads yes    # 读操作使用多线程
 lazyfree-lazy-eviction yes # 异步淘汰，减少阻塞
 lazyfree-lazy-expire yes   # 异步过期，减少阻塞
@@ -807,8 +815,7 @@ redis-cli -c -h 10.10.40.11   CONFIG SET maxmemory-policy allkeys-lru
 
 **根因分析**:
 - 网络分区导致部分节点无法通信
-- `cluster-node-timeout` 设置过短(5秒)
-> 案例中的5秒是错误配置,正确值应为15秒以上(15000ms)
+- `cluster-node-timeout` 设置过短(5秒)，应为15000ms(15秒)
 - Cluster内部gossip协议误判主节点下线，触发failover
 - 旧master恢复后，出现双主
 
@@ -842,7 +849,7 @@ export REDISCLI_AUTH="${REDIS_PASSWORD}"
 # 查看慢查询日志
 redis-cli -c -h 10.10.40.11 slowlog get 50
 
-# 发现大量 KEYS 命令(虽已rename但仍可通过重命名后的命令执行)
+# 发现大量 KEYS 命令(生产环境已禁用rename-command，但业务代码中仍有调用)
 # 发现大量 SORT 命令(对大集合排序)
 # 发现 SCAN 命令在大key上执行
 ```
@@ -1118,10 +1125,10 @@ ssh root@10.10.40.17 "systemctl stop redis@6379"
 ### 12.1 迁移前提
 
 ```bash
-> **注意**: Sentinel和Cluster是互斥的,不能在同一套数据上并行运行。Redis 7.0+的Sentinel可以监控Cluster节点状态,但不能用于故障转移。
-# Sentinel和Cluster是两套独立的高可用方案，不建议混用
-# 推荐: 根据场景二选一。Cluster适合大数据量分片，Sentinel适合小规模简单HA
-# 如果需要从Sentinel迁移到Cluster，应先完成迁移再下线Sentinel
+# Sentinel和Cluster是互斥的高可用方案，不能在同一套数据上并行运行
+# Redis 7.0+的Sentinel可以监控Cluster节点状态(只读)，但不能用于Cluster的故障转移
+# 正确做法: 根据场景二选一，Cluster自带主从故障转移，无需额外Sentinel
+# 如果从Sentinel迁移到Cluster，应先完成数据迁移再下线Sentinel
 ```
 
 ### 12.2 迁移步骤
@@ -1471,7 +1478,7 @@ redis-cluster/
 
 ### 18.2 性能要点
 - **网络**: tcp-backlog 511, tcp-keepalive 300
-- **IO**: io-threads 2, io-threads-do-reads yes
+- **IO**: io-threads 4, io-threads-do-reads yes
 - **内存**: lazyfree异步删除, maxmemory-samples 10
 - **持久化**: aof-use-rdb-preamble yes
 
