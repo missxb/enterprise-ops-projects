@@ -127,6 +127,10 @@ redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" -a "${REDIS_PASSWORD}" ping 2>/d
   echo "  ⚠️  Redis连接失败，请检查 ${REDIS_HOST}:${REDIS_PORT}"
 
 # Step 3: 配置OSS共享存储
+# [生产建议] Harbor HA必须使用共享存储(OSS/S3/NFS)
+# - OSS/S3: 推荐用于镜像层存储(高可用+低成本)
+# - NFS: 可用于数据库卷(但性能较低)
+# - 避免: 本地存储(无法跨节点共享,HA无意义)
 echo ""
 CURRENT_STEP=3
 echo ">>> Step 3: OSS共享存储配置"
