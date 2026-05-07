@@ -19,7 +19,7 @@
 - **错误率SLI**: apiserver_request_total{code=~"5.."} / apiserver_request_total
 
 ### MySQL MGR
-- **可用性SLI**: mysql_global_status_up / mysql_global_status_up (3节点均存活)
+- **可用性SLI**: 成功请求数 / 总请求数 (3节点均存活)
 - **延迟SLI**: mysql_global_status_seconds_running (P99)
 - **错误率SLI**: mysql_global_status_threads_connected / expected_connections
 - **数据一致性SLI**: mysql_group_replication_member_state (all_members_active)

@@ -1107,7 +1107,7 @@ spec:
       containers:
         # Prometheus主容器
         - name: prometheus
-          image: prom/prometheus:v2.53.0
+          image: prom/prometheus:v2.50.0
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'

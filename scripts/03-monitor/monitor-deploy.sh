@@ -121,7 +121,7 @@ data:
         rules:
           - alert: NodeDown
             expr: up{job="node"} == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
@@ -168,7 +168,7 @@ data:
         rules:
           - alert: MySQLDown
             expr: mysql_up == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
@@ -184,7 +184,7 @@ data:
         rules:
           - alert: RedisDown
             expr: redis_up == 0
-            for: 1m
+            for: 3m
             labels:
               severity: critical
             annotations:
