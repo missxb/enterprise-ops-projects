@@ -1,7 +1,7 @@
 # 企业级容器云平台 - 基于 Docker + Kubernetes + Harbor + Helm 全栈部署
 > 本项目完整实现一个企业级容器云平台，涵盖集群搭建、镜像仓库、应用编排、自动扩缩、日志收集、监控告警全链路。
 > 适用于: 中大型互联网公司容器化改造、私有云PaaS平台建设
-> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28 + MetalLB
+> 技术栈: Kubernetes 1.31 + containerd 2.0 + Harbor 2.12 + Helm 3 + Calico 3.28.5 + MetalLB 0.15.3
 
 ### 技术选型兼容性说明
 
@@ -18,6 +18,13 @@
 > **etcd备份增强**：生产环境etcd备份需考虑加密存储、跨区域复制、备份验证（见第十一节）
 >
 > **Harbor HA增强**：生产级Harbor HA需配置存储后端（S3/OSS）、镜像复制策略、GC策略（见第五节）
+>
+> **Istio兼容性**（如需部署服务网格）：
+> - Istio 1.20已EOL（支持周期约6个月），不建议在生产环境使用
+> - 推荐使用Istio 1.22或更高版本（LTS版本，支持18个月）
+> - Istio与K8s 1.31兼容性：Istio 1.22+支持K8s 1.28-1.31
+> - 注意：Istio需要额外的资源（控制面约1GB内存），请评估集群资源是否充足
+> - 本项目未默认集成Istio，如需使用请参考Istio官方文档部署
 ---
 > ⚠️ **安全声明**: 本文档中的密码(如${MYSQL_ROOT_PASSWORD}、${HARBOR_ADMIN_PASSWORD}等)均为示例占位符。
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
@@ -647,7 +654,7 @@ log() {
 rollback() {
     log "WARN" "执行Calico回滚..."
     kubectl delete -f /tmp/custom-resources.yaml 2>/dev/null || true
-    kubectl delete -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml 2>/dev/null || true
+    kubectl delete -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.5/manifests/tigera-operator.yaml 2>/dev/null || true
     log "INFO" "Calico回滚完成"
 }
 
@@ -665,7 +672,7 @@ fi
 # 使用operator方式安装
 # Calico v3.28 支持 K8s 1.31，修复了 3.26 中多个已知的 BGP 路由泄漏问题
 # 变更: 3.26→3.28 升级了 Felix 的 conntrack 回收逻辑，提升了大规模集群下的稳定性
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.5/manifests/tigera-operator.yaml
 cat > /tmp/custom-resources.yaml << EOF
 apiVersion: operator.tigera.io/v1
 kind: Installation
@@ -718,7 +725,7 @@ log() {
 rollback() {
     log "WARN" "执行MetalLB回滚..."
     kubectl delete -f /tmp/metallb-config.yaml 2>/dev/null || true
-    kubectl delete -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml 2>/dev/null || true
+    kubectl delete -f https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml 2>/dev/null || true
     log "INFO" "MetalLB回滚完成"
 }
 
@@ -733,14 +740,14 @@ if kubectl get daemonset speaker -n metallb-system &>/dev/null; then
     exit 0
 fi
 
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.15.3/config/manifests/metallb-native.yaml
 echo "等待MetalLB就绪..."
 kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
 echo "配置IP地址池..."
 cat > /tmp/metallb-config.yaml << EOF
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
-# MetalLB v0.14.x API版本: metallb.io/v1beta1 ( IPAddressPool ) / metallb.io/v1beta2 (L2Advertisement)
+# MetalLB v0.15.x API版本: metallb.io/v1beta1 ( IPAddressPool ) / metallb.io/v1beta2 (L2Advertisement)
 metadata:
   name: production-pool
   namespace: metallb-system
