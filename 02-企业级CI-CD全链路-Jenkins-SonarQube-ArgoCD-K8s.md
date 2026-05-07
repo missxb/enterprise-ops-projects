@@ -59,13 +59,25 @@
 Dev环境(开发) ──▶ Staging环境(预发) ──▶ Production环境(生产)
     │                    │                    │
     ▼                    ▼                    ▼
-  自动部署            手动审批             灰度发布
-  快速迭代            全量测试             Canary/Blue-Green
+  自动部署            灰度发布             人工审批
+  快速迭代          Canary/Blue-Green      全量发布
 ```
 
 > **晋升条件**：
 > - Dev→Staging：SonarQube质量阈值通过 + Trivy扫描无HIGH/CRITICAL漏洞
-> - Staging→Production：Staging环境验证通过 + 人工审批 + 灰度验证
+> - Staging→Production：Staging环境验证通过 + 灰度发布(自动) + 观察期(指标检查) + 人工审批 + 全量发布
+
+### 制品标签策略
+
+镜像在不同环境使用不同标签,晋升时**不重新打标签**,而是通过Kustomize更新Git仓库中的镜像引用:
+
+| 环境 | 镜像标签 | 触发方式 |
+|------|----------|----------|
+| Dev | `latest` / `commit-sha` | Push自动构建 |
+| Staging | `commit-sha` | CI更新Git仓库 → ArgoCD同步 |
+| Production | `commit-sha` (灰度) → `release-v1.x` (全量) | 灰度晋升脚本 → ArgoCD同步 |
+
+> **标签不可变原则**: 镜像一旦构建,标签不可变(immutable)。环境差异通过Kustomize/Helm values中的镜像引用实现,而非重新打标签。
 
 ---
 
