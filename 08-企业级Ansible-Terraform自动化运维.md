@@ -297,6 +297,12 @@ k8s-worker-03 ansible_host=10.10.10.23
 
 ## 三、Terraform基础设施
 
+> **阿里云配置建议**:
+> - RAM角色: 使用RAM角色授权ECS实例访问OSS/RDS,避免硬编码AK/SK
+> - VPC规划: 预留足够CIDR空间(建议/12),支持后续扩展
+> - 安全组: 最小权限原则,仅开放必要端口
+> - 成本优化: 按量付费适合测试环境,包年包月适合生产环境(节省30-50%)
+
 ### 3.1 阿里云ECS集群
 
 ```hcl
@@ -783,6 +789,12 @@ terraform apply -var="environment=production" -var="node_count=5"
 ```
 
 ### 6.3 State管理
+
+> **生产环境State管理建议**:
+> - Remote State: 使用OSS/S3后端存储State文件
+> - State锁定: 配置OSS版本控制或DynamoDB锁防止并发修改
+> - 敏感数据: State文件包含密码等敏感信息,必须加密存储
+> - 版本管理: 定期备份State文件,支持回滚到历史版本
 
 ```hcl
 # 后端配置(阿里云OSS)
