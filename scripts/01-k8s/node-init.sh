@@ -38,9 +38,19 @@ sed -i '/swap/s/^/#/' /etc/fstab
 
 # 内核参数
 cat > /etc/sysctl.d/k8s.conf << EOF
+# K8s必要参数
 net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward = 1
+# 生产环境推荐参数
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 30
+net.core.somaxconn = 65535
+vm.max_map_count = 262144
+vm.swappiness = 10
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 8192
 EOF
 sysctl --system
 

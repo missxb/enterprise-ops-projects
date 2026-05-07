@@ -23,6 +23,8 @@ ETCDCTL_API=3 etcdctl endpoint health \
   --key="${ETCD_KEY}" || { echo "etcd不健康，跳过备份"; exit 1; }
 
 echo "备份etcd..."
+# [生产建议] etcd备份应加密存储(使用gpg或ossutil服务端加密)
+# 示例: ossutil cp --encryption-type aes256 ${BACKUP_FILE} oss://...
 ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd-snapshot-${DATE}.db \
   --endpoints="${ETCD_ENDPOINT}" \
   --cacert="${ETCD_CACERT}" \
