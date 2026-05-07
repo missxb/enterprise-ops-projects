@@ -96,10 +96,8 @@ binlog_checksum=CRC32  # MySQL 8.0.20+ MGR支持CRC32
 log_bin=mysql-bin
 binlog_format=ROW
 max_binlog_size=512M
-binlog_expire_logs_seconds=604800  # 7天
-> **冲突风险**: binlog保留7天,备份保留也是7天。如果备份失败,binlog可能被清理导致PITR失败。建议:
-> 1. binlog保留14天(2倍备份保留期)
-> 2. 或备份服务器独立存储binlog(不依赖MySQL本地binlog)
+binlog_expire_logs_seconds=1209600  # 14天（备份保留30天，binlog至少保留14天以支持PITR）
+> **冲突风险**: binlog保留14天,备份保留30天。binlog保留期应不少于备份保留期的一半，当前设置合理。
 
 # [已修复] MGR内部使用Paxos协议同步，不需要半同步复制
 # 半同步复制(semisync)与MGR会冲突，已移除
@@ -322,7 +320,7 @@ set -euo pipefail
 
 BACKUP_DIR="/data/backup/mysql"
 DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS=7
+KEEP_DAYS=30
 MYSQL_USER="backup"
 MYSQL_PASS="${BACKUP_PASSWORD}"
 
@@ -507,25 +505,45 @@ SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
 > - 跨机房: 使用MySQL InnoDB ClusterSet或MGR+异步复制
 > - MGR对网络延迟敏感(建议<1ms),跨机房专线必须稳定
 
-| 特性 | MySQL MGR | InnoDB Cluster | Galera Cluster |
+| 特性 | MySQL MGR | InnoDB Cluster(8.0.27+) | Percona XtraDB Cluster |
 |------|-----------|---------------|----------------|
-| 复制方式 | 基于Paxos协议 | MGR + MySQL Shell + Router | 真正多主同步 |
+| 复制方式 | 基于Paxos协议 | MGR + MySQL Shell + Router | Galera同步复制 |
 | 数据一致性 | 强一致(多数派) | 强一致(基于MGR) | 强一致(同步复制) |
 | 写扩展 | 单主模式单写/多主模式多写 | 同MGR | 真正多主多写 |
 | 故障转移 | 自动(基于MGR) | 自动(MySQL Router) | 自动 |
 | 运维工具 | 原生SQL | MySQL Shell + Router | 原生SQL |
 | 应用透明度 | 需要代理层 | Router自动路由 | 需要代理层 |
-| 适用版本 | MySQL 8.4+ | MySQL 8.4+ | MariaDB 10.x+ |
+| 适用版本 | MySQL 8.4+ | MySQL 8.0.27+ (推荐8.4 LTS) | Percona XtraDB Cluster 8.4+ |
 | 最大节点数 | 9个 | 9个 | 16个 |
 | 推荐场景 | 中小企业 | 中大型企业 | 需要多主写入 |
 
 **选型建议**:
 - MySQL 8.4+ → InnoDB Cluster (MGR + Router)
 - 需要强一致性 → MGR单主模式
-- 需要多点写入 → Galera Cluster
+- 需要多点写入 → Percona XtraDB Cluster (基于Galera)
 - 本项目选择: MGR单主模式 + ProxySQL
 
 ### 8.3 MySQL 8.4 LTS新特性
+
+#### MySQL Shell安装（管理InnoDB Cluster必备）
+
+```bash
+# MySQL Shell安装（MySQL AdminAPI管理工具）
+# RHEL/CentOS
+dnf install mysql-shell
+
+# Ubuntu/Debian
+apt install mysql-shell
+
+# 验证安装
+mysqlsh --version
+
+# 连接测试
+mysqlsh root@mysql-01:3306 -- sql -e "SELECT VERSION();"
+```
+
+> MySQL Shell (mysqlsh) 是InnoDB Cluster的管理工具，提供AdminAPI用于
+> cluster创建/加入/状态检查等操作。不安装mysqlsh则无法使用InnoDB Cluster。
 
 #### InnoDB ClusterSet (跨机房部署)
 
@@ -571,6 +589,11 @@ CLONE INSTANCE FROM 'cloneUser'@'mysql-01':3306
   IDENTIFIED BY 'xxx';
 
 -- 克隆完成后，新节点自动加入MGR
+
+-- [注意] Clone需要CLONE_ADMIN权限，授权语句:
+GRANT CLONE_ADMIN ON *.* TO 'cloneUser'@'%';
+-- 或使用备份专用用户:
+GRANT CLONE_ADMIN, RELOAD, LOCK TABLES, REPLICATION CLIENT ON *.* TO 'backup'@'%';
 ```
 
 #### Binlog加密 (8.4新特性)
@@ -590,6 +613,12 @@ SELECT * FROM performance_schema.keyring_component_status;
 xtrabackup --backup --decrypt-threads=4 \
   --target-dir=/data/backup/
 ```
+
+> **[密钥管理注意]** binlog加密密钥由keyring组件管理，密钥轮转时需注意:
+> 1. 使用mysqlsh的util.rotateRoutines()或ALTER INSTANCE ROTATE INNODB MASTER KEY轮转密钥
+> 2. 旧密钥需保留至所有使用该密钥的binlog文件过期后才能删除
+> 3. 密钥备份: 定期导出keyring元数据，丢失密钥将无法解密binlog
+> 4. 生产环境建议使用keyring_okv或keyring_hashicorp_vault（集中管理密钥）
 
 ### 8.2 ProxySQL vs MySQL Router vs HAProxy
 
@@ -761,7 +790,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "
 PURGE BINARY LOGS BEFORE DATE_SUB(NOW(), INTERVAL 1 DAY);
 
 -- 2. 设置自动过期
-SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天
+SET GLOBAL binlog_expire_logs_seconds = 1209600;  -- 保留14天
 
 -- 3. 监控磁盘空间
 -- Prometheus告警规则
@@ -1154,7 +1183,7 @@ SHOW VARIABLES LIKE 'binlog_expire_logs_seconds';
 SHOW VARIABLES LIKE 'max_binlog_size';
 
 -- 3. 优化binlog配置
-SET GLOBAL binlog_expire_logs_seconds = 604800;  -- 保留7天
+SET GLOBAL binlog_expire_logs_seconds = 1209600;  -- 保留14天
 SET GLOBAL max_binlog_size = 256M;  -- 每个文件最大256MB
 
 -- 4. 对大表使用Row模式优化
@@ -1222,6 +1251,45 @@ FROM mysql.user
 WHERE password_last_changed < DATE_SUB(NOW(), INTERVAL 30 DAY);
 ```
 
+#### Vault动态密码方案(推荐生产环境)
+
+```bash
+# 使用HashiCorp Vault动态生成MySQL密码，消除明文密码泄露风险
+# 1. 启用Vault MySQL秘密引擎
+vault secrets enable -path=mysql mysql-database
+
+# 2. 配置MySQL连接
+vault write mysql/config/connection \
+  connection_url="{{username}}:{{password}}@tcp(10.10.30.11:3306)/" \
+  max_open_connections=10 \
+  max_idle_connections=5
+
+# 3. 创建角色(绑定MySQL用户)
+vault write mysql/roles/app_user \
+  db_name=mysql \
+  creation_statements="CREATE USER '{{name}}'@'%' IDENTIFIED BY '{{password}}'; GRANT SELECT,INSERT,UPDATE,DELETE ON *.* TO '{{name}}'@'%';" \
+  default_ttl="1h" \
+  max_ttl="24h"
+
+# 4. 应用端获取动态密码
+vault read mysql/creds/app_user
+# → username: v-app_user-xxxxx  password: A1b2-C3d4-E5f6
+# 有效期1h，到期自动回收
+
+# 5. ProxySQL配置动态密码轮换(Cron每55分钟刷新)
+NEW_CREDS=$(vault read -format=json mysql/creds/app_user)
+NEW_USER=$(echo $NEW_CREDS | jq -r '.data.username')
+NEW_PASS=$(echo $NEW_CREDS | jq -r '.data.password')
+mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
+  UPDATE mysql_users SET username='${NEW_USER}', password='${NEW_PASS}' WHERE username LIKE 'v-app_user-%';
+  LOAD MYSQL USERS TO RUNTIME;
+  SAVE MYSQL USERS TO DISK;
+"
+```
+
+> Vault动态密码优势: 密码自动轮换、审计日志、最小权限、即时吊销。
+> 注意: ProxySQL的mysql_users表每次更新后需要LOAD USERS TO RUNTIME生效。
+
 ---
 
 ## 十七、性能调优详细参数
@@ -1244,7 +1312,10 @@ innodb_buffer_pool_chunk_size=128M
 # 预热: 启动时加载缓冲池
 innodb_buffer_pool_dump_at_shutdown=ON
 innodb_buffer_pool_load_at_startup=ON
-innodb_buffer_pool_dump_pct=40
+innodb_buffer_pool_dump_pct=100
+
+# dump_pct=100表示关闭时dump全部缓冲池页，启动时可完全预热
+# 默认40仅预热最热的40%页，生产环境建议100以避免冷启动后性能骤降
 
 # 监控缓冲池命中率
 # SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
@@ -1464,6 +1535,28 @@ echo "更新DNS记录..."
 # 将MySQL VIP从10.10.30.10切换到10.10.40.10
 # 使用阿里云API或PowerDNS API更新
 
+# DNS更新代码示例(阿里云DNS API):
+# https://help.aliyun.com/document_detail/29739.html
+DNS_ZONE_ID="your-zone-id"
+DNS_RECORD_ID="your-record-id"
+NEW_IP="10.10.40.10"
+
+# 使用阿里云CLI更新解析记录
+aliyun alidns UpdateDomainRecord \
+  --RecordId ${DNS_RECORD_ID} \
+  --RR mysql \
+  --Type A \
+  --Value ${NEW_IP} \
+  --TTL 60
+
+# 或使用PowerDNS API:
+# curl -X PUT "http://pdns-server:8081/api/v1/servers/localhost/zones/${DNS_ZONE_ID}" \
+#   -H "X-API-Key: ${PDNS_API_KEY}" \
+#   -H "Content-Type: application/json" \
+#   -d '{"rrsets":[{"name":"mysql.example.com.","type":"A","ttl":60,"records":[{"content":"'${NEW_IP}'","disabled":false}]}]}'
+
+> DNS TTL建议设置为60秒，切换后生效时间约1-2分钟。
+
 # 5. 验证
 echo "验证切换..."
 mysql -h 10.10.40.14 --defaults-extra-file=${MYSQL_CNF} -e "
@@ -1506,9 +1599,9 @@ echo "✅ 跨机房切换完成"
     0.3人 × ¥15,000/月 × 36 = ¥162,000
     
   License:
-    MySQL企业版: ¥50,000/年 × 3 = ¥150,000
+    MySQL企业版: ¥75,000/年 × 3 = ¥225,000
     
-  总计: ¥1,464,000 (约146万/3年)
+  总计: ¥1,539,000 (约154万/3年)
 
 云服务方案 (3年):
   阿里云RDS MySQL:
@@ -1805,6 +1898,9 @@ echo "✅ 备份验证通过"
 #!/bin/bash
 # emergency_fix.sh - 紧急故障处理
 
+> **⚠️ 部署前**: 执行前请确保脚本已赋予可执行权限: `chmod +x emergency_fix.sh`
+> 脚本应存放在 `/opt/scripts/emergency_fix.sh`，并加入Ansible部署流程自动分发。
+
 set -euo pipefail
 
 echo "========== 紧急故障处理 =========="
@@ -2007,7 +2103,7 @@ mysql --defaults-extra-file=${MYSQL_CNF} -e "
 
 ### Q4: 磁盘满导致MySQL无法写入
 **原因**: binlog未自动清理
-**解决**: SET GLOBAL binlog_expire_logs_seconds = 604800  # 7天
+**解决**: SET GLOBAL binlog_expire_logs_seconds = 1209600  # 14天（配合30天备份保留）
 
 ### Q5: 主从复制延迟超过30秒
 **原因**: 从库单线程回放binlog
@@ -2045,18 +2141,32 @@ vrrp_instance VI_1 {
 }
 
 vrrp_script check_proxysql {
-  script "/usr/bin/mysql --defaults-extra-file=/etc/mysql/proxysql.cnf -e 'SELECT 1' -h127.0.0.1"
+  script "/usr/bin/mysql --defaults-extra-file=/etc/mysql/proxysql.cnf -e 'SELECT 1' -h127.0.0.1 -P6033"
   interval 2
   weight -20
   fall 3
   rise 2
 }
 
-两台ProxySQL使用同步的mysql_servers和mysql_users配置，通过ProxySQL Admin API或配置文件同步。
+> 两台ProxySQL使用同步的mysql_servers和mysql_users配置，通过ProxySQL Admin API或配置文件同步。
+>
+> **配置同步工具**:
+> - 推荐使用 **deck/decktool** 管理ProxySQL配置的版本化和同步
+> - decktool 可将ProxySQL配置导出为声明式YAML/Git仓库，实现配置即代码
+> - 工作流: decktool pull → Git版本管理 → decktool apply → ProxySQL热加载
+> - 替代方案: 定期从PRIMARY ProxySQL的Admin API拉取配置并推送到STANDBY
 
 ---
 
 ## 附录: MySQL监控扩展建议
+
+> **⚠️ ProxySQL监控精度说明**:
+> ProxySQL Admin API返回的统计信息(如stats_mysql_connection_pool)基于内存计数器，
+> 重启后归零。以下情况可能导致监控数据不准确:
+> 1. ProxySQL重启后计数器清零，Grafana图表出现断点
+> 2. 高并发下连接池统计可能有1-2秒延迟
+> 3. stats_mysql_query_digest的计数在FLUSH PROXYSQL STATS后重置
+> 建议: 使用Prometheus持续采集(间隔≤15s)，并设置告警时考虑数据源可能丢失
 
 | 监控类型 | 指标 | 说明 |
 |----------|------|------|
