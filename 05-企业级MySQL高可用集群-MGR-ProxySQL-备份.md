@@ -310,7 +310,151 @@ echo "服务端口: 6033 (app_user/*****)"
 
 ---
 
-## 五、自动化备份
+## 五、MySQL Orchestrator — MGR故障自动切换
+
+> MySQL Orchestrator 是 MySQL 高可用拓扑管理和自动故障切换工具，支持 MGR 模式的自动 failover、拓扑可视化和 dead master 恢复。配合 ProxySQL 使用时，可实现故障切换后自动刷新后端拓扑。
+
+### 5.1 核心功能
+
+| 功能 | 说明 |
+|------|------|
+| 拓扑发现 | 自动发现 MySQL 主从/MGR 拓扑关系 |
+| 故障检测 | 实时监控节点健康，检测主节点故障 |
+| 自动 Failover | 自动执行主节点切换，提升合格从节点 |
+| MGR 支持 | 识别 MGR 组成员状态，执行组级 failover |
+| 拓扑可视化 | Web UI 展示集群拓扑图 |
+| 审计日志 | 记录所有切换操作，便于事后分析 |
+
+### 5.2 关键配置
+
+```bash
+# /etc/orchestrator.conf.json 核心配置
+{
+  "MySQLOrchestratorHost": "127.0.0.1",
+  "MySQLOrchestratorPort": 3306,
+  "MySQLOrchestratorDatabase": "orchestrator",
+
+  # 后端 Redis 用于缓存拓扑数据
+  "RedisAddress": "127.0.0.1:6379",
+
+  # 被管理的 MySQL 实例列表
+  "MySQLHosts": [
+    "10.10.30.11:3306",
+    "10.10.30.12:3306",
+    "10.10.30.13:3306"
+  ],
+
+  # HTTP Agent（用于跨机房操作）
+  "AgentAutoDiscover": true,
+
+  # Failover 策略
+  "RecoverMasterClusterFilters": ["mgr-cluster.*"],
+  "RecoverIntermediateMasterClusterFilters": [],
+
+  # MGR 相关
+  "ApplyMySQLPromotionAfterMasterFailover": true,
+  "PreventCrossDataCenterMasterFailover": true,
+
+  # 过期时间
+  "InstancePollSeconds": 3,
+  "UnseenInstanceForgetHours": 240
+}
+```
+
+### 5.3 与 ProxySQL 集成
+
+```bash
+# Orchestrator 切换成功后调用脚本刷新 ProxySQL 拓扑
+# /etc/orchestrator/post-failover-script.sh
+#!/bin/bash
+NEW_MASTER=$1
+mysql -h 127.0.0.1 -P 6032 -u admin -p'admin_pass' <<EOF
+UPDATE mysql_servers SET status='OFFLINE'
+  WHERE hostname='${OLD_MASTER}' AND port=3306;
+UPDATE mysql_servers SET status='ONLINE', hostgroup_id=10
+  WHERE hostname='${NEW_MASTER}' AND port=3306;
+LOAD MYSQL SERVERS TO RUNTIME;
+SAVE MYSQL SERVERS TO DISK;
+EOF
+echo "✅ ProxySQL拓扑已刷新: ${NEW_MASTER} 提升为主"
+```
+
+### 5.4 生产建议
+
+- Orchestrator 节点至少部署 2 个，使用共享 MySQL 后端或 GTID 复制
+- MGR 模式下设置 `RecoverMasterClusterFilters` 精确匹配业务集群
+- 配合 ProxySQL 使用时，必须实现 post-failover 脚本自动刷新拓扑
+- 监控 Orchestrator 自身健康（HTTP API: `/api/health`）
+- 建议开启 `PreventCrossDataCenterMasterFailover` 避免跨机房切换
+
+---
+
+## 六、MySQL Binlog Server — 延迟复制与灾备
+
+> MySQL Binlog Server（基于 `mysqlbinlog --read-from-remote-server`）可实时拉取主库 binlog 而不影响主库性能，适用于延迟备份、异地灾备和 point-in-time recovery。
+
+### 6.1 架构原理
+
+```
+Primary MySQL ──binlog──> Binlog Server ──apply──> Standby MySQL
+                  (网络拉取)                        (延迟应用)
+```
+
+Binlog Server 作为独立进程，通过复制协议远程拉取主库 binlog 并本地存储，不占用主库连接资源。Standby 节点可设置延迟应用，实现指定时间点的数据保护。
+
+### 6.2 部署配置
+
+```bash
+#!/bin/bash
+# binlog_server.sh - Binlog Server 拉取脚本
+
+PRIMARY_HOST="10.10.30.11"
+PRIMARY_PORT=3306
+BINLOG_USER="repl"
+BINLOG_PASS="${REPL_PASSWORD}"
+BINLOG_DIR="/data/binlog_server"
+DELAY_SECS=3600  # 延迟1小时应用
+
+mkdir -p ${BINLOG_DIR}
+
+# 实时拉取binlog（后台运行）
+mysqlbinlog \
+  --read-from-remote-server \
+  --host=${PRIMARY_HOST} \
+  --port=${PRIMARY_PORT} \
+  --user=${BINLOG_USER} \
+  --password=${BINLOG_PASS} \
+  --raw \
+  --to-last-log \
+  --stop-never-slave-server-id=9999 \
+  mysql-bin.000001 > /dev/null 2>&1 &
+
+# Standby延迟应用
+mysqlbinlog \
+  --start-datetime="$(date -d '-1 hour' '+%Y-%m-%d %H:%M:%S')" \
+  ${BINLOG_DIR}/mysql-bin.* | mysql -h standby-host -u root
+```
+
+### 6.3 使用场景
+
+| 场景 | 配置要点 |
+|------|----------|
+| Point-in-time Recovery | `--stop-never` 持续拉取，故障时可恢复到任意时间点 |
+| 延迟备份副本 | `--start-datetime` 指定延迟时间窗口，避免误操作同步 |
+| 异地灾备 | 跨机房拉取 binlog，Standby 节点可切换为新主库 |
+| 审计合规 | 保留完整 binlog 历史，满足数据审计要求 |
+
+### 6.4 生产建议
+
+- Binlog Server 部署在与 Primary 同机房，Standby 可跨机房
+- 使用 `--raw` 模式直接保存为 binlog 文件，减少解析开销
+- 配合 `cron` 或 systemd 实现进程守护和自动重启
+- 定期验证 Standby 数据一致性（`pt-table-checksum`）
+- 监控 binlog 拉取延迟（`Seconds_Behind_Master`）
+
+---
+
+## 七、自动化备份
 
 ```bash
 #!/bin/bash
@@ -359,7 +503,7 @@ du -sh ${BACKUP_DIR}/full/full-${DATE}
 
 ---
 
-## 六、PITR恢复
+## 八、PITR恢复
 
 > **⚠️ 加密Binlog注意**: 如果启用了binlog_encryption=ON(MySQL 8.4新特性)，
 > mysqlbinlog无法直接读取加密的binlog文件。恢复前需先解密:
@@ -450,7 +594,7 @@ CLONE INSTANCE FROM 'clone_user'@'other_node' IDENTIFIED BY 'password';
 
 ---
 
-## 七、慢查询优化
+## 九、慢查询优化
 
 ```sql
 -- 开启慢查询日志
@@ -496,7 +640,7 @@ SHOW GLOBAL STATUS LIKE 'Innodb_buffer_pool_%';
 > 生产环境必须使用密钥管理工具(Vault/K8s Secrets/环境变量)管理敏感信息，
 > 切勿将真实密码硬编码在配置文件或脚本中。
 
-## 八、方案对比与选型
+## 十、方案对比与选型
 
 ### 8.1 MGR vs InnoDB Cluster vs Galera
 
@@ -635,7 +779,7 @@ xtrabackup --backup --decrypt-threads=4 \
 
 ---
 
-## 九、性能调优参数
+## 十一、性能调优参数
 
 ### 9.1 InnoDB调优
 
@@ -714,7 +858,7 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345 AND status = 'paid';
 
 ---
 
-## 十、真实故障案例
+## 十二、真实故障案例
 
 ### 案例1: MGR脑裂
 
@@ -825,7 +969,7 @@ SAVE MYSQL SERVERS TO DISK;
 
 ---
 
-## 十一、灾备方案
+## 十三、灾备方案
 
 > **备份安全建议**:
 > - 备份加密: 使用gpg或openssl加密备份文件后再上传OSS
@@ -888,7 +1032,7 @@ echo "✅ 备份验证通过"
 
 ---
 
-## 十二、容量规划
+## 十四、容量规划
 
 ### 12.1 内存规划
 
@@ -921,7 +1065,7 @@ MySQL服务器内存分配(64GB):
 
 ---
 
-## 十三、运维SOP
+## 十五、运维SOP
 
 ### 13.1 日常巡检
 
@@ -954,7 +1098,7 @@ tail -20 /data/mysql/error.log
 
 ---
 
-## 十四、应急预案
+## 十六、应急预案
 
 ```
 场景1: MySQL主库宕机
@@ -979,7 +1123,7 @@ tail -20 /data/mysql/error.log
 
 ---
 
-## 十五、项目文件清单
+## 十七、项目文件清单
 
 ```
 mysql-ha-cluster/
@@ -1009,7 +1153,7 @@ mysql-ha-cluster/
 
 ---
 
-## 十六、更多真实故障案例
+## 十八、更多真实故障案例
 
 ### 案例4: 大事务导致主从延迟
 
@@ -1292,7 +1436,7 @@ mysql --defaults-extra-file=${PROXYSQL_CNF} -e "
 
 ---
 
-## 十七、性能调优详细参数
+## 十九、性能调优详细参数
 
 ### 17.1 Buffer Pool调优
 
@@ -1429,7 +1573,7 @@ SELECT * FROM sys.schema_redundant_indexes;
 
 ---
 
-## 十八、同城双活架构
+## 二十、同城双活架构
 
 ### 18.1 架构设计
 
@@ -1569,7 +1713,7 @@ echo "✅ 跨机房切换完成"
 
 ---
 
-## 十九、成本估算
+## 二十一、成本估算
 
 ### 19.1 自建方案 vs RDS对比
 

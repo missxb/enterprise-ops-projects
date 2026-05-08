@@ -589,6 +589,53 @@ upstream backend_consistent {
 
 ## 六、Keepalived深度配置
 
+> ⚠️ **VRRP协议在云环境中的局限性**
+
+### 6.0 VRRP协议的网络要求
+
+VRRP（Virtual Router Redundancy Protocol）依赖**二层广播/组播/单播**在同一个L2网段内进行故障检测和VIP漂移。这在物理网络环境中工作良好，但在云环境中存在严重限制：
+
+| 限制项 | 说明 |
+|--------|------|
+| 二层隔离 | 云VPC网络不支持二层广播域，VRRP组播包无法到达 |
+| VIP漂移 | 云平台不支持无绑定实例的VIP自由漂移 |
+| 防火墙规则 | 云安全组通常丢弃VRRP协议报文（协议号112） |
+| 负载均衡器 | 云平台自带ALB/SLB已替代了Keepalived的VIP功能 |
+
+**云环境替代方案：**
+
+1. **云原生负载均衡器（推荐）**：阿里云SLB/ALB、AWS ALB/NLB替代VIP漂移
+   - SLB自动健康检查后端ECS，故障自动摘除
+   - 无需维护VRRP协议，运维复杂度大幅降低
+   ```bash
+   # 阿里云SLB健康检查配置示例
+   # 后端监听80端口，健康检查路径 /health
+   # 自动检测Nginx存活，故障自动切换
+   ```
+
+2. **DNS轮询+健康检查**：适用于多可用区部署
+   - 云DNS服务配置健康检查，自动剔除故障节点IP
+   - TTL设置为30-60秒，平衡切换速度与DNS缓存
+
+3. **Keepalived Unicast模式**：如必须使用Keepalived
+   - 配置单播地址代替组播，可穿越VPC网络
+   ```bash
+   # Unicast配置示例
+   vrrp_instance VI_1 {
+       unicast_src_ip 10.10.30.11
+       unicast_peer {
+           10.10.30.12
+       }
+   }
+   ```
+
+4. **阿里云SLB健康检查替代Keepalived**：
+   - 使用SLB自带的健康检查机制（TCP/HTTP/HTTPS）
+   - 配合云监控告警，实现故障自动感知
+   - 零额外组件，无需维护Keepalived服务
+
+> **生产建议**：混合部署场景（物理机+云）可保留VRRP用于物理机集群，云环境统一使用云原生SLB。避免在纯云环境中强行部署Keepalived VRRP。
+
 ### 6.1 双主模式（推荐生产使用）
 
 ```bash
